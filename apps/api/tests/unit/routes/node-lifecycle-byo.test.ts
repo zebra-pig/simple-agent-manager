@@ -418,5 +418,25 @@ describe('node-lifecycle BYO gates', () => {
       expect(res.status).toBe(200);
       expect(state.updates.some((u) => u.ipAddress === '203.0.113.7')).toBe(true);
     });
+
+    // Production 2026-11-13: a dual-stack Infomaniak VM heartbeated over IPv6, the address was
+    // recorded, and every heartbeat then failed creating an A record from it.
+    it('never records or A-records an IPv6 heartbeat address for a managed node', async () => {
+      state.node = makeNode({ tunnelId: null, ipAddress: null });
+      const res = await heartbeatFrom('2001:1600:16:10::16c1');
+      expect(res.status).toBe(200);
+      expect(state.updates.some((u) => 'ipAddress' in u)).toBe(false);
+      expect(state.dns.create).toBeNull();
+    });
+
+    it('stops A-recording a previously stored IPv6 address and heals from an IPv4 heartbeat', async () => {
+      state.node = makeNode({ tunnelId: null, ipAddress: '2001:1600:16:10::16c1' });
+      await heartbeatFrom('2001:1600:16:10::16c1');
+      expect(state.dns.create).toBeNull();
+
+      await heartbeatFrom('203.0.113.9');
+      expect(state.updates.some((u) => u.ipAddress === '203.0.113.9')).toBe(true);
+      expect(state.dns.create).toBe(true);
+    });
   });
 });

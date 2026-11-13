@@ -46,7 +46,8 @@ export const DEFAULT_INFOMANIAK_NETWORK_NAME = 'ext-net1';
 export const DEFAULT_INFOMANIAK_IMAGE_NAME = 'Ubuntu 24.04 LTS Noble Numbat';
 export const DEFAULT_INFOMANIAK_VOLUME_TYPE = 'CEPH_1_perf1';
 export const DEFAULT_INFOMANIAK_REQUEST_TIMEOUT_MS = 30_000;
-export const DEFAULT_INFOMANIAK_IP_POLL_TIMEOUT_MS = 45_000;
+// Observed 2026-11-13: an a4 server first booted ~75 s after create, so 45 s missed its IPv4.
+export const DEFAULT_INFOMANIAK_IP_POLL_TIMEOUT_MS = 180_000;
 export const DEFAULT_INFOMANIAK_IP_POLL_INTERVAL_MS = 3_000;
 // Below 2.47 Nova's server flavor is only { id, links }, so nodes had no observed hardware.
 export const INFOMANIAK_COMPUTE_MICROVERSION = '2.47';
