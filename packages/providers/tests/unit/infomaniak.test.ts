@@ -144,8 +144,8 @@ describe('InfomaniakProvider', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.endsWith('/auth/tokens')) return auth();
-      if (url === `${IMAGE}/v2/images?name=Ubuntu%2024.04%20noble`)
-        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 noble' }] });
+      if (url === `${IMAGE}/v2/images?name=Ubuntu%2024.04%20LTS%20Noble%20Numbat`)
+        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 LTS Noble Numbat' }] });
       if (url === `${COMPUTE}/flavors/detail?name=a2-ram4-disk20-perf1`)
         return json({ flavors: [{ id: 'flavor-1', name: 'a2-ram4-disk20-perf1' }] });
       if (url === `${NETWORK}/v2.0/networks?name=ext-net1`)
@@ -171,7 +171,7 @@ describe('InfomaniakProvider', () => {
       name: 'sam-node',
       size: 'small',
       location: 'dc4-a',
-      image: 'Ubuntu 24.04 noble',
+      image: 'Ubuntu 24.04 LTS Noble Numbat',
       userData: '#cloud-config\nusers: []',
       labels: {
         managed: 'simple-agent-manager',
@@ -203,8 +203,8 @@ describe('InfomaniakProvider', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.endsWith('/auth/tokens')) return auth();
-      if (url === `${IMAGE}/v2/images?name=Ubuntu%2024.04%20noble`)
-        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 noble' }] });
+      if (url === `${IMAGE}/v2/images?name=Ubuntu%2024.04%20LTS%20Noble%20Numbat`)
+        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 LTS Noble Numbat' }] });
       if (url === `${COMPUTE}/flavors/detail?name=a8-ram16-disk20-perf1`)
         return json({ flavors: [{ id: 'flavor-custom', name: 'a8-ram16-disk20-perf1' }] });
       if (url === `${NETWORK}/v2.0/networks?name=ext-net1`)
@@ -231,7 +231,7 @@ describe('InfomaniakProvider', () => {
       name: 'sam-node',
       size: 'small',
       location: 'dc4-a',
-      image: 'Ubuntu 24.04 noble',
+      image: 'Ubuntu 24.04 LTS Noble Numbat',
       instanceType: 'a8-ram16-disk20-perf1',
       userData: '#cloud-config\nusers: []',
     });
@@ -249,7 +249,7 @@ describe('InfomaniakProvider', () => {
       const url = String(input);
       if (url.endsWith('/auth/tokens')) return auth();
       if (url.startsWith(`${IMAGE}/v2/images`))
-        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 noble' }] });
+        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 LTS Noble Numbat' }] });
       if (url.startsWith(`${COMPUTE}/flavors/detail`))
         return json({ flavors: [{ id: 'flavor-1', name: 'a2-ram4-disk20-perf1' }] });
       if (url.startsWith(`${NETWORK}/v2.0/networks`))
