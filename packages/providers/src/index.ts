@@ -163,6 +163,10 @@ export {
   mapInfomaniakStatus,
 } from './infomaniak';
 export {
+  DEFAULT_INFOMANIAK_ROOT_DISK_GB,
+  INFOMANIAK_ROOT_DISK_METADATA_KEY,
+} from './infomaniak-boot-volume';
+export {
   getProviderCatalogOfferings,
   getProviderInstanceOfferingForLegacySize,
   getProviderInstanceOfferings,

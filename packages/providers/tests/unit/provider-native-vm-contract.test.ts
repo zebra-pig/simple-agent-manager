@@ -762,17 +762,22 @@ describe('provider native VM request contracts', () => {
     expect(second.serverType).toBe('native-exact-type');
   });
 
-  it('Infomaniak rejects unsupported fixed-root boot disk requests before allocation', async () => {
+  it('Infomaniak rejects a boot volume above the Cinder maximum before allocation', async () => {
+    // Infomaniak boots from a sized volume, so a large request is satisfiable; only an
+    // impossible size must fail, and before any API call.
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock as typeof fetch;
 
     const provider = new InfomaniakProvider('id', 'secret', { authUrl: 'https://auth.example/v3' });
     await expect(
       provider.createVM({
-        ...unsupportedBootDiskConfig('arbitrary-infomaniak-flavor', 20),
+        name: 'sam-node',
         location: 'dc4-a',
+        userData: '#cloud-config',
+        labels: {},
+        native: { instanceType: 'a4-ram8-disk20-perf1', bootDiskSizeGb: 10_241 },
       })
-    ).rejects.toThrow('cannot satisfy requested native.bootDiskSizeGb');
+    ).rejects.toThrow('Infomaniak root disk must be 1-10240 GB');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -47,7 +47,8 @@ pnpm --filter @simple-agent-manager/providers lint        # ESLint
   accounting, or observed-hardware mapping.
 - Fixed-root-disk providers that cannot request a custom boot disk must validate
   `native.bootDiskSizeGb` as a workload minimum against concrete included disk metadata before the
-  provider allocation call. GCP and UpCloud can request the boot disk size directly. GCP accepts
+  provider allocation call. GCP, UpCloud and Infomaniak can request the boot disk size directly
+  (Infomaniak boots from a Cinder volume: `infomaniak-boot-volume.ts`). GCP accepts
   configured image family names plus Compute Engine image/family references.
 - `VMInstance.observedHardware` reports facts from provider responses. Use `observed` only for
   fields returned by the provider, and `unknown` when a provider omits resource details. Do not infer

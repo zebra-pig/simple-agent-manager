@@ -1,11 +1,19 @@
 import type { CredentialProvider, VMSize } from '@simple-agent-manager/shared';
 
-import { getProviderCatalogOfferings } from './instance-offerings';
 import {
-  assertIncludedBootDiskCapacity,
-  observedHardware,
-  resolveVMConfigWithLegacySizeAdapter,
-} from './native-vm-config';
+  DEFAULT_INFOMANIAK_ROOT_DISK_GB,
+  INFOMANIAK_ROOT_DISK_METADATA_KEY,
+  infomaniakBootVolumeFields,
+  recordedInfomaniakRootDiskGb,
+  resolveInfomaniakRootDiskGb,
+} from './infomaniak-boot-volume';
+import {
+  INFOMANIAK_FLAVORS,
+  INFOMANIAK_SIZE_CONFIGS,
+  mergeInfomaniakLegacySizes,
+} from './infomaniak-sizes';
+import { getProviderCatalogOfferings } from './instance-offerings';
+import { observedHardware, resolveVMConfigWithLegacySizeAdapter } from './native-vm-config';
 import {
   providerDelay,
   providerFetch,
@@ -52,54 +60,13 @@ export const DEFAULT_INFOMANIAK_IP_POLL_INTERVAL_MS = 3_000;
 export const INFOMANIAK_COMPUTE_MICROVERSION = '2.47';
 export const INFOMANIAK_VOLUME_MIN_SIZE_GB = 1;
 export const INFOMANIAK_VOLUME_MAX_SIZE_GB = 10_240;
+export { INFOMANIAK_FLAVORS, INFOMANIAK_SIZE_CONFIGS };
 export const INFOMANIAK_LOCATIONS = ['dc3-a', 'dc4-a'] as const;
 
 const LOCATIONS: Readonly<Record<string, LocationMeta>> = {
   'dc3-a': { name: 'Geneva (DC3)', country: 'CH' },
   'dc4-a': { name: 'Geneva (DC4)', country: 'CH' },
 };
-export const INFOMANIAK_FLAVORS: Readonly<Record<VMSize, string>> = {
-  small: 'a2-ram4-disk20-perf1',
-  medium: 'a4-ram8-disk20-perf1',
-  large: 'a8-ram16-disk20-perf1',
-};
-export const INFOMANIAK_SIZE_CONFIGS: Readonly<Record<VMSize, SizeConfig>> = {
-  small: {
-    type: INFOMANIAK_FLAVORS.small,
-    price: 'usage-based',
-    vcpu: 2,
-    ramGb: 4,
-    storageGb: 20,
-  },
-  medium: {
-    type: INFOMANIAK_FLAVORS.medium,
-    price: 'usage-based',
-    vcpu: 4,
-    ramGb: 8,
-    storageGb: 20,
-  },
-  large: {
-    type: INFOMANIAK_FLAVORS.large,
-    price: 'usage-based',
-    vcpu: 8,
-    ramGb: 16,
-    storageGb: 20,
-  },
-};
-
-function mergeInfomaniakLegacySizes(
-  flavors: Partial<Record<VMSize, string>> | undefined
-): Readonly<Record<VMSize, SizeConfig>> {
-  if (!flavors) return INFOMANIAK_SIZE_CONFIGS;
-  return {
-    small: { ...INFOMANIAK_SIZE_CONFIGS.small, ...(flavors.small ? { type: flavors.small } : {}) },
-    medium: {
-      ...INFOMANIAK_SIZE_CONFIGS.medium,
-      ...(flavors.medium ? { type: flavors.medium } : {}),
-    },
-    large: { ...INFOMANIAK_SIZE_CONFIGS.large, ...(flavors.large ? { type: flavors.large } : {}) },
-  };
-}
 
 export const INFOMANIAK_VOLUME_CAPABILITIES: VolumeCapabilities = {
   supported: true,
@@ -127,6 +94,8 @@ export interface InfomaniakProviderOptions {
   networkName?: string;
   imageName?: string;
   volumeType?: string;
+  /** Boot volume size in GB; the workload's requested boot disk wins when larger. */
+  rootDiskGb?: number;
   flavors?: Partial<Record<VMSize, string>>;
   requestTimeoutMs?: number;
   ipPollTimeoutMs?: number;
@@ -256,6 +225,7 @@ export class InfomaniakProvider implements Provider {
   private readonly networkName: string;
   private readonly imageName: string;
   private readonly volumeType: string;
+  private readonly rootDiskGb: number;
   private readonly timeout: number;
   private readonly pollTimeout: number;
   private readonly pollInterval: number;
@@ -274,6 +244,7 @@ export class InfomaniakProvider implements Provider {
     this.networkName = options.networkName ?? DEFAULT_INFOMANIAK_NETWORK_NAME;
     this.imageName = options.imageName ?? DEFAULT_INFOMANIAK_IMAGE_NAME;
     this.volumeType = options.volumeType ?? DEFAULT_INFOMANIAK_VOLUME_TYPE;
+    this.rootDiskGb = options.rootDiskGb ?? DEFAULT_INFOMANIAK_ROOT_DISK_GB;
     this.sizes = mergeInfomaniakLegacySizes(options.flavors);
     this.timeout = options.requestTimeoutMs ?? DEFAULT_INFOMANIAK_REQUEST_TIMEOUT_MS;
     this.pollTimeout = options.ipPollTimeoutMs ?? DEFAULT_INFOMANIAK_IP_POLL_TIMEOUT_MS;
@@ -433,7 +404,11 @@ export class InfomaniakProvider implements Provider {
       legacySizes: this.sizes,
       defaultImage: this.imageName,
     });
-    assertIncludedBootDiskCapacity(this.name, nativeConfig);
+    const rootDiskGb = resolveInfomaniakRootDiskGb(
+      this.rootDiskGb,
+      nativeConfig.bootDiskSizeGb,
+      INFOMANIAK_VOLUME_MAX_SIZE_GB
+    );
     if (nativeConfig.location !== this.region)
       throw new ProviderError(
         'infomaniak',
@@ -473,11 +448,14 @@ export class InfomaniakProvider implements Provider {
         body: JSON.stringify({
           server: {
             name: nativeConfig.name,
-            imageRef,
+            ...infomaniakBootVolumeFields(imageRef, rootDiskGb, this.volumeType),
             flavorRef,
             networks: [{ uuid: networkId }],
             user_data: base64(nativeConfig.userData),
-            metadata: nativeConfig.labels,
+            metadata: {
+              ...nativeConfig.labels,
+              [INFOMANIAK_ROOT_DISK_METADATA_KEY]: `${rootDiskGb}`,
+            },
           },
         }),
       },
@@ -519,7 +497,10 @@ export class InfomaniakProvider implements Provider {
         : asString(flavor.id, 'flavor.id');
     const vcpus = optionalPositiveInteger(flavor.vcpus, 'flavor.vcpus');
     const ram = optionalPositiveInteger(flavor.ram, 'flavor.ram');
-    const disk = optionalNonNegativeInteger(flavor.disk, 'flavor.disk');
+    const labels = metadata(server.metadata);
+    const disk =
+      recordedInfomaniakRootDiskGb(labels) ??
+      optionalNonNegativeInteger(flavor.disk, 'flavor.disk');
     const resources =
       vcpus !== undefined && ram !== undefined && disk !== undefined
         ? { vcpuCount: vcpus, memoryMb: ram, diskGb: disk }
@@ -536,7 +517,7 @@ export class InfomaniakProvider implements Provider {
         unknownResourcesReason: 'Infomaniak server flavor omitted resource fields',
       }),
       createdAt: asString(server.created, 'server.created'),
-      labels: metadata(server.metadata),
+      labels,
     };
   }
   async getVM(id: string, context?: ProviderRequestContext): Promise<VMInstance | null> {

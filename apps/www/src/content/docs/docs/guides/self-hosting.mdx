@@ -593,6 +593,18 @@ The Workers Paid plan ($5/month) is required for Durable Objects and Cloudflare 
 
 VMs are billed to the cloud provider credential SAM uses for the node. In a typical self-hosted setup, that is each user's own BYOC credential; admins may also configure a platform credential for shared zero-config provisioning. SAM supports Hetzner, Scaleway, Vultr, Infomaniak, DigitalOcean, UpCloud, and GCP. The example prices below cover the built-in Hetzner, Scaleway, Vultr, DigitalOcean, and UpCloud size mappings; Infomaniak and GCP pricing depend on the selected region and machine configuration.
 
+#### Infomaniak Public Cloud
+
+- **Firewall.** Infomaniak's `default` security group accepts inbound traffic only from members of
+  that group, so SAM can never reach the VM agent and workspaces stay in "creating". Add ingress rules
+  to the project's `default` security group for **TCP 8443** from each
+  [Cloudflare IP range](https://www.cloudflare.com/ips/) (Horizon: **Network → Security Groups →
+  default → Manage Rules**). SAM reaches nodes through Cloudflare's proxy, so no other source needs it.
+- **Disk.** Infomaniak flavors include a 20 GB local disk, which one devcontainer build can fill. SAM
+  boots each node from an 80 GB volume instead, or a larger one when a workspace requests more
+  (`createVM()` in `packages/providers/src/infomaniak.ts`). The volume is deleted with the server and
+  is billed as Infomaniak block storage while the node exists.
+
 Connecting a cloud credential lists its machines in the matching compute pool but adds none of them:
 nothing joins a pool on its own. After you add a platform credential, open **Admin → Infrastructure**
 and add the machines and regions the shared pool may use. Until a pool has machines, people who use it

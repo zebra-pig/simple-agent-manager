@@ -27,10 +27,10 @@ export const ALLOCATION_WRITER_INVENTORY: readonly AllocationWriterInventoryEntr
     table: 'tasks',
     owner: 'submitInstantTask',
     role: 'explicit Instant task submission adapter; no VM allocation',
-    canonicalService: 'acceptInstantSession -> continueInstantSessionLaunch',
+    canonicalService: 'acceptInstantSession -> scheduleInstantSessionLaunch',
     requiredEvidence: [
       { kind: 'call', name: 'acceptInstantSession' },
-      { kind: 'call', name: 'continueInstantSessionLaunch' },
+      { kind: 'call', name: 'scheduleInstantSessionLaunch' },
     ],
   },
   {

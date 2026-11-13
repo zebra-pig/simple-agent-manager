@@ -74,10 +74,7 @@ export default defineConfig({
             className: 'DiagnosisRunner',
             useSQLite: true,
           },
-          INSTANT_LAUNCH_RUNNER: {
-            className: 'InstantLaunchRunner',
-            useSQLite: true,
-          },
+          INSTANT_LAUNCH_RUNNER: { className: 'InstantLaunchRunner', useSQLite: true },
           INTERACTION_STORE: {
             className: 'InteractionStore',
             useSQLite: true,
@@ -100,11 +97,10 @@ export default defineConfig({
             className: 'NotificationService',
             useSQLite: true,
           },
-          // Container-less stand-in for the Instant runtime container DO. The
-          // real VmAgentContainer cannot be instantiated here (Container base
-          // throws without a container service), so the heartbeat policy + stuck
-          // sweep exercise the real inspectLifecycle RPC + classifier against
-          // this double. See tests/workers/support/vm-agent-container-double.ts.
+          // Container-less stand-in for the Instant runtime container DO (the real one throws
+          // without a container service); the heartbeat policy and stuck sweep run the real
+          // inspectLifecycle RPC + classifier against it. See support/vm-agent-container-double.ts.
+          // (Keep line count: gitleaks-reviewed-baseline.json pins the fixture lines below.)
           VM_AGENT_CONTAINER: {
             className: 'VmAgentContainerTestDouble',
             useSQLite: true,
