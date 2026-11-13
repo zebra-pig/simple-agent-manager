@@ -13,11 +13,8 @@ import { log } from '../lib/logger';
 import { ulid } from '../lib/ulid';
 import { buildVisibleInitialPrompt } from './agent-bootstrap-prompt';
 import { resolveTaskAgentOverrides } from './agent-profiles';
-import {
-  acceptInstantSession,
-  continueInstantSessionLaunch,
-  type LaunchInstantSessionInput,
-} from './instant-session';
+import { scheduleInstantSessionLaunch } from './instant-launch-schedule';
+import { acceptInstantSession, type LaunchInstantSessionInput } from './instant-session';
 import { enrichMessageWithMentions } from './mention-enrichment';
 import { resolveProjectAgentDefault } from './project-agent-defaults';
 import type { SamDispatchReservation } from './sam-dispatch-reservation';
@@ -155,12 +152,16 @@ export async function submitInstantTask(input: {
   };
   try {
     const accepted = await acceptInstantSession(db, env, launch);
-    input.waitUntil(
-      continueInstantSessionLaunch(db, env, launch, accepted).catch((error: unknown) => {
-        // continueInstantSessionLaunch persists the failed task/session before rejecting.
-        log.error('task_submit.instant_launch_failed', { taskId, error: String(error) });
-      })
-    );
+    await scheduleInstantSessionLaunch({
+      db,
+      env,
+      launch,
+      accepted,
+      waitUntil: input.waitUntil,
+      // continueInstantSessionLaunch persists the failed task/session before rejecting.
+      onBackgroundError: (error) =>
+        log.error('task_submit.instant_launch_failed', { taskId, error: String(error) }),
+    });
     return {
       taskId,
       sessionId: accepted.chatSessionId,

@@ -465,6 +465,15 @@ class_name = "WorkspaceBootLog"
 tag = "v22"
 new_sqlite_classes = ["McpRateCounter", "WorkspaceBootLog"]
 
+# Runs accepted Instant launches in an alarm, outside waitUntil's ~30 s cut-off.
+[[durable_objects.bindings]]
+name = "INSTANT_LAUNCH_RUNNER"
+class_name = "InstantLaunchRunner"
+
+[[migrations]]
+tag = "v23"
+new_sqlite_classes = ["InstantLaunchRunner"]
+
 # Analytics Engine for usage tracking (Phase 1 — server-side analytics)
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"

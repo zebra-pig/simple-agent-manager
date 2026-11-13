@@ -124,7 +124,7 @@ describe('cf-container runtime spike contracts', () => {
     expect(chatStartRoute).toContain('resolveWorkspaceRuntime');
     expect(chatStartRoute).toContain("runtime.runtime !== 'cf-container'");
     expect(chatStartRoute).toContain('acceptInstantSession');
-    expect(chatStartRoute).toContain('continueInstantSessionLaunch');
+    expect(chatStartRoute).toContain('scheduleInstantSessionLaunch');
     expect(chatStartRoute).toContain("status: 'starting'");
     const containerDo = read('durable-objects/vm-agent-container.ts');
     expect(containerDo).toContain("NODE_ROLE: 'standalone'");

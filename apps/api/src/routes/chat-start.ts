@@ -17,7 +17,8 @@ import { errors } from '../middleware/error';
 import { requireProjectCapability } from '../middleware/project-auth';
 import { jsonValidator, StartChatSessionSchema } from '../schemas';
 import { resolveTaskAgentOverrides } from '../services/agent-profiles';
-import { acceptInstantSession, continueInstantSessionLaunch } from '../services/instant-session';
+import { scheduleInstantSessionLaunch } from '../services/instant-launch-schedule';
+import { acceptInstantSession } from '../services/instant-session';
 import { enrichMessageWithMentions } from '../services/mention-enrichment';
 import { resolveSkillProfile } from '../services/skills';
 import { markTaskFailedIfNonTerminal } from '../services/task-failure';
@@ -260,7 +261,13 @@ chatStartRoutes.post(
       throw err;
     }
 
-    scheduleBackground(c, continueInstantSessionLaunch(db, c.env, launchInput, accepted));
+    await scheduleInstantSessionLaunch({
+      db,
+      env: c.env,
+      launch: launchInput,
+      accepted,
+      waitUntil: (promise) => scheduleBackground(c, promise),
+    });
 
     return c.json(
       {
