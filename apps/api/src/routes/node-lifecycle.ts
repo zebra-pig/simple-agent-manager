@@ -378,18 +378,22 @@ nodeLifecycleRoutes.post('/:id/heartbeat', jsonValidator(NodeHeartbeatSchema), a
     log.debug('heartbeat.ip_backfill_skipped_tunnel_node', { nodeId, action: 'skipped' });
   }
   const connectingIp = c.req.header('CF-Connecting-IP');
+  // Backend records are A records, so only an IPv4 egress can stand in for the node's address.
+  // Dual-stack VMs (Infomaniak) heartbeat over IPv6; recording that address stored a value no A
+  // record accepts and failed backend DNS on every heartbeat (production 2026-11-13).
   let heartbeatIp: string | undefined;
   if (!node.tunnelId) {
-    heartbeatIp = connectingIp;
+    heartbeatIp = isValidIPv4Address(connectingIp) ? connectingIp : undefined;
   } else if (deploymentTunnelIpBackfill && isValidIPv4Address(connectingIp)) {
     heartbeatIp = connectingIp;
   }
 
   // Defense-in-depth: backfill IP from heartbeat if node has no IP stored.
   // This self-heals Scaleway nodes where the IP wasn't captured at creation time.
-  let effectiveNodeIp = node.tunnelId ? null : node.ipAddress;
+  const storedIpv4 = isValidIPv4Address(node.ipAddress) ? node.ipAddress : null;
+  let effectiveNodeIp = node.tunnelId ? null : storedIpv4;
 
-  if (!node.ipAddress) {
+  if (!storedIpv4) {
     if (heartbeatIp) {
       log.info('heartbeat.ip_backfilled', {
         nodeId,
