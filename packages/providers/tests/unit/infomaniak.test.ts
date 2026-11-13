@@ -186,7 +186,17 @@ describe('InfomaniakProvider', () => {
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       server: {
         name: 'sam-node',
-        imageRef: 'image-1',
+        block_device_mapping_v2: [
+          {
+            boot_index: 0,
+            uuid: 'image-1',
+            source_type: 'image',
+            destination_type: 'volume',
+            volume_size: 80,
+            volume_type: 'CEPH_1_perf1',
+            delete_on_termination: true,
+          },
+        ],
         flavorRef: 'flavor-1',
         networks: [{ uuid: 'network-1' }],
         user_data: 'I2Nsb3VkLWNvbmZpZwp1c2VyczogW10=',
@@ -194,8 +204,62 @@ describe('InfomaniakProvider', () => {
           managed: 'simple-agent-manager',
           env: 'production',
           installation: '0123456789abcdef0123456789abcdef',
+          'sam-root-disk-gb': '80',
         },
       },
+    });
+  });
+
+  it('boots from a volume sized by the larger of the configured and requested disk', async () => {
+    // Infomaniak flavors carry a 20 GB local disk, which one devcontainer build filled to 98%
+    // in production. The root volume replaces it, and the workload can ask for more.
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/auth/tokens')) return auth();
+      if (url.startsWith(`${IMAGE}/v2/images`))
+        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 LTS Noble Numbat' }] });
+      if (url.startsWith(`${COMPUTE}/flavors/detail`))
+        return json({ flavors: [{ id: 'flavor-2', name: 'a4-ram8-disk20-perf1' }] });
+      if (url.startsWith(`${NETWORK}/v2.0/networks`))
+        return json({ networks: [{ id: 'network-1', name: 'ext-net1' }] });
+      if (url === `${COMPUTE}/servers` && init?.method === 'POST')
+        return json({ server: { id: 'server-2' } }, 202);
+      if (url === `${COMPUTE}/servers/server-2`) {
+        return json({
+          server: {
+            id: 'server-2',
+            name: 'sam-node',
+            status: 'ACTIVE',
+            addresses: { 'ext-net1': [{ version: 4, addr: '203.0.113.11' }] },
+            flavor: { original_name: 'a4-ram8-disk20-perf1', vcpus: 4, ram: 8192, disk: 20 },
+            created: '2026-11-13T00:00:00Z',
+            metadata: { 'sam-root-disk-gb': '120' },
+          },
+        });
+      }
+      throw new Error(`Unexpected request ${init?.method ?? 'GET'} ${url}`);
+    });
+    const provider = new InfomaniakProvider('id', 'secret', { authUrl: AUTH_URL, rootDiskGb: 60 });
+    const vm = await provider.createVM({
+      name: 'sam-node',
+      location: 'dc4-a',
+      userData: '#cloud-config',
+      labels: {},
+      native: { instanceType: 'a4-ram8-disk20-perf1', bootDiskSizeGb: 120 },
+    });
+    const create = fetchMock.mock.calls.find(
+      ([input, init]) => String(input) === `${COMPUTE}/servers` && init?.method === 'POST'
+    );
+    const server = JSON.parse(String(create?.[1]?.body)).server;
+    expect(server.imageRef).toBeUndefined();
+    expect(server.block_device_mapping_v2[0]).toMatchObject({
+      volume_size: 120,
+      delete_on_termination: true,
+    });
+    expect(server.metadata['sam-root-disk-gb']).toBe('120');
+    // The node reports the volume it really boots from, not the flavor's 20 GB.
+    expect(vm.observedHardware).toMatchObject({
+      resources: { value: { vcpuCount: 4, memoryMb: 8192, diskGb: 120 } },
     });
   });
 
