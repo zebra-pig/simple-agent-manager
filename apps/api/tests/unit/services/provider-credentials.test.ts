@@ -79,7 +79,7 @@ describe('buildProviderConfig', () => {
         INFOMANIAK_REGION: 'dc3-a',
         INFOMANIAK_ENDPOINT_INTERFACE: 'internal',
         INFOMANIAK_API_TIMEOUT_MS: '20000',
-        INFOMANIAK_IMAGE_NAME: 'Ubuntu 24.04 noble',
+        INFOMANIAK_IMAGE_NAME: 'Ubuntu 24.04 LTS Noble Numbat',
       })
     ).toMatchObject({
       provider: 'infomaniak',
@@ -88,7 +88,7 @@ describe('buildProviderConfig', () => {
       region: 'dc3-a',
       endpointInterface: 'internal',
       requestTimeoutMs: 20000,
-      imageName: 'Ubuntu 24.04 noble',
+      imageName: 'Ubuntu 24.04 LTS Noble Numbat',
     });
   });
 

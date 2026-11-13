@@ -716,8 +716,8 @@ describe('provider native VM request contracts', () => {
           { 'x-subject-token': 'subject-token' }
         );
       }
-      if (url === `${image}/v2/images?name=Ubuntu%2024.04%20noble`) {
-        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 noble' }] });
+      if (url === `${image}/v2/images?name=Ubuntu%2024.04%20LTS%20Noble%20Numbat`) {
+        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 LTS Noble Numbat' }] });
       }
       if (url === `${compute}/flavors/detail?name=native-exact-type`) {
         return json({ flavors: [{ id: 'flavor-1', name: 'native-exact-type' }] });
