@@ -23,8 +23,12 @@ export function resolveInfomaniakRootDiskGb(
   return sizeGb;
 }
 
-/** Nova `server` fields that boot from a new image-backed volume instead of the flavor disk. */
-export function infomaniakBootVolumeFields(imageRef: string, sizeGb: number, volumeType: string) {
+/**
+ * Nova `server` fields that boot from a new image-backed volume instead of the flavor disk.
+ * No `volume_type`: Nova accepts it in a block device mapping only from microversion 2.67, and
+ * SAM pins 2.47 (INFOMANIAK_COMPUTE_MICROVERSION), so the volume gets the project's default type.
+ */
+export function infomaniakBootVolumeFields(imageRef: string, sizeGb: number) {
   return {
     block_device_mapping_v2: [
       {
@@ -33,7 +37,6 @@ export function infomaniakBootVolumeFields(imageRef: string, sizeGb: number, vol
         source_type: 'image',
         destination_type: 'volume',
         volume_size: sizeGb,
-        volume_type: volumeType,
         delete_on_termination: true,
       },
     ],

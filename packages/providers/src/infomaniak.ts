@@ -448,7 +448,7 @@ export class InfomaniakProvider implements Provider {
         body: JSON.stringify({
           server: {
             name: nativeConfig.name,
-            ...infomaniakBootVolumeFields(imageRef, rootDiskGb, this.volumeType),
+            ...infomaniakBootVolumeFields(imageRef, rootDiskGb),
             flavorRef,
             networks: [{ uuid: networkId }],
             user_data: base64(nativeConfig.userData),

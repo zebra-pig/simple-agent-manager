@@ -193,7 +193,6 @@ describe('InfomaniakProvider', () => {
             source_type: 'image',
             destination_type: 'volume',
             volume_size: 80,
-            volume_type: 'CEPH_1_perf1',
             delete_on_termination: true,
           },
         ],
@@ -252,6 +251,9 @@ describe('InfomaniakProvider', () => {
     );
     const server = JSON.parse(String(create?.[1]?.body)).server;
     expect(server.imageRef).toBeUndefined();
+    // Nova rejects block_device_mapping_v2.volume_type below microversion 2.67 ("Additional
+    // properties are not allowed ('volume_type' was unexpected)"), and SAM pins 2.47.
+    expect(server.block_device_mapping_v2[0]).not.toHaveProperty('volume_type');
     expect(server.block_device_mapping_v2[0]).toMatchObject({
       volume_size: 120,
       delete_on_termination: true,
