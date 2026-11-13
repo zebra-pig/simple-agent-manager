@@ -405,3 +405,28 @@ func TestGenerateVibeConfig_EscapesHeaderValues(t *testing.T) {
 		t.Fatalf("x-api-key = %q, want %q", got, value)
 	}
 }
+
+// An MCP connection with no token and no custom headers (an OAuth connection still awaiting
+// authentication) must serialize `headers: []`, not `null`. Mistral Vibe validates the ACP
+// NewSession params strictly and failed every session in production with
+// "mcpServers.1.HttpMcpServer.headers: Input should be a valid list".
+func TestBuildAcpMcpServers_HeaderlessServerSerializesEmptyList(t *testing.T) {
+	entries := []McpServerEntry{{URL: "https://mcp.example.com/mcp", Name: "awaiting-auth"}}
+	for _, agentType := range []string{"mistral-vibe", "claude-code", "amp"} {
+		raw, err := json.Marshal(buildAcpMcpServers(entries, agentType))
+		if err != nil {
+			t.Fatalf("%s: marshal: %v", agentType, err)
+		}
+		body := string(raw)
+		if strings.Contains(body, "null") {
+			t.Fatalf("%s: MCP server params contain null: %s", agentType, body)
+		}
+		want := `"headers":[]`
+		if agentType == "amp" {
+			want = `"env":[]`
+		}
+		if !strings.Contains(body, want) {
+			t.Fatalf("%s: want %s in %s", agentType, want, body)
+		}
+	}
+}

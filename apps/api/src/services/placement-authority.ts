@@ -16,6 +16,7 @@ import {
   buildAnyDefaultCapacityPoolExclusionSql,
   buildHigherPrecedenceDefaultCapacityPoolExclusionSql,
 } from './capacity-pool-precedence';
+import { externalCapacitySourceCredentialId } from './default-capacity-pool-helpers';
 
 export type PlacementSqlBind = string | number | null;
 export type PlacementAuthorityNodeClass = 'managed' | 'user-owned';
@@ -356,8 +357,16 @@ function buildCredentialAuthoritySql(
               AND current_cc_attachment.project_id IS NULL`,
             binds: [],
           };
+    // A composable source carries a secret-free anchor credential_id (migration 0125's CHECK
+    // requires one; see ensureCapacitySourceCredentialAnchor). Requiring NULL here rejected
+    // every VM placed through a composable credential as "Node allocation plan is no longer
+    // current". Accept exactly this attachment+version's anchor, or NULL for older rows.
+    const anchorId = externalCapacitySourceCredentialId(
+      snapshot.capacitySourceExternalRef ?? '',
+      snapshot.placementCredentialVersion
+    );
     return {
-      sql: `AND s.credential_id IS NULL
+      sql: `AND (s.credential_id IS NULL OR s.credential_id = ?)
         AND s.platform_credential_id IS NULL
         AND EXISTS (
           SELECT 1
@@ -381,7 +390,7 @@ function buildCredentialAuthoritySql(
             ${attachmentScope.sql}
             AND ${sqliteTimestampVersion('current_cc_credential.updated_at')} = ${credentialVersionSql}
         )`,
-      binds: [reference.id, attachment.id, ...attachmentScope.binds],
+      binds: [anchorId, reference.id, attachment.id, ...attachmentScope.binds],
     };
   }
 

@@ -8,6 +8,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import * as schema from '../db/schema';
 import type { Env } from '../env';
 import { ulid } from '../lib/ulid';
+import { AppError } from '../middleware/error';
 import { capacityPlacementSnapshotDbValues } from './capacity-placement-snapshot';
 
 export {
@@ -74,9 +75,17 @@ export interface ProvisionedNode {
   updatedAt: string;
 }
 
-export class CapacityPoolNodeLimitExceededError extends Error {
+/**
+ * A 409 AppError so routes that create nodes (POST /api/nodes, workspace create) answer with
+ * this message instead of a bare 500. The task runner matches it by `name`, which stays.
+ */
+export class CapacityPoolNodeLimitExceededError extends AppError {
   constructor() {
-    super('Capacity pool node limit reached');
+    super(
+      409,
+      'CAPACITY_POOL_NODE_LIMIT',
+      'Your compute pool has reached its node limit. Delete an idle node or raise the limit in Infrastructure.'
+    );
     this.name = 'CapacityPoolNodeLimitExceededError';
   }
 }
