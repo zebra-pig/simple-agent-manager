@@ -74,6 +74,10 @@ export default defineConfig({
             className: 'DiagnosisRunner',
             useSQLite: true,
           },
+          INSTANT_LAUNCH_RUNNER: {
+            className: 'InstantLaunchRunner',
+            useSQLite: true,
+          },
           INTERACTION_STORE: {
             className: 'InteractionStore',
             useSQLite: true,

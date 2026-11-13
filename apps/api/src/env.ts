@@ -73,6 +73,8 @@ export interface Env
   // Durable Objects
   MCP_RATE_COUNTER?: DurableObjectNamespace;
   WORKSPACE_BOOT_LOG?: DurableObjectNamespace;
+  /** Runs accepted Instant launches outside waitUntil's ~30 s limit (instant-launch-runner.ts). */
+  INSTANT_LAUNCH_RUNNER?: DurableObjectNamespace;
   PROJECT_DATA: DurableObjectNamespace;
   NODE_LIFECYCLE: DurableObjectNamespace;
   ADMIN_LOGS: DurableObjectNamespace;

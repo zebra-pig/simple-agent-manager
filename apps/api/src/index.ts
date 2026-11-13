@@ -17,6 +17,7 @@ export { CredentialSetupSession } from './durable-objects/credential-setup-sessi
 export { DiagnosisRunner } from './durable-objects/diagnosis-runner';
 export { GitHubUserAccessTokenLock } from './durable-objects/github-user-access-token-lock';
 export { GitLabUserAccessTokenLock } from './durable-objects/gitlab-user-access-token-lock';
+export { InstantLaunchRunner } from './durable-objects/instant-launch-runner';
 export { InteractionStore } from './durable-objects/interaction-store';
 export { NodeLifecycle } from './durable-objects/node-lifecycle';
 export { NotificationService } from './durable-objects/notification';
