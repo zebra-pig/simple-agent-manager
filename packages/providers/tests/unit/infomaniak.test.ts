@@ -199,6 +199,42 @@ describe('InfomaniakProvider', () => {
     });
   });
 
+  it('requests Nova microversion 2.47 so the server body carries flavor resources', async () => {
+    // Real Nova behaviour: below 2.47 a server's flavor is only { id, links }; from 2.47 it
+    // embeds original_name/vcpus/ram/disk. Without them SAM marks the node "no trusted observed
+    // hardware capacity" and placement refuses every workspace on it.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/auth/tokens')) return auth();
+      if (url === `${COMPUTE}/servers/server-1`) {
+        const version = new Headers(init?.headers).get('OpenStack-API-Version') ?? '';
+        const microversion = Number(/^compute (\d+\.\d+)$/.exec(version)?.[1] ?? '2.1');
+        const flavor =
+          microversion >= 2.47
+            ? { original_name: 'a4-ram8-disk20-perf1', vcpus: 4, ram: 8192, disk: 20 }
+            : { id: '425c947f-114c-4ac2-9011-8d6640b9ccc8' };
+        return json({
+          server: {
+            id: 'server-1',
+            name: 'sam-node',
+            status: 'ACTIVE',
+            addresses: { 'ext-net1': [{ version: 4, addr: '203.0.113.10' }] },
+            flavor,
+            created: '2026-11-13T00:00:00Z',
+            metadata: {},
+          },
+        });
+      }
+      throw new Error(`Unexpected request ${init?.method ?? 'GET'} ${url}`);
+    });
+    const provider = new InfomaniakProvider('id', 'secret', { authUrl: AUTH_URL });
+    const vm = await provider.getVM('server-1');
+    expect(vm?.serverType).toBe('a4-ram8-disk20-perf1');
+    expect(vm?.observedHardware).toMatchObject({
+      resources: { value: { vcpuCount: 4, memoryMb: 8192, diskGb: 20 } },
+    });
+  });
+
   it('uses config.instanceType as the concrete flavor name when provided', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);

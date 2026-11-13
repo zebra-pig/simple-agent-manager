@@ -48,6 +48,12 @@ export const DEFAULT_INFOMANIAK_VOLUME_TYPE = 'CEPH_1_perf1';
 export const DEFAULT_INFOMANIAK_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_INFOMANIAK_IP_POLL_TIMEOUT_MS = 45_000;
 export const DEFAULT_INFOMANIAK_IP_POLL_INTERVAL_MS = 3_000;
+/**
+ * Nova returns only `{ id, links }` for a server's flavor below microversion 2.47, which leaves
+ * SAM with no vCPU/RAM/disk for the node and makes placement refuse it ("no trusted observed
+ * hardware capacity"). 2.47 embeds `original_name`, `vcpus`, `ram` and `disk` in the server body.
+ */
+export const INFOMANIAK_COMPUTE_MICROVERSION = '2.47';
 export const INFOMANIAK_VOLUME_MIN_SIZE_GB = 1;
 export const INFOMANIAK_VOLUME_MAX_SIZE_GB = 10_240;
 export const INFOMANIAK_LOCATIONS = ['dc3-a', 'dc4-a'] as const;
@@ -361,6 +367,7 @@ export class InfomaniakProvider implements Provider {
           headers: {
             'Content-Type': 'application/json',
             'X-Auth-Token': session.token,
+            'OpenStack-API-Version': `compute ${INFOMANIAK_COMPUTE_MICROVERSION}`,
             ...init.headers,
           },
         },
