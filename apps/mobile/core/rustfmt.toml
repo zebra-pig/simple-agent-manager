@@ -1,0 +1,3 @@
+# Wide lines: the view models read better unwrapped.
+max_width = 140
+use_small_heuristics = "Max"

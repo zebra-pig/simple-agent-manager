@@ -1,0 +1,16 @@
+// Brand and identity of the build. These defaults are the upstream SAM app.
+// To build your own copy (another bundle id, team, name or preset server),
+// don't edit this file: put overrides in Config/Local.xcconfig (gitignored).
+// scripts/configure-ios.sh writes that file from SAM_* environment variables,
+// and Xcode Cloud runs it from ci_scripts/ci_post_clone.sh.
+
+SAM_APP_NAME = SAM
+SAM_BUNDLE_ID = org.simpleagentmanager.app
+SAM_TEAM_ID =
+// The deployment the app suggests, named like the platform's BASE_DOMAIN: the app
+// talks to api.$(BASE_DOMAIN). Users can still sign in to any other server.
+BASE_DOMAIN = simple-agent-manager.org
+SAM_MARKETING_VERSION = 0.1
+SAM_BUILD_NUMBER = 1
+
+#include? "Local.xcconfig"
