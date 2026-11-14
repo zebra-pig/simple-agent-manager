@@ -1,5 +1,5 @@
 //! SAM native core: everything that isn't UI, exported to Swift and Kotlin with
-//! UniFFI (README.md in apps/mobile).
+//! UniFFI (README.md in apps/native).
 //!
 //! MVVM: each screen owns a Rust view model; the shell pulls the first snapshot
 //! with `state()`, sends intents, and gets every later snapshot pushed through

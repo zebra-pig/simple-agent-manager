@@ -13,12 +13,12 @@ kotlin {
 }
 
 // Brand and identity, from the environment so white-label builds need no code changes
-// (same names as the iOS build, see apps/mobile/ios/Config/Brand.xcconfig).
+// (same names as the iOS build, see apps/native/ios/Config/Brand.xcconfig).
 fun brand(name: String, default: String) = System.getenv(name)?.takeIf { it.isNotBlank() } ?: default
 
 // The Rust core: .so files + generated Kotlin bindings, both build outputs.
 val rustOut = layout.projectDirectory.dir("build/rust") // == the source dirs below
-val mobileDir = rootProject.layout.projectDirectory.dir("..")
+val nativeDir = rootProject.layout.projectDirectory.dir("..")
 
 android {
     namespace = "org.simpleagentmanager.app"
@@ -59,13 +59,13 @@ android {
 }
 
 val buildRustCore = tasks.register<Exec>("buildRustCore") {
-    description = "cargo ndk build of apps/mobile/core + UniFFI Kotlin bindings (scripts/build-android.sh)"
-    inputs.dir(mobileDir.dir("core/src"))
-    inputs.files(mobileDir.file("core/Cargo.toml"), mobileDir.file("core/Cargo.lock"), mobileDir.file("core/uniffi.toml"))
-    inputs.file(mobileDir.file("scripts/build-android.sh"))
+    description = "cargo ndk build of apps/native/core + UniFFI Kotlin bindings (scripts/build-android.sh)"
+    inputs.dir(nativeDir.dir("core/src"))
+    inputs.files(nativeDir.file("core/Cargo.toml"), nativeDir.file("core/Cargo.lock"), nativeDir.file("core/uniffi.toml"))
+    inputs.file(nativeDir.file("scripts/build-android.sh"))
     outputs.dir(rustOut)
     environment("ANDROID_HOME", androidComponents.sdkComponents.sdkDirectory.get().asFile.absolutePath)
-    commandLine(mobileDir.file("scripts/build-android.sh").asFile.absolutePath, rustOut.asFile.absolutePath)
+    commandLine(nativeDir.file("scripts/build-android.sh").asFile.absolutePath, rustOut.asFile.absolutePath)
 }
 tasks.named("preBuild") { dependsOn(buildRustCore) }
 

@@ -29,6 +29,6 @@ install_rust_if_needed() {
     cargo --version
 }
 
-"$repo_dir/apps/mobile/scripts/configure-ios.sh"
+"$repo_dir/apps/native/scripts/configure-ios.sh"
 install_rust_if_needed
-"$repo_dir/apps/mobile/scripts/build-ios.sh"
+"$repo_dir/apps/native/scripts/build-ios.sh"
