@@ -52,7 +52,7 @@ app-specific OAuth client.
 ## Core
 
 ```sh
-cd apps/mobile/core
+cd apps/native/core
 cargo test     # parsing, URL normalization, and device-flow sign-in against a scripted server
 cargo clippy --all-targets -- -D warnings
 ```
@@ -64,8 +64,8 @@ before opening Xcode:
 
 ```sh
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin   # once
-apps/mobile/scripts/build-ios.sh                                                 # after every core change
-open apps/mobile/ios/SAM.xcodeproj
+apps/native/scripts/build-ios.sh                                                 # after every core change
+open apps/native/ios/SAM.xcodeproj
 ```
 
 Set your team and bundle id as described in [White-label builds](#white-label-builds); the
@@ -73,9 +73,9 @@ project itself has neither. iOS 17+ and macOS 14+. Swift sources live in `ios/SA
 synchronized folder, so Xcode picks up new files without project edits. Build without signing:
 
 ```sh
-xcodebuild -project apps/mobile/ios/SAM.xcodeproj -scheme SAM \
+xcodebuild -project apps/native/ios/SAM.xcodeproj -scheme SAM \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-xcodebuild -project apps/mobile/ios/SAM.xcodeproj -scheme SAM \
+xcodebuild -project apps/native/ios/SAM.xcodeproj -scheme SAM \
   -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO build
 ```
 
@@ -93,7 +93,7 @@ To set it up for your own copy:
 1. Register an explicit App ID for your bundle id under your team (developer.apple.com →
    Identifiers), and create the app in App Store Connect with that bundle id.
 2. Locally, write your identity once and open the project:
-   `SAM_TEAM_ID=… SAM_BUNDLE_ID=… apps/mobile/scripts/configure-ios.sh`.
+   `SAM_TEAM_ID=… SAM_BUNDLE_ID=… apps/native/scripts/configure-ios.sh`.
 3. In Xcode: Product → Xcode Cloud → Create Workflow, product `SAM`, scheme `SAM`.
 4. In the workflow's Environment, add `SAM_TEAM_ID` and `SAM_BUNDLE_ID` (and any other variable
    from the table below). Add an Archive action for iOS (and macOS if you want both).
@@ -142,7 +142,7 @@ No separate step is needed:
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android   # once
 cargo install cargo-ndk                                        # once
-cd apps/mobile/android && ./gradlew assembleDebug              # or open the folder in Android Studio
+cd apps/native/android && ./gradlew assembleDebug              # or open the folder in Android Studio
 ```
 
 You need JDK 17+, the Android SDK (`ANDROID_HOME` or `local.properties` `sdk.dir`) and an NDK

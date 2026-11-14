@@ -5,9 +5,9 @@
 # SamCore.swift, which the Xcode project consumes. Output is gitignored.
 set -eu
 
-mobile_dir="$(cd "$(dirname "$0")/.." && pwd)"
-core_dir="$mobile_dir/core"
-out_dir="$mobile_dir/ios/Generated"
+native_dir="$(cd "$(dirname "$0")/.." && pwd)"
+core_dir="$native_dir/core"
+out_dir="$native_dir/ios/Generated"
 lib=libsam_core.a
 
 cd "$core_dir"
