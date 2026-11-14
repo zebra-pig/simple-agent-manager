@@ -9,6 +9,8 @@
 #[macro_use]
 mod vm;
 mod api;
+#[macro_use]
+mod attachments;
 mod chat;
 mod error;
 mod project;
@@ -17,6 +19,9 @@ mod server;
 mod session;
 
 pub use api::{ChatMessage, ChatSession, MessageRole, Project, SessionStatus, SubmittedTask, TaskSummary, Viewer};
+pub use attachments::{
+    Attachment, AttachmentSource, AttachmentStatus, ATTACHMENT_BATCH_MAX_BYTES, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES,
+};
 pub use chat::*;
 pub use error::UserError;
 pub use project::*;

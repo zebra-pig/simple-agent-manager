@@ -1,8 +1,9 @@
 //! One chat session: the conversation with the agent, the task it runs, and
-//! follow-up prompts. The shell calls `refresh` every few seconds while the
+//! follow-up prompts (with attached files, see attachments.rs). The shell calls `refresh` every few seconds while the
 //! screen is visible; there is no push channel yet.
 
 use crate::api::{merge_messages, ChatMessage, ChatSession, Prompt, SessionDetail};
+use crate::attachments::{self, Attachment};
 use crate::error::UserError;
 use crate::session::seg;
 
@@ -13,12 +14,15 @@ pub struct ChatState {
     pub session: Option<ChatSession>,
     /// Oldest first, streamed chunks merged into whole messages.
     pub messages: Vec<ChatMessage>,
+    /// Files for the next follow-up.
+    pub attachments: Vec<Attachment>,
     pub loading: bool,
     pub sending: bool,
     pub error: Option<UserError>,
 }
 
 observable!(ChatViewModel, ChatState, ChatObserver);
+observable_attachments!(ChatViewModel);
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ChatViewModel {
@@ -57,24 +61,36 @@ impl ChatViewModel {
         });
     }
 
-    /// Intent: send a follow-up to the agent. `true` when it was accepted, so
-    /// the shell can clear the composer.
+    /// Intent: send a follow-up to the agent, with the attached files. `true`
+    /// when it was accepted, so the shell can clear the composer.
     pub async fn send(&self, content: String) -> bool {
-        let content = content.trim().to_owned();
-        let ChatState { project_id, session_id, .. } = self.state();
+        let ChatState { project_id, session_id, attachments: attached, .. } = self.state();
+        let files = match attachments::ready(&attached) {
+            Ok(files) => files,
+            Err(e) => {
+                self.update(|s| s.error = Some(e));
+                return false;
+            }
+        };
+        let content = attachments::message_text(&content, !files.is_empty());
         if content.is_empty() || session_id.is_empty() {
             return false;
         }
         self.update(|s| s.sending = true);
         let result: crate::error::Result<serde_json::Value> = self
             .app
-            .post(&format!("/api/projects/{}/sessions/{}/prompt", seg(&project_id), seg(&session_id)), &Prompt { content: &content })
+            .post(
+                &format!("/api/projects/{}/sessions/{}/prompt", seg(&project_id), seg(&session_id)),
+                &Prompt { content: &content, attachments: &files },
+            )
             .await;
         let ok = result.is_ok();
         self.update(|s| {
             s.sending = false;
-            if let Err(e) = result {
-                s.error = Some(UserError::from(&e));
+            match result {
+                // Files added while this was on its way stay for the next one.
+                Ok(_) => s.attachments.retain(|a| !attached.iter().any(|sent| sent.id == a.id)),
+                Err(e) => s.error = Some(UserError::from(&e)),
             }
         });
         if ok {

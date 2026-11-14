@@ -1,7 +1,8 @@
 //! One project: its chat sessions, newest activity first, and the composer
-//! that submits a new task to an agent.
+//! that submits a new task (with attached files, see attachments.rs) to an agent.
 
 use crate::api::{ChatSession, SessionPage, SubmitTask, SubmittedTask};
+use crate::attachments::{self, Attachment};
 use crate::error::UserError;
 use crate::session::seg;
 
@@ -9,12 +10,15 @@ use crate::session::seg;
 pub struct ProjectState {
     pub project_id: String,
     pub sessions: Vec<ChatSession>,
+    /// Files for the next task.
+    pub attachments: Vec<Attachment>,
     pub loading: bool,
     pub submitting: bool,
     pub error: Option<UserError>,
 }
 
 observable!(ProjectViewModel, ProjectState, ProjectObserver);
+observable_attachments!(ProjectViewModel);
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ProjectViewModel {
@@ -44,21 +48,33 @@ impl ProjectViewModel {
         });
     }
 
-    /// Intent: hand `message` to an agent as a new task. Returns the new
-    /// session to open, or `None` (the reason is in `state.error`).
+    /// Intent: hand `message` and the attached files to an agent as a new
+    /// task. Returns the new session to open, or `None` (the reason is in
+    /// `state.error`).
     pub async fn submit_task(&self, message: String) -> Option<SubmittedTask> {
-        let message = message.trim().to_owned();
-        let project_id = self.state().project_id;
+        let ProjectState { project_id, attachments: attached, .. } = self.state();
+        let files = match attachments::ready(&attached) {
+            Ok(files) => files,
+            Err(e) => {
+                self.update(|s| s.error = Some(e));
+                return None;
+            }
+        };
+        let message = attachments::message_text(&message, !files.is_empty());
         if message.is_empty() || project_id.is_empty() {
             return None;
         }
         self.update(|s| s.submitting = true);
-        let result: crate::error::Result<SubmittedTask> =
-            self.app.post(&format!("/api/projects/{}/tasks/submit", seg(&project_id)), &SubmitTask { message: &message }).await;
+        let result: crate::error::Result<SubmittedTask> = self
+            .app
+            .post(&format!("/api/projects/{}/tasks/submit", seg(&project_id)), &SubmitTask { message: &message, attachments: &files })
+            .await;
         self.update(|s| {
             s.submitting = false;
-            if let Err(e) = &result {
-                s.error = Some(UserError::from(e));
+            match &result {
+                // Files added while this was on its way stay for the next task.
+                Ok(_) => s.attachments.retain(|a| !attached.iter().any(|sent| sent.id == a.id)),
+                Err(e) => s.error = Some(UserError::from(e)),
             }
         });
         let submitted = result.ok()?;

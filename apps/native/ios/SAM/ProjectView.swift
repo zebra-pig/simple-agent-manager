@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// A project's chat sessions, plus the composer that hands a new task to an agent.
+/// A project's chat sessions, plus the composer that hands a new task (and any
+/// attached files) to an agent.
 struct ProjectView: View {
     let project: Project
     let open: (SessionRef) -> Void
@@ -40,7 +41,7 @@ struct ProjectView: View {
         .refreshable { await model.core.load(projectId: project.id) }
         .task { await model.core.load(projectId: project.id) }
         .safeAreaInset(edge: .bottom) {
-            Composer(placeholder: "Describe a task…", text: $draft, busy: model.state.submitting) {
+            Composer(placeholder: "Describe a task…", text: $draft, busy: model.state.submitting, files: model.files) {
                 let message = draft
                 Task {
                     if let task = await model.core.submitTask(message: message) {
@@ -77,46 +78,90 @@ struct SessionRow: View {
     }
 }
 
-/// The floating input island: a Liquid Glass capsule with the text field and a
-/// round send button, over the content (which scrolls beneath it).
+/// The floating input island: a Liquid Glass capsule with the attach button,
+/// the text field and a round send button, over the content (which scrolls
+/// beneath it). Attached files show above the text field; files dropped on
+/// the island are attached too.
 struct Composer: View {
     let placeholder: LocalizedStringKey
     @Binding var text: String
     let busy: Bool
+    let files: ComposerFiles
     let send: () -> Void
+    @State private var dropTargeted = false
 
     private var empty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// Text or files to send, and every file uploaded.
+    private var canSend: Bool { (!empty || !files.items.isEmpty) && files.ready }
 
     var body: some View {
         GlassGroup {
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField(placeholder, text: $text, axis: .vertical)
-                    .lineLimit(1...6)
-                    .textFieldStyle(.plain)
-                    .padding(.vertical, 10)
-                    .padding(.leading, 16)
-                    .submitLabel(.send)
-                Group {
-                    if busy {
-                        ProgressView().frame(width: 36, height: 36)
-                    } else {
-                        Button(action: send) {
-                            Image(systemName: "arrow.up")
-                                .font(.body.weight(.semibold))
-                                .frame(width: 22, height: 22)
-                        }
-                        .glassProminentButton()
-                        .buttonBorderShape(.circle)
-                        .disabled(empty)
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .accessibilityLabel(Text("Send"))
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                if !files.items.isEmpty {
+                    AttachmentStrip(files: files)
                 }
-                .padding(4)
+                HStack(alignment: .bottom, spacing: 8) {
+                    AttachButton(files: files)
+                        .padding([.leading, .vertical], 4)
+                    TextField(placeholder, text: $text, axis: .vertical)
+                        .lineLimit(1...6)
+                        .textFieldStyle(.plain)
+                        .padding(.vertical, 10)
+                        .submitLabel(.send)
+                    Group {
+                        if busy {
+                            ProgressView().frame(width: 36, height: 36)
+                        } else {
+                            Button(action: send) {
+                                Image(systemName: "arrow.up")
+                                    .font(.body.weight(.semibold))
+                                    .frame(width: 22, height: 22)
+                            }
+                            .glassProminentButton()
+                            .buttonBorderShape(.circle)
+                            .disabled(!canSend)
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .accessibilityLabel(Text("Send"))
+                        }
+                    }
+                    .padding(4)
+                }
             }
             .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)
+            .overlay {
+                if dropTargeted {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                        .allowsHitTesting(false)
+                }
+            }
+            .onDrop(of: [.item], delegate: AttachmentDrop(files: files, targeted: $dropTargeted))
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+}
+
+extension ProjectModel {
+    var files: ComposerFiles {
+        ComposerFiles(
+            items: state.attachments,
+            add: { [core] name, type, size, source in
+                Task { await core.addAttachment(filename: name, contentType: type, size: size, source: source) }
+            },
+            remove: { [core] id in core.removeAttachment(id: id) }
+        )
+    }
+}
+
+extension ChatModel {
+    var files: ComposerFiles {
+        ComposerFiles(
+            items: state.attachments,
+            add: { [core] name, type, size, source in
+                Task { await core.addAttachment(filename: name, contentType: type, size: size, source: source) }
+            },
+            remove: { [core] id in core.removeAttachment(id: id) }
+        )
     }
 }

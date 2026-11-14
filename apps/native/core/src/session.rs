@@ -18,6 +18,10 @@ use crate::api::{GetSessionResponse, Viewer};
 use crate::error::{CoreError, Result, UserError};
 use crate::server::{self, DEFAULT_BASE_DOMAIN};
 
+/// Upper bound for one attachment upload: as long as its presigned URL lives
+/// (`PRESIGN_EXPIRY_SECONDS`, 15 minutes by default).
+const UPLOAD_TIMEOUT_SECS: u64 = 15 * 60;
+
 /// What the shell persists: Keychain (Apple) / Keystore-encrypted prefs (Android).
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Credentials {
@@ -373,6 +377,24 @@ impl App {
     /// POST JSON to `path` as the signed-in user.
     pub(crate) async fn post<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
         self.send(|http, base| http.post(format!("{base}{path}")).json(body)).await
+    }
+
+    /// PUT `data` to a presigned storage URL (attachments). The URL is the
+    /// grant, so no cookie goes with it; a large file on a slow network gets
+    /// longer than the API timeout.
+    pub(crate) async fn put_presigned(&self, url: &str, content_type: &str, data: Vec<u8>) -> Result<()> {
+        let res = self
+            .http
+            .put(url)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .timeout(Duration::from_secs(UPLOAD_TIMEOUT_SECS))
+            .body(data)
+            .send()
+            .await?;
+        if !res.status().is_success() {
+            return Err(CoreError::Unexpected(format!("upload HTTP {}", res.status())));
+        }
+        Ok(())
     }
 }
 

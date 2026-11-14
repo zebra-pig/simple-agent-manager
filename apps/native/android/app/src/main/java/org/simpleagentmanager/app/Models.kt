@@ -1,9 +1,11 @@
 package org.simpleagentmanager.app
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -99,6 +101,16 @@ class ProjectModel(application: Application) : AndroidViewModel(application) {
 
     fun load(projectId: String) = viewModelScope.launch { vm.load(projectId) }
 
+    /** Attaches picked or dropped files to the next task; each uploads right away. */
+    fun attach(uris: List<Uri>) = uris.forEach { uri ->
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = getApplication<Application>().contentResolver.describe(uri)
+            vm.addAttachment(file.name, file.contentType, file.size.toULong(), file.source)
+        }
+    }
+
+    fun detach(id: String) = vm.removeAttachment(id)
+
     /** Submits, then hands the new session to [open]. */
     fun submit(message: String, open: (sessionId: String) -> Unit, sent: () -> Unit) = viewModelScope.launch {
         vm.submitTask(message)?.let {
@@ -123,6 +135,16 @@ class ChatModel(application: Application) : AndroidViewModel(application) {
             override fun onStateChanged(state: ChatState) { _state.value = state }
         })
     }
+
+    /** Attaches picked or dropped files to the next follow-up; each uploads right away. */
+    fun attach(uris: List<Uri>) = uris.forEach { uri ->
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = getApplication<Application>().contentResolver.describe(uri)
+            vm.addAttachment(file.name, file.contentType, file.size.toULong(), file.source)
+        }
+    }
+
+    fun detach(id: String) = vm.removeAttachment(id)
 
     fun send(content: String, sent: () -> Unit) = viewModelScope.launch {
         if (vm.send(content)) sent()

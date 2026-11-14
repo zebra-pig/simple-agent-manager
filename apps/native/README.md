@@ -2,7 +2,7 @@
 
 Native SAM client for iOS, macOS and Android. It's an early version. You can sign in to any SAM
 server (hosted or self-hosted), browse your projects and their chat sessions, start a task, follow
-the agent's conversation and task status, open the resulting pull request, and reply to the agent.
+the agent's conversation and task status, open the resulting pull request, and reply to the agent. Tasks and replies can carry files.
 
 ## Layout
 
@@ -48,6 +48,24 @@ The app uses SAM's device flow, the same one `sam login` uses (`apps/api/src/rou
 Every API call sends that cookie. A `401` signs the app out and clears the store
 (`App::send` in `core/src/session.rs`). The flow needs no server-side changes and no
 app-specific OAuth client.
+
+## Attachments
+
+The composer takes files from its attach button (Files and Photos on Apple platforms, files and
+the photo picker on Android) and from drag and drop onto the input bar (Finder, the Files app,
+iPad and Android split screen). Each file uploads as soon as it is added, the way the web app does
+it (`apps/web/src/pages/project-chat/useAttachments.ts`), so the core needs no new server routes:
+
+1. `POST /api/projects/:id/tasks/request-upload` returns a presigned R2 URL.
+2. The core `PUT`s the bytes there (no cookie: the URL is the grant).
+3. `tasks/submit` or `sessions/:id/prompt` carries `attachments: [{uploadId, filename, size,
+   contentType}]`; the server checks them against R2 and copies them into the agent's workspace.
+
+The shell hands the core each file as a name, a type, a size and an `AttachmentSource` callback;
+the core checks the limits (`ATTACHMENT_DEFAULTS`), makes the name safe (`sanitizeFilename`),
+reads the file on a worker thread, and shows progress and errors in `state.attachments`. Send is
+blocked while a file is uploading or failed. A message with files and no text asks the agent to
+read them. Follow-ups with files need durable prompt delivery on the server, as on the web.
 
 ## Core
 
