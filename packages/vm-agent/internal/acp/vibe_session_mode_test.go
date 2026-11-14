@@ -55,7 +55,7 @@ func TestVibeStartupSendsVibeSessionMode(t *testing.T) {
 			{permissionMode: "default", want: []string{"ask"}},
 		} {
 			t.Run(session.name+"/"+tc.permissionMode, func(t *testing.T) {
-				got := startFakeAntigravityAgent(t, "mistral-vibe", &fakeAntigravityACP{}, session.previousSessionID, tc.permissionMode)
+				got := startFakeAntigravityAgent(t, "mistral-vibe", &fakeAntigravityACP{noAuthRequired: true}, session.previousSessionID, tc.permissionMode)
 				if got.err != nil {
 					t.Fatalf("Vibe startup failed: %v", got.err)
 				}

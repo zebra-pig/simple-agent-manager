@@ -28,6 +28,9 @@ type fakeAntigravityACP struct {
 	// release that drops a model or a mode would.
 	rejectModel bool
 	rejectMode  bool
+	// noAuthRequired models agents (Vibe) that authenticate from their
+	// environment and accept session/new without an authenticate call.
+	noAuthRequired bool
 
 	mu            sync.Mutex
 	authenticated []string
@@ -104,7 +107,7 @@ func (f *fakeAntigravityACP) handle(method string, raw json.RawMessage) (any, ma
 		return map[string]any{}, nil
 	case acpsdk.AgentMethodSessionNew, acpsdk.AgentMethodSessionLoad:
 		f.sessionCalls = append(f.sessionCalls, method)
-		if len(f.authenticated) == 0 {
+		if !f.noAuthRequired && len(f.authenticated) == 0 {
 			return nil, map[string]any{"code": -32000, "message": "Authentication required"}
 		}
 		var params struct {
