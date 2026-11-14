@@ -28,6 +28,12 @@ type fakeAntigravityACP struct {
 	// release that drops a model or a mode would.
 	rejectModel bool
 	rejectMode  bool
+	// noAuthRequired models agents (Vibe) that authenticate from their
+	// environment and accept session/new without an authenticate call.
+	noAuthRequired bool
+	// acceptedModes overrides the mode ids the fake advertises (Antigravity's
+	// default, auto_edit and yolo when empty).
+	acceptedModes []string
 
 	mu            sync.Mutex
 	authenticated []string
@@ -104,7 +110,7 @@ func (f *fakeAntigravityACP) handle(method string, raw json.RawMessage) (any, ma
 		return map[string]any{}, nil
 	case acpsdk.AgentMethodSessionNew, acpsdk.AgentMethodSessionLoad:
 		f.sessionCalls = append(f.sessionCalls, method)
-		if len(f.authenticated) == 0 {
+		if !f.noAuthRequired && len(f.authenticated) == 0 {
 			return nil, map[string]any{"code": -32000, "message": "Authentication required"}
 		}
 		var params struct {
@@ -132,7 +138,11 @@ func (f *fakeAntigravityACP) handle(method string, raw json.RawMessage) (any, ma
 			ModeID string `json:"modeId"`
 		}
 		_ = json.Unmarshal(raw, &params)
-		if f.rejectMode || !slices.Contains([]string{"default", "auto_edit", "yolo"}, params.ModeID) {
+		accepted := f.acceptedModes
+		if len(accepted) == 0 {
+			accepted = []string{"default", "auto_edit", "yolo"}
+		}
+		if f.rejectMode || !slices.Contains(accepted, params.ModeID) {
 			return nil, map[string]any{"code": -32602, "message": "unknown mode"}
 		}
 		f.modes = append(f.modes, params.ModeID)
