@@ -1,35 +1,25 @@
 //! Device-flow sign-in, an authenticated read and session expiry against a
 //! scripted stand-in for the SAM API.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+mod common;
 
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use common::{serve, MemoryStore, Request};
 use sam_core::{App, AuthStatus, CredentialStore, Credentials, ProjectListViewModel};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
-/// Clones share one slot, so the test can look at what the app saved.
-#[derive(Default, Clone)]
-struct MemoryStore(Arc<Mutex<Option<Credentials>>>);
-
-impl CredentialStore for MemoryStore {
-    fn load(&self) -> Option<Credentials> {
-        self.0.lock().unwrap().clone()
-    }
-    fn save(&self, credentials: Credentials) {
-        *self.0.lock().unwrap() = Some(credentials);
-    }
-    fn clear(&self) {
-        *self.0.lock().unwrap() = None;
-    }
-}
 
 const COOKIE: &str = "__Secure-better-auth.session_token=abc.sig";
 
-/// Answers one request per connection: (status, JSON body).
-fn route(method: &str, path: &str, headers: &str, polls: &AtomicUsize, valid: bool) -> (u16, String) {
-    let authed = valid && headers.lines().any(|l| l.eq_ignore_ascii_case(&format!("cookie: {COOKIE}")));
-    match (method, path) {
+/// The device flow and two authenticated reads; `valid` false forgets the session.
+async fn api(valid: Arc<AtomicBool>) -> String {
+    let polls = Arc::new(AtomicUsize::new(0));
+    serve(Arc::new(move |r: &Request| route(r, &polls, valid.load(Ordering::SeqCst)))).await
+}
+
+fn route(r: &Request, polls: &AtomicUsize, valid: bool) -> (u16, String) {
+    let authed = valid && r.header("cookie").as_deref() == Some(COOKIE);
+    match (r.method.as_str(), r.path.as_str()) {
         ("POST", "/api/auth/device/code") => (
             200,
             r#"{"deviceCode":"dev","userCode":"ABCD-1234","verificationUri":"https://app.test/device",
@@ -54,56 +44,10 @@ fn route(method: &str, path: &str, headers: &str, polls: &AtomicUsize, valid: bo
     }
 }
 
-async fn serve(valid: Arc<std::sync::atomic::AtomicBool>) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let polls = Arc::new(AtomicUsize::new(0));
-    tokio::spawn(async move {
-        loop {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let polls = polls.clone();
-            let valid = valid.clone();
-            tokio::spawn(async move {
-                let mut buf = Vec::new();
-                let mut chunk = [0u8; 4096];
-                // Headers, then Content-Length bytes of body.
-                let (head, body_len, head_end) = loop {
-                    let n = socket.read(&mut chunk).await.unwrap();
-                    if n == 0 {
-                        return;
-                    }
-                    buf.extend_from_slice(&chunk[..n]);
-                    if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-                        let head = String::from_utf8_lossy(&buf[..i]).to_string();
-                        let len = head
-                            .lines()
-                            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap()))
-                            .unwrap_or(0usize);
-                        break (head, len, i + 4);
-                    }
-                };
-                while buf.len() < head_end + body_len {
-                    let n = socket.read(&mut chunk).await.unwrap();
-                    buf.extend_from_slice(&chunk[..n]);
-                }
-                let mut first = head.lines().next().unwrap().split(' ');
-                let (method, path) = (first.next().unwrap(), first.next().unwrap());
-                let (status, body) = route(method, path, &head, &polls, valid.load(Ordering::SeqCst));
-                let res = format!(
-                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                socket.write_all(res.as_bytes()).await.unwrap();
-            });
-        }
-    });
-    format!("http://localhost:{}", addr.port())
-}
-
 #[tokio::test]
 async fn device_flow_then_authenticated_reads_then_expiry() {
-    let valid = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let server = serve(valid.clone()).await;
+    let valid = Arc::new(AtomicBool::new(true));
+    let server = api(valid.clone()).await;
     let store = MemoryStore::default();
     let app = App::new(Box::new(store.clone()), None);
     assert_eq!(app.state().status, AuthStatus::SignedOut);
@@ -137,7 +81,7 @@ async fn device_flow_then_authenticated_reads_then_expiry() {
 
 #[tokio::test]
 async fn cancel_stops_the_poll() {
-    let server = serve(Arc::new(std::sync::atomic::AtomicBool::new(true))).await;
+    let server = api(Arc::new(AtomicBool::new(true))).await;
     let app = App::new(Box::new(MemoryStore::default()), None);
     app.begin_sign_in(server).await.unwrap();
     let waiting = {

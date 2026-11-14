@@ -24,6 +24,10 @@
     <string name="session">Session</string>
     <string name="reply_to_agent">Reply to the agent…</string>
     <string name="open_pull_request">Open pull request</string>
+    <string name="attach_files">Attach files</string>
+    <string name="choose_files">Files</string>
+    <string name="photos">Photos</string>
+    <string name="remove_file">Remove %1$s</string>
     <plurals name="active_sessions">
         <item quantity="one">%1$d active</item>
         <item quantity="other">%1$d active</item>
@@ -53,4 +57,10 @@
     <string name="error_https_required">The server address must start with https://.</string>
     <string name="error_sign_in_expired">The sign-in code expired. Please try again.</string>
     <string name="error_unexpected">Something went wrong (%1$s).</string>
+    <string name="error_file_empty">This file is empty.</string>
+    <string name="error_file_too_large">Larger than the %1$s limit.</string>
+    <string name="error_file_unreadable">This file can\'t be read.</string>
+    <string name="error_too_many_files">You can attach up to %1$d files.</string>
+    <string name="error_attachments_too_large">Together the files can be at most %1$s.</string>
+    <string name="error_attachments_not_ready">Wait for the files to upload, or remove the ones that failed.</string>
 </resources>

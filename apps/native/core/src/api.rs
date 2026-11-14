@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::attachments::TaskAttachment;
+
 /// `GET /api/auth/get-session` -> `user`.
 #[derive(Debug, Clone, PartialEq, Deserialize, uniffi::Record)]
 pub struct Viewer {
@@ -150,6 +152,8 @@ pub(crate) struct SessionDetail {
 #[derive(Serialize)]
 pub(crate) struct SubmitTask<'a> {
     pub message: &'a str,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub attachments: &'a [TaskAttachment],
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, uniffi::Record)]
@@ -163,6 +167,8 @@ pub struct SubmittedTask {
 #[derive(Serialize)]
 pub(crate) struct Prompt<'a> {
     pub content: &'a str,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub attachments: &'a [TaskAttachment],
 }
 
 /// The agent stores a reply (and a thought) as one row per streamed chunk; the

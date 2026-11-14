@@ -53,7 +53,7 @@ struct ChatView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if canReply {
-                Composer(placeholder: "Reply to the agent…", text: $draft, busy: chat.state.sending) {
+                Composer(placeholder: "Reply to the agent…", text: $draft, busy: chat.state.sending, files: chat.files) {
                     let content = draft
                     Task { if await chat.core.send(content: content) { draft = "" } }
                 }

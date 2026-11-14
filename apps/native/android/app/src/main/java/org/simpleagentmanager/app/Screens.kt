@@ -2,9 +2,12 @@
 
 package org.simpleagentmanager.app
 
+import android.net.Uri
 import android.os.Build
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -58,6 +61,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,6 +81,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import org.simpleagentmanager.core.AppState
+import org.simpleagentmanager.core.Attachment
+import org.simpleagentmanager.core.AttachmentStatus
 import org.simpleagentmanager.core.AuthStatus
 import org.simpleagentmanager.core.ChatMessage
 import org.simpleagentmanager.core.ChatSession
@@ -226,7 +232,8 @@ private fun ProjectScreen(route: Route.Project, model: ProjectModel, onBack: () 
     Scaffold(
         topBar = { BackBar(route.name, onBack) },
         bottomBar = {
-            Composer(stringResource(R.string.describe_task), draft, { draft = it }, busy = state.submitting) {
+            val attachments = if (state.projectId == route.id) state.attachments else emptyList()
+            Composer(stringResource(R.string.describe_task), draft, { draft = it }, busy = state.submitting, attachments, model::attach, model::detach) {
                 model.submit(draft, open = onOpen, sent = { draft = "" })
             }
         },
@@ -289,7 +296,7 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
         },
         bottomBar = {
             if (session != null && (session.status == SessionStatus.ACTIVE || session.status == SessionStatus.SLEEPING)) {
-                Composer(stringResource(R.string.reply_to_agent), draft, { draft = it }, busy = state.sending) {
+                Composer(stringResource(R.string.reply_to_agent), draft, { draft = it }, busy = state.sending, if (current) state.attachments else emptyList(), model::attach, model::detach) {
                     model.send(draft) { draft = "" }
                 }
             }
@@ -377,27 +384,46 @@ private fun BackBar(title: String, onBack: () -> Unit, actions: @Composable RowS
     )
 }
 
-/** Text field + send button under a list. */
+/**
+ * Attach button, text field and send button under a list, with the attached
+ * files above the field. Files dropped on it are attached too.
+ */
 @Composable
-private fun Composer(placeholder: String, text: String, onChange: (String) -> Unit, busy: Boolean, onSend: () -> Unit) {
-    Surface(tonalElevation = 3.dp) {
-        Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = onChange,
-                placeholder = { Text(placeholder) },
-                maxLines = 6,
-                modifier = Modifier.weight(1f),
-            )
-            Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                if (busy) {
-                    CircularProgressIndicator(Modifier.size(24.dp))
-                } else {
-                    IconButton(onClick = onSend, enabled = text.isNotBlank()) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
+private fun Composer(
+    placeholder: String,
+    text: String,
+    onChange: (String) -> Unit,
+    busy: Boolean,
+    attachments: List<Attachment>,
+    onAttach: (List<Uri>) -> Unit,
+    onRemove: (String) -> Unit,
+    onSend: () -> Unit,
+) {
+    var dropHover by remember { mutableStateOf(false) }
+    val ready = attachments.all { it.status is AttachmentStatus.Ready }
+    Surface(
+        tonalElevation = 3.dp,
+        modifier = Modifier.fileDropTarget(onHover = { dropHover = it }, onDrop = onAttach),
+        border = if (dropHover) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+    ) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(vertical = 8.dp)) {
+            if (attachments.isNotEmpty()) AttachmentStrip(attachments, onRemove)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
+                Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) { AttachButton(onAttach) }
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onChange,
+                    placeholder = { Text(placeholder) },
+                    maxLines = 6,
+                    modifier = Modifier.weight(1f),
+                )
+                Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                    if (busy) {
+                        CircularProgressIndicator(Modifier.size(24.dp))
+                    } else {
+                        IconButton(onClick = onSend, enabled = (text.isNotBlank() || attachments.isNotEmpty()) && ready) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
+                        }
                     }
                 }
             }
@@ -459,7 +485,7 @@ private fun taskStatusLabel(status: String): String = when (status) {
 
 /** The core sends no wording; this gives a `UserError` its words. */
 @Composable
-private fun UserError.message(): String = when (this) {
+fun UserError.message(): String = when (this) {
     is UserError.Offline -> stringResource(R.string.error_offline)
     UserError.SessionEnded -> stringResource(R.string.error_session_ended)
     is UserError.InvalidServer -> stringResource(R.string.error_invalid_server, input)
@@ -467,6 +493,12 @@ private fun UserError.message(): String = when (this) {
     UserError.SignInExpired -> stringResource(R.string.error_sign_in_expired)
     is UserError.Server -> message
     is UserError.Unexpected -> stringResource(R.string.error_unexpected, detail)
+    UserError.FileEmpty -> stringResource(R.string.error_file_empty)
+    is UserError.FileTooLarge -> stringResource(R.string.error_file_too_large, Formatter.formatShortFileSize(LocalContext.current, maxBytes.toLong()))
+    UserError.FileUnreadable -> stringResource(R.string.error_file_unreadable)
+    is UserError.TooManyFiles -> stringResource(R.string.error_too_many_files, max.toInt())
+    is UserError.AttachmentsTooLarge -> stringResource(R.string.error_attachments_too_large, Formatter.formatShortFileSize(LocalContext.current, maxBytes.toLong()))
+    UserError.AttachmentsNotReady -> stringResource(R.string.error_attachments_not_ready)
 }
 
 /** Execution steps are progress detail: `in_progress` -> `In progress`, not translated. */

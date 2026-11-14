@@ -19,8 +19,19 @@ extension UserError {
         case .signInExpired: String(localized: "The sign-in code expired. Please try again.")
         case let .server(message): message
         case let .unexpected(detail): String(localized: "Something went wrong (\(detail)).")
+        case .fileEmpty: String(localized: "This file is empty.")
+        case let .fileTooLarge(maxBytes): String(localized: "Larger than the \(fileSize(maxBytes)) limit.")
+        case .fileUnreadable: String(localized: "This file can't be read.")
+        case let .tooManyFiles(max): String(localized: "You can attach up to \(Int(max)) files.")
+        case let .attachmentsTooLarge(maxBytes): String(localized: "Together the files can be at most \(fileSize(maxBytes)).")
+        case .attachmentsNotReady: String(localized: "Wait for the files to upload, or remove the ones that failed.")
         }
     }
+}
+
+/// "50 MB".
+func fileSize(_ bytes: UInt64) -> String {
+    ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
 }
 
 func statusLabel(_ session: ChatSession) -> String {

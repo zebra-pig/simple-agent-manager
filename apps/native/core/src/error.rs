@@ -14,6 +14,13 @@ pub enum CoreError {
     HttpsRequired,
     #[error("sign-in code expired")]
     SignInExpired,
+    /// An attached file could not be read on the device.
+    #[error("file unreadable")]
+    Unreadable,
+    #[error("file is empty")]
+    FileEmpty,
+    #[error("file larger than {0} bytes")]
+    FileTooLarge(u64),
     /// A message written by the SAM server (its own copy, shown as is).
     #[error("server: {0}")]
     Server(String),
@@ -41,6 +48,18 @@ pub enum UserError {
     Server { message: String },
     /// Unexpected response. `detail` is technical (for bug reports).
     Unexpected { detail: String },
+    /// An attached file has no content.
+    FileEmpty,
+    /// An attached file is over the per-file limit.
+    FileTooLarge { max_bytes: u64 },
+    /// An attached file could not be read on the device (moved, deleted, no access).
+    FileUnreadable,
+    /// The message already has the most files it can carry.
+    TooManyFiles { max: u32 },
+    /// The files together would be over the per-message limit.
+    AttachmentsTooLarge { max_bytes: u64 },
+    /// Some files are still uploading or failed; remove the failed ones to send.
+    AttachmentsNotReady,
 }
 
 impl From<&CoreError> for UserError {
@@ -51,6 +70,9 @@ impl From<&CoreError> for UserError {
             CoreError::InvalidServer(input) => UserError::InvalidServer { input: input.clone() },
             CoreError::HttpsRequired => UserError::HttpsRequired,
             CoreError::SignInExpired => UserError::SignInExpired,
+            CoreError::Unreadable => UserError::FileUnreadable,
+            CoreError::FileEmpty => UserError::FileEmpty,
+            CoreError::FileTooLarge(max_bytes) => UserError::FileTooLarge { max_bytes: *max_bytes },
             CoreError::Server(message) => UserError::Server { message: message.clone() },
             CoreError::Unexpected(detail) => UserError::Unexpected { detail: detail.clone() },
         }
