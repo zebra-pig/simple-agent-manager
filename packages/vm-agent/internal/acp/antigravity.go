@@ -60,11 +60,33 @@ var antigravitySessionModes = map[string]string{
 	"bypassPermissions": "yolo",
 }
 
+// vibeSessionModes maps SAM permission modes to the agent names mistral-vibe
+// 2.25.8 advertises as ACP session modes (ask, plan, accept-edits,
+// auto-approve; vibe/core/agents/models.py BuiltinAgentName). Vibe's
+// set_session_mode silently ignores an unknown mode id, so sending SAM's own
+// names (bypassPermissions) left every session in "ask", whose approval
+// requests SAM cancels when nobody is prompting: every tool call was denied.
+// dontAsk maps to ask: Vibe has no "deny unless pre-approved" mode, and SAM
+// answering an unanswerable approval with cancel gives that behaviour.
+// Every mode is sent explicitly so a loaded session cannot keep an older one.
+var vibeSessionModes = map[string]string{
+	"":                  "ask",
+	"default":           "ask",
+	"plan":              "plan",
+	"acceptEdits":       "accept-edits",
+	"dontAsk":           "ask",
+	"bypassPermissions": "auto-approve",
+}
+
 // acpSessionModeID translates a SAM permission mode to the agent's mode id.
 // ok is false when no SetSessionMode request should be sent.
 func acpSessionModeID(agentType, permissionMode string) (modeID string, ok bool) {
-	if agentType == "google-antigravity" {
+	switch agentType {
+	case "google-antigravity":
 		modeID, ok = antigravitySessionModes[permissionMode]
+		return modeID, ok
+	case "mistral-vibe":
+		modeID, ok = vibeSessionModes[permissionMode]
 		return modeID, ok
 	}
 	if permissionMode == "" || permissionMode == "default" {
