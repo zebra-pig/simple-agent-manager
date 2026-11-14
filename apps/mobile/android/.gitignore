@@ -1,0 +1,13 @@
+.gradle
+.kotlin
+build/
+local.properties
+.idea
+*.iml
+captures
+# Built by apps/mobile/scripts/build-android.sh (under app/build/rust by default)
+app/src/main/jniLibs/
+# Signing material never goes in git
+keystore.properties
+*.jks
+*.keystore

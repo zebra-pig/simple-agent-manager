@@ -1,0 +1,5 @@
+[bindings.kotlin]
+package_name = "org.simpleagentmanager.core"
+
+[bindings.swift]
+module_name = "SamCore"

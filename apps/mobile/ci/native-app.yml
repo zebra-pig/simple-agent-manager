@@ -1,0 +1,89 @@
+name: Native App
+# Lives here until someone with the `workflows` permission moves it to
+# .github/workflows/native-app.yml (an automation token cannot add workflows).
+
+# Builds the native app (apps/mobile): the shared Rust core with its tests, the
+# Android shell, and the iOS + macOS shell. Nothing is signed or published.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/native-app.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/native-app.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-app-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  core:
+    name: Rust core
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/mobile/core
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup default stable
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --locked
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal && rustup default stable
+          rustup target add aarch64-linux-android x86_64-linux-android
+          cargo install cargo-ndk --locked
+      - name: Build debug APK
+        working-directory: apps/mobile/android
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sam-android-debug
+          path: apps/mobile/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+  apple:
+    name: iOS + macOS
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal && rustup default stable
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
+      - name: Build Rust core XCFramework
+        run: apps/mobile/scripts/build-ios.sh
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild -project apps/mobile/ios/SAM.xcodeproj -scheme SAM \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Build for macOS
+        run: |
+          xcodebuild -project apps/mobile/ios/SAM.xcodeproj -scheme SAM \
+            -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO build
