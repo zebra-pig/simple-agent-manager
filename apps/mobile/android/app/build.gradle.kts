@@ -12,6 +12,10 @@ kotlin {
     }
 }
 
+// Brand and identity, from the environment so white-label builds need no code changes
+// (same names as the iOS build, see apps/mobile/ios/Config/Brand.xcconfig).
+fun brand(name: String, default: String) = System.getenv(name)?.takeIf { it.isNotBlank() } ?: default
+
 // The Rust core: .so files + generated Kotlin bindings, both build outputs.
 val rustOut = layout.projectDirectory.dir("build/rust") // == the source dirs below
 val mobileDir = rootProject.layout.projectDirectory.dir("..")
@@ -21,16 +25,21 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "org.simpleagentmanager.app"
+        applicationId = brand("SAM_BUNDLE_ID", "org.simpleagentmanager.app")
         minSdk = 26
         targetSdk = 36
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
         versionName = System.getenv("VERSION_NAME") ?: "0.1"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        resValue("string", "app_name", brand("SAM_APP_NAME", "SAM"))
+        // The platform's BASE_DOMAIN to suggest; the app talks to api.<BASE_DOMAIN>.
+        buildConfigField("String", "BASE_DOMAIN", "\"${brand("BASE_DOMAIN", "simple-agent-manager.org")}\"")
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
+        resValues = true
     }
 
     buildTypes {

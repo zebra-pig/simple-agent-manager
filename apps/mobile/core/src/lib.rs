@@ -18,8 +18,10 @@ mod session;
 
 pub use api::{ChatMessage, ChatSession, MessageRole, Project, SessionStatus, SubmittedTask, TaskSummary, Viewer};
 pub use chat::*;
+pub use error::UserError;
 pub use project::*;
 pub use projects::*;
+pub use server::deployment_name;
 pub use session::*;
 
 uniffi::setup_scaffolding!();

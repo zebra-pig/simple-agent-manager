@@ -19,7 +19,7 @@ struct AccountView: View {
                     LabeledContent("Server", value: app.state.serverUrl)
                 }
                 if let error = app.state.error {
-                    Section { Text(error).foregroundStyle(.red) }
+                    Section { Text(error.message).foregroundStyle(.red) }
                 }
                 Section {
                     Button("Sign out", role: .destructive) {

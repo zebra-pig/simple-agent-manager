@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>SAM</string>
+	<string>$(SAM_APP_NAME)</string>
+	<key>SAMBaseDomain</key>
+	<string>$(BASE_DOMAIN)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

@@ -30,7 +30,7 @@ struct ProjectsView: View {
         NavigationStack(path: $path) {
             List {
                 if let error = list.state.error {
-                    Text(error).foregroundStyle(.red)
+                    Text(error.message).foregroundStyle(.red)
                 }
                 ForEach(projects, id: \.id) { project in
                     NavigationLink(value: project) { ProjectRow(project: project) }
@@ -41,7 +41,7 @@ struct ProjectsView: View {
                     ProgressView()
                 } else if list.state.projects.isEmpty && list.state.error == nil {
                     ContentUnavailableView("No projects", systemImage: "folder",
-                                           description: Text("Create a project in SAM on the web to get started."))
+                                           description: Text("Create a project in \(Brand.name) on the web to get started."))
                 }
             }
             .navigationTitle("Projects")
@@ -73,7 +73,7 @@ struct ProjectRow: View {
                 Text(project.name).font(.headline)
                 Spacer()
                 if project.activeSessionCount > 0 {
-                    Label("\(project.activeSessionCount)", systemImage: "bolt.fill")
+                    Label { Text(project.activeSessionCount, format: .number) } icon: { Image(systemName: "bolt.fill") }
                         .font(.caption)
                         .foregroundStyle(.green)
                 }

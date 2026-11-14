@@ -22,7 +22,7 @@ class SamApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        core = App(KeystoreCredentialStore(this))
+        core = App(KeystoreCredentialStore(this), BuildConfig.BASE_DOMAIN)
     }
 }
 

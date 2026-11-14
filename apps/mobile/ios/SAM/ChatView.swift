@@ -24,7 +24,7 @@ struct ChatView: View {
                         MessageView(message: message).id(message.id)
                     }
                     if let error = chat.state.error {
-                        Text(error).foregroundStyle(.red).font(.callout)
+                        Text(error.message).foregroundStyle(.red).font(.callout)
                     }
                 }
                 .padding()
@@ -39,7 +39,7 @@ struct ChatView: View {
         .overlay {
             if chat.state.messages.isEmpty && chat.state.loading { ProgressView() }
         }
-        .navigationTitle(chat.state.session?.topic ?? "Session")
+        .navigationTitle(chat.state.session?.topic ?? String(localized: "Session"))
         .inlineTitle()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -91,7 +91,7 @@ struct MessageView: View {
                 Text(message.content)
                     .textSelection(.enabled)
                     .padding(10)
-                    .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
+                    .glass(in: RoundedRectangle(cornerRadius: 18, style: .continuous), tint: .accentColor.opacity(0.35))
             }
         case .assistant:
             Text(markdown(message.content)).textSelection(.enabled)
@@ -131,12 +131,12 @@ struct TaskCard: View {
                 Label(taskStatusLabel(task.status), systemImage: "checklist")
                     .font(.subheadline.bold())
                 if let step = task.executionStep, task.status == "in_progress" || task.status == "queued" {
-                    Text(taskStatusLabel(step)).font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: humanized(step)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
             }
             if let error = task.errorMessage {
-                Text(error).font(.callout).foregroundStyle(.red)
+                Text(verbatim: error).font(.callout).foregroundStyle(.red)
             }
             if let summary = task.outputSummary {
                 Text(summary).font(.callout)
@@ -144,14 +144,15 @@ struct TaskCard: View {
             if let pr = task.outputPrUrl, let url = URL(string: pr) {
                 Button("Open pull request", systemImage: "arrow.triangle.pull") { open(url) }
                     .font(.callout)
+                    .glassButton()
             } else if let branch = task.outputBranch {
                 Label(branch, systemImage: "arrow.triangle.branch")
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        .glass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }

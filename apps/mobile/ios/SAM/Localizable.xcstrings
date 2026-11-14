@@ -1,0 +1,114 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ is not a server address." : {
+
+    },
+    "Account" : {
+
+    },
+    "Approve this code in the browser" : {
+
+    },
+    "Can't reach the server. Check your connection and try again." : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Cancelled" : {
+      "comment" : "Session or task status"
+    },
+    "Completed" : {
+      "comment" : "Session or task status"
+    },
+    "Create a project in %@ on the web to get started." : {
+
+    },
+    "Delegated" : {
+      "comment" : "Session or task status"
+    },
+    "Describe a task below and an agent picks it up." : {
+
+    },
+    "Done" : {
+
+    },
+    "Draft" : {
+      "comment" : "Session or task status"
+    },
+    "Email" : {
+
+    },
+    "Failed" : {
+      "comment" : "Session or task status"
+    },
+    "In progress" : {
+      "comment" : "Session or task status"
+    },
+    "Name" : {
+
+    },
+    "No projects" : {
+
+    },
+    "No sessions yet" : {
+
+    },
+    "Open again" : {
+
+    },
+    "Open pull request" : {
+
+    },
+    "Projects" : {
+
+    },
+    "Queued" : {
+      "comment" : "Session or task status"
+    },
+    "Ready" : {
+      "comment" : "Session or task status"
+    },
+    "Server" : {
+
+    },
+    "Sign in" : {
+
+    },
+    "Sign out" : {
+
+    },
+    "Sleeping" : {
+      "comment" : "Session or task status"
+    },
+    "Something went wrong (%@)." : {
+
+    },
+    "Stopped" : {
+      "comment" : "Session or task status"
+    },
+    "The server address must start with https://." : {
+
+    },
+    "The sign-in code expired. Please try again." : {
+
+    },
+    "Unknown" : {
+      "comment" : "Session or task status"
+    },
+    "Waiting for you" : {
+
+    },
+    "Working" : {
+
+    },
+    "Your coding agents, at hand." : {
+
+    },
+    "Your session has ended. Please sign in again." : {
+
+    }
+  },
+  "version" : "1.0"
+}

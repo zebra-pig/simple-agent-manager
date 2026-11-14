@@ -34,8 +34,10 @@ flowchart LR
 
 The app uses SAM's device flow, the same one `sam login` uses (`apps/api/src/routes/device-flow.ts`):
 
-1. The user enters the server (`api.simple-agent-manager.org` by default). Pasting the web app's
-   address (`app.<domain>`) also works because `server::normalize` maps it to `api.<domain>`.
+1. The user taps Sign in. The app signs in to the deployment its build presets (`BASE_DOMAIN`, see
+   [White-label builds](#white-label-builds)); self-hosters tap "Use another server" and type
+   their domain. `server::normalize` maps a base domain, the web app (`app.<domain>`) or the API
+   to `https://api.<domain>`, the platform's URL rule. The API address never appears in the UI.
 2. `App::begin_sign_in` creates a device code (`POST /api/auth/device/code`). The shell shows the
    code and opens the approval page (`app.<domain>/device?code=…`) in the browser, where the user
    is already signed in to SAM.
@@ -66,8 +68,8 @@ apps/mobile/scripts/build-ios.sh                                                
 open apps/mobile/ios/SAM.xcodeproj
 ```
 
-Pick your team under Signing & Capabilities (the project has no `DEVELOPMENT_TEAM`). Bundle id:
-`org.simpleagentmanager.app`, iOS 17+ and macOS 14+. Swift sources live in `ios/SAM/`, a
+Set your team and bundle id as described in [White-label builds](#white-label-builds); the
+project itself has neither. iOS 17+ and macOS 14+. Swift sources live in `ios/SAM/`, a
 synchronized folder, so Xcode picks up new files without project edits. Build without signing:
 
 ```sh
@@ -77,8 +79,58 @@ xcodebuild -project apps/mobile/ios/SAM.xcodeproj -scheme SAM \
   -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO build
 ```
 
-For Xcode Cloud, `ios/ci_scripts/ci_post_clone.sh` installs Rust and runs `build-ios.sh`
-before Xcode builds.
+The app icon is an Icon Composer file, `ios/SAM/AppIcon.icon` (the SAM logo on its green), so
+it renders with Liquid Glass on iOS 26 and macOS 26. There is no asset-catalog icon. The app's own
+floating controls (the composer island, buttons, the task card, your messages) use Liquid Glass
+through `ios/SAM/Glass.swift`, with a material fallback before iOS 26 and macOS 26.
+
+### Xcode Cloud
+
+`ios/ci_scripts/ci_post_clone.sh` writes the build's identity from the workflow's environment
+variables (`scripts/configure-ios.sh`), installs Rust and runs `build-ios.sh` before Xcode builds.
+To set it up for your own copy:
+
+1. Register an explicit App ID for your bundle id under your team (developer.apple.com →
+   Identifiers), and create the app in App Store Connect with that bundle id.
+2. Locally, write your identity once and open the project:
+   `SAM_TEAM_ID=… SAM_BUNDLE_ID=… apps/mobile/scripts/configure-ios.sh`.
+3. In Xcode: Product → Xcode Cloud → Create Workflow, product `SAM`, scheme `SAM`.
+4. In the workflow's Environment, add `SAM_TEAM_ID` and `SAM_BUNDLE_ID` (and any other variable
+   from the table below). Add an Archive action for iOS (and macOS if you want both).
+
+## White-label builds
+
+Nothing in the repository names a team or a private bundle id. `ios/Config/Brand.xcconfig` holds
+the upstream defaults, and `ios/Config/Local.xcconfig` (gitignored) overrides them.
+`scripts/configure-ios.sh` writes that file from the environment, and Xcode Cloud runs it. Android
+reads the same variables in `android/app/build.gradle.kts`.
+
+| Variable                | Default                      | What                                                                    |
+| ----------------------- | ---------------------------- | ----------------------------------------------------------------------- |
+| `BASE_DOMAIN`           | `simple-agent-manager.org`   | The deployment the app signs in to, named as on the platform (`api.` is added) |
+| `SAM_BUNDLE_ID`         | `org.simpleagentmanager.app` | Bundle id (iOS/macOS) and application id (Android)                      |
+| `SAM_APP_NAME`          | `SAM`                        | Name under the icon and on the sign-in screen                           |
+| `SAM_TEAM_ID`           | (none)                       | Apple Developer team id (iOS/macOS signing)                             |
+| `SAM_MARKETING_VERSION` | `0.1`                        | Version (iOS/macOS; Android uses `VERSION_NAME`)                        |
+| `SAM_BUILD_NUMBER`      | `1`, or `CI_BUILD_NUMBER`    | Build number (iOS/macOS; Android uses `VERSION_CODE`)                   |
+
+The upstream bundle id belongs to the upstream project. Build your own copy under your own id.
+
+## Strings and translation
+
+Every user-facing string goes through the platform's string resources, even before there are
+translations:
+
+- **Apple**: the String Catalog `ios/SAM/Localizable.xcstrings`. SwiftUI literals (`Text("…")`,
+  `Button("…")`) are extracted automatically when Xcode builds. Strings built in code use
+  `String(localized:)`. Use `Text(verbatim:)` for values that must not be translated (ids, code,
+  the brand name).
+- **Android**: `android/app/src/main/res/values/strings.xml` through `stringResource` and
+  `pluralStringResource`. No literals in composables.
+- **Core**: the Rust core sends no wording. Errors reach the screens as `UserError` values, and
+  each shell writes and translates their text (`UserError.message` in `ios/SAM/Format.swift`,
+  `UserError.message()` in `Screens.kt`). Text the SAM server sends (`UserError::Server`, task
+  summaries) is shown as is.
 
 ## Android
 
@@ -114,4 +166,5 @@ git mv apps/mobile/ci/native-app.yml .github/workflows/native-app.yml
 - Push notifications for sessions that need attention.
 - Task options (agent, profile, VM size) and attachments: tasks use the project's defaults.
 - Older messages: the chat shows the latest page only.
-- Release signing and store uploads.
+- Translations: the strings are extracted, but only English exists so far.
+- Release signing and store uploads on Android.

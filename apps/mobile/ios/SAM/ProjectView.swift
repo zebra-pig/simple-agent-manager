@@ -16,7 +16,7 @@ struct ProjectView: View {
     var body: some View {
         List {
             if let error = model.state.error {
-                Text(error).foregroundStyle(.red)
+                Text(error.message).foregroundStyle(.red)
             }
             ForEach(model.state.sessions, id: \.id) { session in
                 Button {
@@ -65,7 +65,7 @@ struct SessionRow: View {
                     .lineLimit(2)
                 HStack(spacing: 6) {
                     Text(statusLabel(session))
-                    Text("·")
+                    Text(verbatim: "·")
                     Text(Date(millis: session.lastMessageAt ?? session.startedAt), style: .relative)
                 }
                 .font(.caption)
@@ -77,9 +77,10 @@ struct SessionRow: View {
     }
 }
 
-/// Text field + send button pinned under a list.
+/// The floating input island: a Liquid Glass capsule with the text field and a
+/// round send button, over the content (which scrolls beneath it).
 struct Composer: View {
-    let placeholder: String
+    let placeholder: LocalizedStringKey
     @Binding var text: String
     let busy: Bool
     let send: () -> Void
@@ -87,24 +88,35 @@ struct Composer: View {
     private var empty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(placeholder, text: $text, axis: .vertical)
-                .lineLimit(1...6)
-                .textFieldStyle(.roundedBorder)
-            if busy {
-                ProgressView().frame(width: 28, height: 28)
-            } else {
-                Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill").font(.title)
+        GlassGroup {
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(placeholder, text: $text, axis: .vertical)
+                    .lineLimit(1...6)
+                    .textFieldStyle(.plain)
+                    .padding(.vertical, 10)
+                    .padding(.leading, 16)
+                    .submitLabel(.send)
+                Group {
+                    if busy {
+                        ProgressView().frame(width: 36, height: 36)
+                    } else {
+                        Button(action: send) {
+                            Image(systemName: "arrow.up")
+                                .font(.body.weight(.semibold))
+                                .frame(width: 22, height: 22)
+                        }
+                        .glassProminentButton()
+                        .buttonBorderShape(.circle)
+                        .disabled(empty)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .accessibilityLabel(Text("Send"))
+                    }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(empty ? Color.secondary : Color.accentColor)
-                .disabled(empty)
-                .keyboardShortcut(.return, modifiers: .command)
+                .padding(4)
             }
+            .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 }

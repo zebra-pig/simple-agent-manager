@@ -1,13 +1,14 @@
 //! The project list: the app's home screen.
 
 use crate::api::{Project, ProjectPage};
+use crate::error::UserError;
 use crate::session::seg;
 
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
 pub struct ProjectListState {
     pub projects: Vec<Project>,
     pub loading: bool,
-    pub error: Option<String>,
+    pub error: Option<UserError>,
 }
 
 observable!(ProjectListViewModel, ProjectListState, ProjectListObserver);
@@ -46,7 +47,7 @@ impl ProjectListViewModel {
                     s.projects = projects;
                     s.error = None;
                 }
-                Err(e) => s.error = Some(e.to_string()),
+                Err(e) => s.error = Some(UserError::from(&e)),
             }
         });
     }

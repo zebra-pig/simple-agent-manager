@@ -34,6 +34,8 @@ struct SignInView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.openURL) private var openURL
     @State private var server = ""
+    /// Self-hosters type their own deployment; everyone else just taps Sign in.
+    @State private var otherServer = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -41,7 +43,7 @@ struct SignInView: View {
             Image(systemName: "sparkles.rectangle.stack")
                 .font(.system(size: 56))
                 .foregroundStyle(.tint)
-            Text("SAM").font(.largeTitle.bold())
+            Text(verbatim: Brand.name).font(.largeTitle.bold())
             Text("Your coding agents, at hand.").foregroundStyle(.secondary)
             Spacer()
             if let pending = app.state.signIn {
@@ -51,21 +53,33 @@ struct SignInView: View {
                         .font(.system(.title, design: .monospaced).bold())
                         .textSelection(.enabled)
                     ProgressView()
-                    HStack {
-                        Button("Open again") {
-                            if let url = URL(string: pending.verificationUrl) { openURL(url) }
+                    GlassGroup {
+                        HStack {
+                            Button("Open again") {
+                                if let url = URL(string: pending.verificationUrl) { openURL(url) }
+                            }
+                            .glassButton()
+                            Button("Cancel", role: .cancel) { app.core.cancelSignIn() }
+                                .glassButton()
                         }
-                        Button("Cancel", role: .cancel) { app.core.cancelSignIn() }
                     }
                 }
+                .padding(20)
+                .frame(maxWidth: .infinity)
+                .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             } else {
-                TextField("Server", text: $server, prompt: Text("api.simple-agent-manager.org"))
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    .urlKeyboard()
-                    .onSubmit { signIn() }
+                if otherServer {
+                    TextField("Server", text: $server, prompt: Text(verbatim: "example.com"))
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .glass(in: Capsule(), interactive: true)
+                        .autocorrectionDisabled()
+                        .urlKeyboard()
+                        .onSubmit { signIn() }
+                }
                 if let error = app.state.error {
-                    Text(error)
+                    Text(error.message)
                         .font(.callout)
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
@@ -73,18 +87,28 @@ struct SignInView: View {
                 Button(action: signIn) {
                     Text("Sign in").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
                 .controlSize(.large)
-                .disabled(app.state.status == .signingIn || server.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(app.state.status == .signingIn || (otherServer && server.trimmingCharacters(in: .whitespaces).isEmpty))
+                if otherServer {
+                    Button("Use \(deploymentName(serverUrl: app.state.serverUrl))") { otherServer = false }
+                        .font(.footnote)
+                } else {
+                    VStack(spacing: 4) {
+                        Text("Signs in to \(deploymentName(serverUrl: app.state.serverUrl))")
+                            .foregroundStyle(.secondary)
+                        Button("Use another server") { otherServer = true }
+                    }
+                    .font(.footnote)
+                }
             }
         }
         .padding(24)
         .frame(maxWidth: 480)
-        .onAppear { if server.isEmpty { server = app.state.serverUrl } }
     }
 
     private func signIn() {
-        let server = server
+        let server = otherServer ? server : app.state.serverUrl
         Task {
             guard let link = await app.core.beginSignIn(serverUrl: server), let url = URL(string: link) else { return }
             openURL(url)

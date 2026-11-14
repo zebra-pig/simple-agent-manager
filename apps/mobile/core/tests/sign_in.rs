@@ -105,7 +105,7 @@ async fn device_flow_then_authenticated_reads_then_expiry() {
     let valid = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let server = serve(valid.clone()).await;
     let store = MemoryStore::default();
-    let app = App::new(Box::new(store.clone()));
+    let app = App::new(Box::new(store.clone()), None);
     assert_eq!(app.state().status, AuthStatus::SignedOut);
 
     let url = app.begin_sign_in(server.clone()).await.expect("device code");
@@ -125,7 +125,7 @@ async fn device_flow_then_authenticated_reads_then_expiry() {
     assert_eq!(projects.state().projects[0].name, "Rocket");
 
     // A restart signs straight in from the store.
-    assert_eq!(App::new(Box::new(store.clone())).state().status, AuthStatus::SignedIn);
+    assert_eq!(App::new(Box::new(store.clone()), None).state().status, AuthStatus::SignedIn);
 
     // The server forgets the session: the next read signs out and clears the store.
     valid.store(false, Ordering::SeqCst);
@@ -138,7 +138,7 @@ async fn device_flow_then_authenticated_reads_then_expiry() {
 #[tokio::test]
 async fn cancel_stops_the_poll() {
     let server = serve(Arc::new(std::sync::atomic::AtomicBool::new(true))).await;
-    let app = App::new(Box::new(MemoryStore::default()));
+    let app = App::new(Box::new(MemoryStore::default()), None);
     app.begin_sign_in(server).await.unwrap();
     let waiting = {
         let app = app.clone();
@@ -148,4 +148,12 @@ async fn cancel_stops_the_poll() {
     waiting.await.unwrap();
     assert_eq!(app.state().status, AuthStatus::SignedOut);
     assert!(app.state().sign_in.is_none());
+}
+
+#[test]
+fn preset_server_is_used_until_signed_in() {
+    let app = App::new(Box::new(MemoryStore::default()), Some("example.com".into()));
+    assert_eq!(app.state().server_url, "https://api.example.com");
+    let fallback = App::new(Box::new(MemoryStore::default()), Some("https://bad".into()));
+    assert_eq!(fallback.state().server_url, "https://api.simple-agent-manager.org");
 }

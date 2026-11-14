@@ -2,6 +2,7 @@
 //! that submits a new task to an agent.
 
 use crate::api::{ChatSession, SessionPage, SubmitTask, SubmittedTask};
+use crate::error::UserError;
 use crate::session::seg;
 
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
@@ -10,7 +11,7 @@ pub struct ProjectState {
     pub sessions: Vec<ChatSession>,
     pub loading: bool,
     pub submitting: bool,
-    pub error: Option<String>,
+    pub error: Option<UserError>,
 }
 
 observable!(ProjectViewModel, ProjectState, ProjectObserver);
@@ -38,7 +39,7 @@ impl ProjectViewModel {
                     s.sessions = page.sessions;
                     s.error = None;
                 }
-                Err(e) => s.error = Some(e.to_string()),
+                Err(e) => s.error = Some(UserError::from(&e)),
             }
         });
     }
@@ -57,7 +58,7 @@ impl ProjectViewModel {
         self.update(|s| {
             s.submitting = false;
             if let Err(e) = &result {
-                s.error = Some(e.to_string());
+                s.error = Some(UserError::from(e));
             }
         });
         let submitted = result.ok()?;

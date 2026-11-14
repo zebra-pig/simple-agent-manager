@@ -5,14 +5,34 @@ use url::Url;
 
 use crate::error::{CoreError, Result};
 
-/// The hosted SAM. Self-hosters type their own.
-pub const DEFAULT_SERVER_URL: &str = "https://api.simple-agent-manager.org";
+/// The hosted SAM's `BASE_DOMAIN`. Builds can preset another one (white-label or
+/// self-hosted); users can still type any server.
+pub const DEFAULT_BASE_DOMAIN: &str = "simple-agent-manager.org";
 
-/// What the user typed -> the API origin, e.g. `app.example.com/projects`
-/// -> `https://api.example.com`. Plain http only for local development.
+/// The API origin for a deployment's `BASE_DOMAIN`, the same way the platform
+/// derives it: `https://api.${BASE_DOMAIN}`.
+pub fn api_origin(base_domain: &str) -> Result<String> {
+    let domain = base_domain.trim();
+    if domain.is_empty() || domain.contains(['/', ':', ' ']) {
+        return Err(CoreError::InvalidServer(domain.to_owned()));
+    }
+    normalize(domain)
+}
+
+/// The deployment's name for people: `https://api.example.com` -> `example.com`.
+#[uniffi::export]
+pub fn deployment_name(server_url: &str) -> String {
+    let host = server_url.split("://").nth(1).unwrap_or(server_url);
+    host.strip_prefix("api.").unwrap_or(host).to_owned()
+}
+
+/// What the user typed -> the API origin. SAM serves its API on `api.${BASE_DOMAIN}`,
+/// so the base domain (`example.com`), the web app (`app.example.com/projects`) and
+/// the API itself all map to `https://api.example.com`. Plain http (and hosts
+/// used as-is) only for local development.
 pub fn normalize(input: &str) -> Result<String> {
     let trimmed = input.trim();
-    let invalid = || CoreError::Server(format!("\"{trimmed}\" is not a server address"));
+    let invalid = || CoreError::InvalidServer(trimmed.to_owned());
     if trimmed.is_empty() {
         return Err(invalid());
     }
@@ -23,26 +43,38 @@ pub fn normalize(input: &str) -> Result<String> {
     match url.scheme() {
         "https" => {}
         "http" if local => {}
-        _ => return Err(CoreError::Server("The server address must start with https://".into())),
+        _ => return Err(CoreError::HttpsRequired),
     }
-    // People paste the web app's address; its API is the sibling host.
-    let host = match host.strip_prefix("app.") {
-        Some(rest) => format!("api.{rest}"),
-        None => host.to_owned(),
-    };
+    let host =
+        if local || host.starts_with("api.") { host.to_owned() } else { format!("api.{}", host.strip_prefix("app.").unwrap_or(host)) };
     let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
     Ok(format!("{}://{host}{port}", url.scheme()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::normalize;
+    use super::{api_origin, deployment_name, normalize};
+
+    #[test]
+    fn names_the_deployment() {
+        assert_eq!(deployment_name("https://api.simple-agent-manager.org"), "simple-agent-manager.org");
+        assert_eq!(deployment_name("http://localhost:8787"), "localhost:8787");
+    }
+
+    #[test]
+    fn derives_the_api_from_base_domain() {
+        assert_eq!(api_origin("simple-agent-manager.org").unwrap(), "https://api.simple-agent-manager.org");
+        assert_eq!(api_origin(" sam.example.com ").unwrap(), "https://api.sam.example.com");
+        assert!(api_origin("https://example.com").is_err());
+        assert!(api_origin("").is_err());
+    }
 
     #[test]
     fn normalizes_what_people_type() {
         assert_eq!(normalize("https://api.simple-agent-manager.org/").unwrap(), "https://api.simple-agent-manager.org");
         assert_eq!(normalize(" app.example.com/projects ").unwrap(), "https://api.example.com");
-        assert_eq!(normalize("sam.example.com").unwrap(), "https://sam.example.com");
+        assert_eq!(normalize("sam.example.com").unwrap(), "https://api.sam.example.com");
+        assert_eq!(normalize("api.example.com").unwrap(), "https://api.example.com");
         assert_eq!(normalize("http://localhost:8787").unwrap(), "http://localhost:8787");
         assert!(normalize("http://api.example.com").is_err());
         assert!(normalize("").is_err());

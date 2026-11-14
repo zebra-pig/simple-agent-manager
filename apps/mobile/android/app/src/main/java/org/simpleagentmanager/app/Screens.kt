@@ -84,6 +84,10 @@ import org.simpleagentmanager.core.MessageRole
 import org.simpleagentmanager.core.Project
 import org.simpleagentmanager.core.SessionStatus
 import org.simpleagentmanager.core.TaskSummary
+import org.simpleagentmanager.core.UserError
+import org.simpleagentmanager.core.deploymentName
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 
 @Composable
 fun SamTheme(content: @Composable () -> Unit) {
@@ -122,7 +126,10 @@ fun Root(
 
 @Composable
 private fun SignInScreen(app: AppState, onSignIn: (String) -> Unit, onOpen: (String) -> Unit, onCancel: () -> Unit) {
-    var server by rememberSaveable { mutableStateOf(app.serverUrl) }
+    var server by rememberSaveable { mutableStateOf("") }
+    // Self-hosters type their own deployment; everyone else just taps Sign in.
+    var otherServer by rememberSaveable { mutableStateOf(false) }
+    val deployment = deploymentName(app.serverUrl)
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.padding(24.dp).navigationBarsPadding().imePadding(),
@@ -130,33 +137,42 @@ private fun SignInScreen(app: AppState, onSignIn: (String) -> Unit, onOpen: (Str
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(Modifier.weight(1f))
-            Text("SAM", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-            Text("Your coding agents, at hand.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.tagline), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.weight(1f))
             val pending = app.signIn
             if (pending != null) {
-                Text("Approve this code in the browser", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.approve_code), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(pending.userCode, style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                 CircularProgressIndicator()
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onOpen(pending.verificationUrl) }) { Text("Open again") }
-                    TextButton(onClick = onCancel) { Text("Cancel") }
+                    OutlinedButton(onClick = { onOpen(pending.verificationUrl) }) { Text(stringResource(R.string.open_again)) }
+                    TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
                 }
             } else {
-                OutlinedTextField(
-                    value = server,
-                    onValueChange = { server = it },
-                    label = { Text("Server") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                app.error?.let { Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
+                if (otherServer) {
+                    OutlinedTextField(
+                        value = server,
+                        onValueChange = { server = it },
+                        label = { Text(stringResource(R.string.server)) },
+                        placeholder = { Text("example.com") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                app.error?.let { Text(it.message(), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
                 Button(
-                    onClick = { onSignIn(server) },
-                    enabled = app.status != AuthStatus.SIGNING_IN && server.isNotBlank(),
+                    onClick = { onSignIn(if (otherServer) server else app.serverUrl) },
+                    enabled = app.status != AuthStatus.SIGNING_IN && (!otherServer || server.isNotBlank()),
                     modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) { Text("Sign in") }
+                ) { Text(stringResource(R.string.sign_in)) }
+                if (otherServer) {
+                    TextButton(onClick = { otherServer = false }) { Text(stringResource(R.string.use_server, deployment)) }
+                } else {
+                    Text(stringResource(R.string.signs_in_to, deployment), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { otherServer = true }) { Text(stringResource(R.string.use_another_server)) }
+                }
             }
         }
     }
@@ -168,14 +184,14 @@ private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, o
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Projects") },
-                actions = { IconButton(onClick = onAccount) { Icon(Icons.Default.AccountCircle, contentDescription = "Account") } },
+                title = { Text(stringResource(R.string.projects)) },
+                actions = { IconButton(onClick = onAccount) { Icon(Icons.Default.AccountCircle, contentDescription = stringResource(R.string.account)) } },
             )
         },
     ) { padding ->
         PullToRefreshBox(isRefreshing = state.loading && state.projects.isNotEmpty(), onRefresh = { model.load() }, modifier = Modifier.padding(padding)) {
             LazyColumn(Modifier.fillMaxSize()) {
-                state.error?.let { item { ErrorRow(it) } }
+                state.error?.let { item { ErrorRow(it.message()) } }
                 items(state.projects, key = { it.id }) { project ->
                     val repo = project.repository
                     ListItem(
@@ -184,7 +200,7 @@ private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, o
                             { Text(repo) }
                         } else null,
                         trailingContent = if (project.activeSessionCount > 0u) {
-                            { Text("${project.activeSessionCount} active", color = Color(0xFF22C55E), style = MaterialTheme.typography.labelMedium) }
+                            { Text(pluralStringResource(R.plurals.active_sessions, project.activeSessionCount.toInt(), project.activeSessionCount.toInt()), color = Color(0xFF22C55E), style = MaterialTheme.typography.labelMedium) }
                         } else null,
                         modifier = Modifier.clickable { onOpen(project) },
                     )
@@ -194,7 +210,7 @@ private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, o
             Empty(
                 loading = state.loading && state.projects.isEmpty(),
                 empty = state.projects.isEmpty() && state.error == null,
-                text = "No projects. Create one in SAM on the web to get started.",
+                text = stringResource(R.string.no_projects, stringResource(R.string.app_name)),
             )
         }
     }
@@ -210,18 +226,18 @@ private fun ProjectScreen(route: Route.Project, model: ProjectModel, onBack: () 
     Scaffold(
         topBar = { BackBar(route.name, onBack) },
         bottomBar = {
-            Composer("Describe a task…", draft, { draft = it }, busy = state.submitting) {
+            Composer(stringResource(R.string.describe_task), draft, { draft = it }, busy = state.submitting) {
                 model.submit(draft, open = onOpen, sent = { draft = "" })
             }
         },
     ) { padding ->
         PullToRefreshBox(isRefreshing = state.loading && sessions.isNotEmpty(), onRefresh = { model.load(route.id) }, modifier = Modifier.padding(padding)) {
             LazyColumn(Modifier.fillMaxSize()) {
-                state.error?.let { item { ErrorRow(it) } }
+                state.error?.let { item { ErrorRow(it.message()) } }
                 items(sessions, key = { it.id }) { session ->
                     ListItem(
                         leadingContent = { StatusDot(session) },
-                        headlineContent = { Text(session.topic ?: "Untitled session", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        headlineContent = { Text(session.topic ?: stringResource(R.string.untitled_session), maxLines = 2, overflow = TextOverflow.Ellipsis) },
                         supportingContent = { Text("${statusLabel(session)} · ${ago(session.lastMessageAt ?: session.startedAt)}") },
                         modifier = Modifier.clickable { onOpen(session.id) },
                     )
@@ -231,7 +247,7 @@ private fun ProjectScreen(route: Route.Project, model: ProjectModel, onBack: () 
             Empty(
                 loading = state.loading && sessions.isEmpty(),
                 empty = sessions.isEmpty() && state.error == null,
-                text = "No sessions yet. Describe a task below and an agent picks it up.",
+                text = stringResource(R.string.no_sessions),
             )
         }
     }
@@ -264,7 +280,7 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
 
     Scaffold(
         topBar = {
-            BackBar(session?.topic ?: "Session", onBack) {
+            BackBar(session?.topic ?: stringResource(R.string.session), onBack) {
                 if (session != null) {
                     StatusDot(session)
                     Spacer(Modifier.size(16.dp))
@@ -273,7 +289,7 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
         },
         bottomBar = {
             if (session != null && (session.status == SessionStatus.ACTIVE || session.status == SessionStatus.SLEEPING)) {
-                Composer("Reply to the agent…", draft, { draft = it }, busy = state.sending) {
+                Composer(stringResource(R.string.reply_to_agent), draft, { draft = it }, busy = state.sending) {
                     model.send(draft) { draft = "" }
                 }
             }
@@ -283,7 +299,7 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
             LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 session?.task?.let { task -> item { TaskCard(task, openUrl) } }
                 items(messages, key = { it.id }) { MessageRow(it) }
-                if (current) state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+                if (current) state.error?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
             }
             if (messages.isEmpty() && (state.loading || !current)) CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
@@ -323,12 +339,12 @@ private fun TaskCard(task: TaskSummary, openUrl: (String) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val step = task.executionStep?.takeIf { task.status == "in_progress" || task.status == "queued" }
-            Text(listOfNotNull(humanize(task.status), step?.let(::humanize)).joinToString(" · "), fontWeight = FontWeight.Bold)
+            Text(listOfNotNull(taskStatusLabel(task.status), step?.let(::humanize)).joinToString(" · "), fontWeight = FontWeight.Bold)
             task.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             task.outputSummary?.let { Text(it) }
             val pr = task.outputPrUrl
             if (pr != null) {
-                TextButton(onClick = { openUrl(pr) }, contentPadding = PaddingValues(0.dp)) { Text("Open pull request") }
+                TextButton(onClick = { openUrl(pr) }, contentPadding = PaddingValues(0.dp)) { Text(stringResource(R.string.open_pull_request)) }
             } else {
                 task.outputBranch?.let { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
             }
@@ -338,15 +354,15 @@ private fun TaskCard(task: TaskSummary, openUrl: (String) -> Unit) {
 
 @Composable
 private fun AccountScreen(app: AppState, onBack: () -> Unit, onSignOut: () -> Unit) {
-    Scaffold(topBar = { BackBar("Account", onBack) }) { padding ->
+    Scaffold(topBar = { BackBar(stringResource(R.string.account), onBack) }) { padding ->
         Column(Modifier.padding(padding)) {
             app.viewer?.let { viewer ->
                 ListItem(headlineContent = { Text(viewer.name) }, supportingContent = { Text(viewer.email) })
             } ?: Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            ListItem(headlineContent = { Text("Server") }, supportingContent = { Text(app.serverUrl) })
-            app.error?.let { ErrorRow(it) }
+            ListItem(headlineContent = { Text(stringResource(R.string.server)) }, supportingContent = { Text(app.serverUrl) })
+            app.error?.let { ErrorRow(it.message()) }
             TextButton(onClick = onSignOut, modifier = Modifier.padding(horizontal = 8.dp)) {
-                Text("Sign out", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.sign_out), color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -356,7 +372,7 @@ private fun AccountScreen(app: AppState, onBack: () -> Unit, onSignOut: () -> Un
 private fun BackBar(title: String, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) {
     TopAppBar(
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+        navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) } },
         actions = actions,
     )
 }
@@ -381,7 +397,7 @@ private fun Composer(placeholder: String, text: String, onChange: (String) -> Un
                     CircularProgressIndicator(Modifier.size(24.dp))
                 } else {
                     IconButton(onClick = onSend, enabled = text.isNotBlank()) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
                     }
                 }
             }
@@ -415,15 +431,45 @@ private fun Empty(loading: Boolean, empty: Boolean, text: String) {
     }
 }
 
-private fun statusLabel(session: ChatSession) = when (session.status) {
-    SessionStatus.ACTIVE -> if (session.isIdle) "Waiting for you" else "Working"
-    SessionStatus.SLEEPING -> "Sleeping"
-    SessionStatus.STOPPED -> "Stopped"
-    SessionStatus.FAILED -> "Failed"
-    SessionStatus.UNKNOWN -> "Unknown"
+@Composable
+private fun statusLabel(session: ChatSession) = stringResource(
+    when (session.status) {
+        SessionStatus.ACTIVE -> if (session.isIdle) R.string.status_waiting else R.string.status_working
+        SessionStatus.SLEEPING -> R.string.status_sleeping
+        SessionStatus.STOPPED -> R.string.status_stopped
+        SessionStatus.FAILED -> R.string.status_failed
+        SessionStatus.UNKNOWN -> R.string.status_unknown
+    },
+)
+
+/** `TaskStatus` values (TASK_STATUSES in packages/shared/src/types/task.ts) for people. */
+@Composable
+private fun taskStatusLabel(status: String): String = when (status) {
+    "draft" -> stringResource(R.string.task_draft)
+    "ready" -> stringResource(R.string.task_ready)
+    "queued" -> stringResource(R.string.task_queued)
+    "delegated" -> stringResource(R.string.task_delegated)
+    "in_progress" -> stringResource(R.string.task_in_progress)
+    "sleeping" -> stringResource(R.string.status_sleeping)
+    "completed" -> stringResource(R.string.task_completed)
+    "failed" -> stringResource(R.string.status_failed)
+    "cancelled" -> stringResource(R.string.task_cancelled)
+    else -> humanize(status)
 }
 
-/** `in_progress` -> `In progress`. */
+/** The core sends no wording; this gives a `UserError` its words. */
+@Composable
+private fun UserError.message(): String = when (this) {
+    is UserError.Offline -> stringResource(R.string.error_offline)
+    UserError.SessionEnded -> stringResource(R.string.error_session_ended)
+    is UserError.InvalidServer -> stringResource(R.string.error_invalid_server, input)
+    UserError.HttpsRequired -> stringResource(R.string.error_https_required)
+    UserError.SignInExpired -> stringResource(R.string.error_sign_in_expired)
+    is UserError.Server -> message
+    is UserError.Unexpected -> stringResource(R.string.error_unexpected, detail)
+}
+
+/** Execution steps are progress detail: `in_progress` -> `In progress`, not translated. */
 private fun humanize(value: String) = value.replace('_', ' ').replaceFirstChar { it.uppercase() }
 
 private fun ago(millis: Long): String = DateUtils.getRelativeTimeSpanString(millis).toString()

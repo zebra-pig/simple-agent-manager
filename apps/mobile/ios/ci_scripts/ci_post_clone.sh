@@ -1,6 +1,7 @@
 #!/bin/sh
 
-# Xcode Cloud: build the Rust core (SamCore.xcframework + Swift bindings)
+# Xcode Cloud: apply the build's identity (SAM_* and BASE_DOMAIN workflow
+# environment variables, see scripts/configure-ios.sh), then build the Rust core (SamCore.xcframework + Swift bindings)
 # before Xcode builds the app. Generated/ is not committed, so without this
 # step the build fails on a missing SamCore.swift.
 # Fail loudly: a half-installed toolchain would otherwise surface later as a
@@ -28,5 +29,6 @@ install_rust_if_needed() {
     cargo --version
 }
 
+"$repo_dir/apps/mobile/scripts/configure-ios.sh"
 install_rust_if_needed
 "$repo_dir/apps/mobile/scripts/build-ios.sh"

@@ -15,8 +15,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{GetSessionResponse, Viewer};
-use crate::error::{CoreError, Result};
-use crate::server::{self, DEFAULT_SERVER_URL};
+use crate::error::{CoreError, Result, UserError};
+use crate::server::{self, DEFAULT_BASE_DOMAIN};
 
 /// What the shell persists: Keychain (Apple) / Keystore-encrypted prefs (Android).
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -59,7 +59,7 @@ pub struct AppState {
     /// Loaded right after sign-in (and on `refresh_viewer`).
     pub viewer: Option<Viewer>,
     pub sign_in: Option<DeviceSignIn>,
-    pub error: Option<String>,
+    pub error: Option<UserError>,
 }
 
 #[uniffi::export(callback_interface)]
@@ -115,11 +115,20 @@ pub struct App {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl App {
+    /// `base_domain` is the build's preset deployment (its `BASE_DOMAIN`, e.g. from a
+    /// white-label build); `None` or an invalid value falls back to the hosted SAM.
     #[uniffi::constructor]
-    pub fn new(store: Box<dyn CredentialStore>) -> Arc<Self> {
+    pub fn new(store: Box<dyn CredentialStore>, base_domain: Option<String>) -> Arc<Self> {
         let credentials = store.load();
         let status = if credentials.is_some() { AuthStatus::SignedIn } else { AuthStatus::SignedOut };
-        let server_url = credentials.as_ref().map_or_else(|| DEFAULT_SERVER_URL.to_owned(), |c| c.server_url.clone());
+        let server_url = credentials.as_ref().map_or_else(
+            || {
+                base_domain
+                    .and_then(|d| server::api_origin(&d).ok())
+                    .unwrap_or_else(|| server::api_origin(DEFAULT_BASE_DOMAIN).expect("valid default"))
+            },
+            |c| c.server_url.clone(),
+        );
         Arc::new(App {
             http: reqwest::Client::builder()
                 .user_agent(concat!("sam-native/", env!("CARGO_PKG_VERSION")))
@@ -184,7 +193,7 @@ impl App {
                 self.update(|s| {
                     s.status = AuthStatus::SignedOut;
                     s.sign_in = None;
-                    s.error = Some(e.to_string());
+                    s.error = Some(UserError::from(&e));
                 });
                 None
             }
@@ -202,7 +211,7 @@ impl App {
                 return;
             }
             if tokio::time::Instant::now() >= pending.deadline {
-                break Err(CoreError::Server("The sign-in code expired. Please try again.".into()));
+                break Err(CoreError::SignInExpired);
             }
             match self.poll_device_token(&pending).await {
                 Ok(Some(cookie)) => break Ok(cookie),
@@ -230,7 +239,7 @@ impl App {
             Err(e) => self.update(|s| {
                 s.status = AuthStatus::SignedOut;
                 s.sign_in = None;
-                s.error = Some(e.to_string());
+                s.error = Some(UserError::from(&e));
             }),
         }
     }
@@ -257,7 +266,7 @@ impl App {
             // better-auth answers `null` for a cookie it no longer knows.
             Ok(None) => self.expire(),
             Err(CoreError::Unauthenticated) => {} // already signed out
-            Err(e) => self.update(|s| s.error = Some(e.to_string())),
+            Err(e) => self.update(|s| s.error = Some(UserError::from(&e))),
         }
     }
 
@@ -313,13 +322,13 @@ impl App {
             200 => {
                 let login: LoginResponse = res.json().await.map_err(|e| PollError::Failed(e.into()))?;
                 if login.session_cookie.is_empty() {
-                    return Err(PollError::Failed(CoreError::Server("SAM did not return a session".into())));
+                    return Err(PollError::Failed(CoreError::Unexpected("device token response without a session".into())));
                 }
                 Ok(Some(login.session_cookie))
             }
             428 => Ok(None), // authorization_pending
             429 => Err(PollError::SlowDown),
-            410 => Err(PollError::Failed(CoreError::Server("The sign-in code expired. Please try again.".into()))),
+            410 => Err(PollError::Failed(CoreError::SignInExpired)),
             _ => Err(PollError::Failed(error_from(res).await)),
         }
     }
@@ -331,7 +340,7 @@ impl App {
         self.update(|s| {
             s.status = AuthStatus::SignedOut;
             s.viewer = None;
-            s.error = Some(CoreError::Unauthenticated.to_string());
+            s.error = Some(UserError::SessionEnded);
         });
     }
 
@@ -379,8 +388,8 @@ async fn error_from(res: reqwest::Response) -> CoreError {
     let body: ErrorBody = res.json().await.unwrap_or_default();
     match (body.message.is_empty(), body.error.is_empty()) {
         (false, _) => CoreError::Server(body.message),
-        (true, false) => CoreError::Server(format!("SAM answered {status} ({})", body.error)),
-        (true, true) => CoreError::Server(format!("SAM answered {status}")),
+        (true, false) => CoreError::Unexpected(format!("HTTP {status} ({})", body.error)),
+        (true, true) => CoreError::Unexpected(format!("HTTP {status}")),
     }
 }
 

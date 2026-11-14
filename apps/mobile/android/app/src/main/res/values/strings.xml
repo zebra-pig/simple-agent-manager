@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Every user-facing string lives here (translations go in values-<lang>/).
+     The Rust core sends no wording, only values such as UserError. app_name comes
+     from the build (SAM_APP_NAME, see app/build.gradle.kts). -->
+<resources>
+    <string name="tagline">Your coding agents, at hand.</string>
+    <string name="approve_code">Approve this code in the browser</string>
+    <string name="open_again">Open again</string>
+    <string name="cancel">Cancel</string>
+    <string name="server">Server</string>
+    <string name="sign_in">Sign in</string>
+    <string name="signs_in_to">Signs in to %1$s</string>
+    <string name="use_another_server">Use another server</string>
+    <string name="use_server">Use %1$s</string>
+    <string name="sign_out">Sign out</string>
+    <string name="projects">Projects</string>
+    <string name="account">Account</string>
+    <string name="back">Back</string>
+    <string name="send">Send</string>
+    <string name="no_projects">No projects. Create one in %1$s on the web to get started.</string>
+    <string name="describe_task">Describe a task…</string>
+    <string name="untitled_session">Untitled session</string>
+    <string name="no_sessions">No sessions yet. Describe a task below and an agent picks it up.</string>
+    <string name="session">Session</string>
+    <string name="reply_to_agent">Reply to the agent…</string>
+    <string name="open_pull_request">Open pull request</string>
+    <plurals name="active_sessions">
+        <item quantity="one">%1$d active</item>
+        <item quantity="other">%1$d active</item>
+    </plurals>
+
+    <!-- Session status -->
+    <string name="status_waiting">Waiting for you</string>
+    <string name="status_working">Working</string>
+    <string name="status_sleeping">Sleeping</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="status_failed">Failed</string>
+    <string name="status_unknown">Unknown</string>
+
+    <!-- Task status (TASK_STATUSES in packages/shared/src/types/task.ts) -->
+    <string name="task_draft">Draft</string>
+    <string name="task_ready">Ready</string>
+    <string name="task_queued">Queued</string>
+    <string name="task_delegated">Delegated</string>
+    <string name="task_in_progress">In progress</string>
+    <string name="task_completed">Completed</string>
+    <string name="task_cancelled">Cancelled</string>
+
+    <!-- UserError -->
+    <string name="error_offline">Can\'t reach the server. Check your connection and try again.</string>
+    <string name="error_session_ended">Your session has ended. Please sign in again.</string>
+    <string name="error_invalid_server">%1$s is not a server address.</string>
+    <string name="error_https_required">The server address must start with https://.</string>
+    <string name="error_sign_in_expired">The sign-in code expired. Please try again.</string>
+    <string name="error_unexpected">Something went wrong (%1$s).</string>
+</resources>

@@ -10,7 +10,7 @@ import Security
     private(set) var state: AppState
 
     init() {
-        core = App(store: KeychainCredentialStore())
+        core = App(store: KeychainCredentialStore(), baseDomain: Brand.baseDomain)
         state = core.state()
         core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
     }
@@ -110,4 +110,12 @@ final class KeychainCredentialStore: CredentialStore, @unchecked Sendable {
     func clear() {
         SecItemDelete(item as CFDictionary)
     }
+}
+
+/// Build-time identity from Config/Brand.xcconfig (via Info.plist), so
+/// white-label builds need no Swift changes.
+enum Brand {
+    static let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "SAM"
+    /// The platform's `BASE_DOMAIN` this build suggests; the API is `api.<domain>`.
+    static let baseDomain = Bundle.main.object(forInfoDictionaryKey: "SAMBaseDomain") as? String
 }

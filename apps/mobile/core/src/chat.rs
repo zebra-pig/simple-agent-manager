@@ -3,6 +3,7 @@
 //! screen is visible; there is no push channel yet.
 
 use crate::api::{merge_messages, ChatMessage, ChatSession, Prompt, SessionDetail};
+use crate::error::UserError;
 use crate::session::seg;
 
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
@@ -14,7 +15,7 @@ pub struct ChatState {
     pub messages: Vec<ChatMessage>,
     pub loading: bool,
     pub sending: bool,
-    pub error: Option<String>,
+    pub error: Option<UserError>,
 }
 
 observable!(ChatViewModel, ChatState, ChatObserver);
@@ -51,7 +52,7 @@ impl ChatViewModel {
                     s.messages = merge_messages(detail.messages);
                     s.error = None;
                 }
-                Err(e) => s.error = Some(e.to_string()),
+                Err(e) => s.error = Some(UserError::from(&e)),
             }
         });
     }
@@ -73,7 +74,7 @@ impl ChatViewModel {
         self.update(|s| {
             s.sending = false;
             if let Err(e) = result {
-                s.error = Some(e.to_string());
+                s.error = Some(UserError::from(&e));
             }
         });
         if ok {
