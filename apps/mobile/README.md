@@ -151,14 +151,9 @@ You need JDK 17+, the Android SDK (`ANDROID_HOME` or `local.properties` `sdk.dir
 
 ## CI
 
-`ci/native-app.yml` checks the core (fmt, clippy, tests), builds the Android debug APK (kept as
-an artifact for 7 days), and builds the Apple app for the iOS Simulator and macOS, on changes under
-`apps/mobile/`. Nothing is signed or published yet. It isn't active yet: an automation token
-can't add workflows, so someone with that permission needs to move it into place:
-
-```sh
-git mv apps/mobile/ci/native-app.yml .github/workflows/native-app.yml
-```
+Builds for TestFlight and App Store Connect run on Xcode Cloud (see [Xcode Cloud](#xcode-cloud)).
+There is no GitHub Actions workflow for the native app yet; locally, the commands under
+[Core](#core), [iOS and macOS](#ios-and-macos) and [Android](#android) are the checks.
 
 ## Not yet
 
