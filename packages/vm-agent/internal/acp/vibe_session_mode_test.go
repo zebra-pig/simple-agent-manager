@@ -7,13 +7,15 @@ import (
 	acpsdk "github.com/coder/acp-go-sdk"
 )
 
+// vibeAdvertisedModes are the agent names mistral-vibe 2.25.8 advertises as ACP
+// session modes (vibe/core/agents/models.py BuiltinAgentName, primary agents).
+var vibeAdvertisedModes = []string{"ask", "plan", "accept-edits", "auto-approve"}
+
 // Vibe ignores mode ids it does not advertise, so SAM's own permission-mode
 // names must be translated to Vibe's agent names. Sending "bypassPermissions"
 // verbatim left every session in "ask", and every tool call was then denied.
 func TestVibeSessionModeIDsAreVibeAgentNames(t *testing.T) {
-	// Agent names mistral-vibe 2.25.8 advertises as ACP session modes
-	// (vibe/core/agents/models.py BuiltinAgentName, primary agents).
-	advertised := []string{"ask", "plan", "accept-edits", "auto-approve"}
+	advertised := vibeAdvertisedModes
 	for _, tc := range []struct {
 		permissionMode string
 		want           string
@@ -55,7 +57,7 @@ func TestVibeStartupSendsVibeSessionMode(t *testing.T) {
 			{permissionMode: "default", want: []string{"ask"}},
 		} {
 			t.Run(session.name+"/"+tc.permissionMode, func(t *testing.T) {
-				got := startFakeAntigravityAgent(t, "mistral-vibe", &fakeAntigravityACP{noAuthRequired: true}, session.previousSessionID, tc.permissionMode)
+				got := startFakeAntigravityAgent(t, "mistral-vibe", &fakeAntigravityACP{noAuthRequired: true, acceptedModes: vibeAdvertisedModes}, session.previousSessionID, tc.permissionMode)
 				if got.err != nil {
 					t.Fatalf("Vibe startup failed: %v", got.err)
 				}
