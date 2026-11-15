@@ -40,6 +40,7 @@ struct ProjectView: View {
         .navigationTitle(project.name)
         .inlineTitle()
         .refreshable { await model.core.load(projectId: project.id) }
+        .interactiveKeyboardDismiss()
         .task { await model.core.load(projectId: project.id) }
         .safeAreaInset(edge: .bottom) {
             Composer(placeholder: "Describe a task…", text: $draft, busy: model.state.submitting, files: model.files) {
