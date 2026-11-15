@@ -25,6 +25,8 @@ thiserror = "2"
 url = "2"
 # Folds accents out of attachment names, as the web app does (NFKD).
 unicode-normalization = "0.1"
+# Agent replies are Markdown; parsed once here for both shells (markdown.rs).
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util"] }

@@ -14,21 +14,28 @@ mod api;
 mod attachments;
 mod chat;
 mod error;
+mod markdown;
 mod project;
 mod projects;
 mod server;
 mod session;
+mod timeline;
 
 pub use agent_profiles::{permission_modes, profile_draft, supported_efforts, task_modes, AgentOption, AgentProfile, ProfileDraft};
-pub use api::{ChatMessage, ChatSession, MessageRole, Project, SessionStatus, SubmittedTask, TaskSummary, Viewer};
+pub use api::{ChatSession, Project, SessionStatus, SubmittedTask, TaskSummary, Viewer};
 pub use attachments::{
     Attachment, AttachmentSource, AttachmentStatus, ATTACHMENT_BATCH_MAX_BYTES, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES,
 };
 pub use chat::*;
 pub use error::UserError;
+pub use markdown::{Block, ListMarker, Span, TableRow};
 pub use project::*;
 pub use projects::*;
 pub use server::deployment_name;
 pub use session::*;
+pub use timeline::{
+    ActivityStep, ActivitySummary, ChatContent, ChatItem, Notice, NoticeSeverity, NoticeSource, PlanEntry, PlanStatus, ToolCall, ToolKind,
+    ToolStatus,
+};
 
 uniffi::setup_scaffolding!();
