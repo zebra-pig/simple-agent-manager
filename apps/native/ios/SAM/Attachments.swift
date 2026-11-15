@@ -168,23 +168,28 @@ private extension String {
 struct AttachButton: View {
     let files: ComposerFiles
     @State private var importing = false
+    @State private var choosingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
 
     var body: some View {
-        Menu {
-            Button("Choose Files…", systemImage: "folder") { importing = true }
-            PhotosPicker(selection: $photos, matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible) {
-                Label("Photo Library", systemImage: "photo.on.rectangle")
+        // Keep both pickers on a persistent host outside Menu so dismissing
+        // the transient menu does not remove their presentation context.
+        HStack(spacing: 0) {
+            Menu {
+                Button("Choose Files…", systemImage: "folder") { importing = true }
+                Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }
+            } label: {
+                Image(systemName: "paperclip")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 22, height: 22)
             }
-        } label: {
-            Image(systemName: "paperclip")
-                .font(.body.weight(.semibold))
-                .frame(width: 22, height: 22)
+            .menuIndicator(.hidden)
+            .glassButton()
+            .buttonBorderShape(.circle)
+            .accessibilityLabel(Text("Attach files"))
         }
-        .menuIndicator(.hidden)
-        .glassButton()
-        .buttonBorderShape(.circle)
-        .accessibilityLabel(Text("Attach files"))
+        .photosPicker(isPresented: $choosingPhotos, selection: $photos,
+                      matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { AttachmentIntake.add(urls: urls, to: files) }
         }
