@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A project's chat sessions, plus the composer that hands a new task (and any
-/// attached files) to an agent, with the agent profile picked above it.
+/// attached files) to an agent, with the agent profile picked in it.
 struct ProjectView: View {
     let project: Project
     let open: (SessionRef) -> Void
@@ -42,19 +42,16 @@ struct ProjectView: View {
         .refreshable { await model.core.load(projectId: project.id) }
         .task { await model.core.load(projectId: project.id) }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 6) {
-                if !model.state.profiles.isEmpty || model.state.projectId == project.id && !model.state.loading {
-                    ProfileBar(model: model) { editing = ProfileEditing(profile: $0) }
-                }
-                Composer(placeholder: "Describe a task…", text: $draft, busy: model.state.submitting, files: model.files) {
-                    let message = draft
-                    Task {
-                        if let task = await model.core.submitTask(message: message) {
-                            draft = ""
-                            open(SessionRef(projectId: project.id, sessionId: task.sessionId))
-                        }
+            Composer(placeholder: "Describe a task…", text: $draft, busy: model.state.submitting, files: model.files) {
+                let message = draft
+                Task {
+                    if let task = await model.core.submitTask(message: message) {
+                        draft = ""
+                        open(SessionRef(projectId: project.id, sessionId: task.sessionId))
                     }
                 }
+            } accessory: {
+                ProfileMenu(model: model) { editing = ProfileEditing(profile: $0) }
             }
         }
         .sheet(item: $editing) { ProfileEditor(model: model, profile: $0.profile) }
@@ -85,17 +82,34 @@ struct SessionRow: View {
     }
 }
 
-/// The floating input island: a Liquid Glass capsule with the attach button,
-/// the text field and a round send button, over the content (which scrolls
-/// beneath it). Attached files show above the text field; files dropped on
-/// the island are attached too.
-struct Composer: View {
+/// The floating input island: a Liquid Glass container with the attach
+/// button, the text field and a round send button, over the content (which
+/// scrolls beneath it). Attached files show above the text field; files
+/// dropped on the island are attached too. `accessory` (the project screen's
+/// profile selector) sits at the top of the same container, only while the
+/// text field has focus (keyboard open).
+struct Composer<Accessory: View>: View {
     let placeholder: LocalizedStringKey
     @Binding var text: String
     let busy: Bool
     let files: ComposerFiles
     let send: () -> Void
+    let accessory: Accessory
     @State private var dropTargeted = false
+    @FocusState private var focused: Bool
+    /// Follows `focused`, but hides a moment later, so tapping the accessory
+    /// (which may briefly take focus) doesn't make it vanish under the finger.
+    @State private var showsAccessory = false
+
+    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles,
+         send: @escaping () -> Void, @ViewBuilder accessory: () -> Accessory) {
+        self.placeholder = placeholder
+        _text = text
+        self.busy = busy
+        self.files = files
+        self.send = send
+        self.accessory = accessory()
+    }
 
     private var empty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// Text or files to send, and every file uploaded.
@@ -104,6 +118,13 @@ struct Composer: View {
     var body: some View {
         GlassGroup {
             VStack(alignment: .leading, spacing: 0) {
+                if showsAccessory && Accessory.self != EmptyView.self {
+                    accessory
+                        .padding(.horizontal, 14)
+                        .padding(.top, 10)
+                        .padding(.bottom, 2)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 if !files.items.isEmpty {
                     AttachmentStrip(files: files)
                 }
@@ -115,6 +136,7 @@ struct Composer: View {
                         .textFieldStyle(.plain)
                         .padding(.vertical, 10)
                         .submitLabel(.send)
+                        .focused($focused)
                     Group {
                         if busy {
                             ProgressView().frame(width: 36, height: 36)
@@ -134,7 +156,18 @@ struct Composer: View {
                     .padding(4)
                 }
             }
+            .animation(.snappy(duration: 0.25), value: showsAccessory)
             .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)
+            .onChange(of: focused) { _, isFocused in
+                if isFocused {
+                    showsAccessory = true
+                } else {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        if !focused { showsAccessory = false }
+                    }
+                }
+            }
             .overlay {
                 if dropTargeted {
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -146,6 +179,13 @@ struct Composer: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+}
+
+extension Composer where Accessory == EmptyView {
+    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles,
+         send: @escaping () -> Void) {
+        self.init(placeholder: placeholder, text: text, busy: busy, files: files, send: send) { EmptyView() }
     }
 }
 

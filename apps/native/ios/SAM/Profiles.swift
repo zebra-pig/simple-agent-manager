@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Which agent profile the next task runs with: a glass capsule above the
-/// composer that opens a menu of the project's profiles, with "Edit" and
-/// "New profile" for the editor.
-struct ProfileBar: View {
+/// Which agent profile the next task runs with: a compact row at the top of
+/// the composer (shown while typing) that opens a menu of the project's
+/// profiles, with "Edit" and "New profile" for the editor.
+struct ProfileMenu: View {
     let model: ProjectModel
     /// `nil`: a new profile.
     let edit: (AgentProfile?) -> Void
@@ -13,50 +13,45 @@ struct ProfileBar: View {
     }
 
     var body: some View {
-        HStack {
-            Menu {
-                Picker("Profile", selection: Binding(
-                    get: { model.state.selectedProfileId ?? "" },
-                    set: { model.core.selectProfile(profileId: $0) }
-                )) {
-                    ForEach(model.state.profiles, id: \.id) { profile in
-                        Text(verbatim: profile.name).tag(profile.id)
-                    }
+        Menu {
+            Picker("Profile", selection: Binding(
+                get: { model.state.selectedProfileId ?? "" },
+                set: { model.core.selectProfile(profileId: $0) }
+            )) {
+                ForEach(model.state.profiles, id: \.id) { profile in
+                    Text(verbatim: profile.name).tag(profile.id)
                 }
-                .pickerStyle(.inline)
-                Divider()
-                if let selected, selected.editable {
-                    Button("Edit “\(selected.name)”…", systemImage: "slider.horizontal.3") { edit(selected) }
-                }
-                Button("New profile…", systemImage: "plus") { edit(nil) }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "person.crop.circle.badge.checkmark")
-                    VStack(alignment: .leading, spacing: 0) {
-                        (selected.map { Text(verbatim: $0.name) } ?? Text("Project defaults"))
-                            .font(.subheadline.weight(.semibold))
-                        if let selected {
-                            Text(verbatim: profileSummary(selected))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down").font(.caption2)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .glass(in: Capsule(), interactive: true)
             }
-            // A button with our own label on every platform (macOS would draw a pop-up button).
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .accessibilityLabel(Text("Agent profile"))
-            Spacer(minLength: 0)
+            .pickerStyle(.inline)
+            Divider()
+            if let selected, selected.editable {
+                Button("Edit “\(selected.name)”…", systemImage: "slider.horizontal.3") { edit(selected) }
+            }
+            Button("New profile…", systemImage: "plus") { edit(nil) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "person.crop.circle")
+                    .foregroundStyle(.tint)
+                (selected.map { Text(verbatim: $0.name) } ?? Text("Project defaults"))
+                    .font(.subheadline.weight(.semibold))
+                if let selected {
+                    Text(verbatim: profileSummary(selected))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
+        // A button with our own label on every platform (macOS would draw a pop-up button).
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel(Text("Agent profile"))
     }
 }
 
