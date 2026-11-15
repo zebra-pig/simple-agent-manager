@@ -389,6 +389,12 @@ internal fun Composer(
     attachments: List<Attachment>,
     onAttach: (List<Uri>) -> Unit,
     onRemove: (String) -> Unit,
+    inputEnabled: Boolean = true,
+    sendEnabled: Boolean = true,
+    allowsEmpty: Boolean = false,
+    sendDescription: String? = null,
+    leadingControl: (@Composable () -> Unit)? = null,
+    actionControl: (@Composable () -> Unit)? = null,
     onSend: () -> Unit,
 ) {
     var dropHover by remember { mutableStateOf(false) }
@@ -414,7 +420,7 @@ internal fun Composer(
                     val expanded = measurer.measure(text.ifEmpty { placeholder }, style, constraints = Constraints(maxWidth = collapsedWidth)).lineCount > 1
                     Layout(content = {
                         BasicTextField(
-                            value = text, onValueChange = onChange, textStyle = style,
+                            value = text, onValueChange = onChange, textStyle = style, enabled = inputEnabled,
                             cursorBrush = SolidColor(colors.onSurface), maxLines = 6,
                             decorationBox = { field ->
                                 Box {
@@ -423,11 +429,12 @@ internal fun Composer(
                                 }
                             },
                         )
-                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { AttachButton(onAttach) }
+                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { if (leadingControl != null) leadingControl() else AttachButton(onAttach) }
                         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                             if (busy) CircularProgressIndicator(Modifier.size(24.dp), color = colors.onSurfaceVariant)
-                            else IconButton(onClick = onSend, enabled = (text.isNotBlank() || attachments.isNotEmpty()) && ready) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
+                            else if (actionControl != null) actionControl()
+                            else IconButton(onClick = onSend, enabled = sendEnabled && (allowsEmpty || text.isNotBlank() || attachments.isNotEmpty()) && ready) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = sendDescription ?: stringResource(R.string.send))
                             }
                         }
                     }) { children, constraints ->

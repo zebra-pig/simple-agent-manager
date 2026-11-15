@@ -9,7 +9,7 @@ import UIKit
 struct ComposerTextInput: UIViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
-    let files: ComposerFiles
+    let files: ComposerFiles?
 
     func makeUIView(context: Context) -> AttachmentTextView {
         let view = AttachmentTextView()
@@ -28,7 +28,8 @@ struct ComposerTextInput: UIViewRepresentable {
 
     func updateUIView(_ view: AttachmentTextView, context: Context) {
         context.coordinator.parent = self
-        view.attach = { AttachmentIntake.add(providers: $0, to: files) }
+        view.isEditable = context.environment.isEnabled
+        view.attach = files.map { files in { AttachmentIntake.add(providers: $0, to: files) } }
         // Do not reset the selection or an in-progress IME composition.
         if view.text != text, view.markedTextRange == nil { view.text = text }
     }

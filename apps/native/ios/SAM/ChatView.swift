@@ -99,17 +99,9 @@ struct ChatView: View {
                 }
                 .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
                 if !followsLatest {
-                    Button {
+                    ChatJumpButton {
                         scrollControl.jump(using: proxy, to: "latest")
-                    } label: {
-                        Image(systemName: "arrow.down").font(.body.weight(.medium))
-                            .frame(width: 28, height: 28)
                     }
-                    .glassButton()
-                    .buttonBorderShape(.circle)
-                    .tint(.primary)
-                    .accessibilityLabel(Text("Jump to latest"))
-                    .padding()
                 }
             }
         }

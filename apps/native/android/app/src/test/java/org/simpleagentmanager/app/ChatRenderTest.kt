@@ -101,7 +101,7 @@ class ChatRenderTest {
         compose.setContent {
             var draft by remember { mutableStateOf("") }
             MaterialTheme {
-                Composer("Message", draft, { draft = it; current = it }, false, emptyList(), {}, {}, { sent = draft })
+                Composer("Message", draft, { draft = it; current = it }, false, emptyList(), {}, {}, onSend = { sent = draft })
             }
         }
         val editor = compose.onNode(hasSetTextAction())
