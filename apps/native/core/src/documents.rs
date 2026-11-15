@@ -53,7 +53,7 @@ pub(crate) fn resolve(rows: &mut Vec<ChatMessage>) {
             let mut merged = previous.clone();
             if let (Some(old), Some(new)) = (merged.as_object_mut(), meta.as_object()) {
                 for (k, v) in new {
-                    if !v.is_null() {
+                    if !v.is_null() && v.as_str() != Some("") {
                         old.insert(k.clone(), v.clone());
                     }
                 }
@@ -66,7 +66,7 @@ pub(crate) fn resolve(rows: &mut Vec<ChatMessage>) {
         if !call.is_empty() {
             calls.insert(call, (target, meta.clone()));
         }
-        let name = meta["toolName"].as_str().or_else(|| meta["title"].as_str()).unwrap_or_default();
+        let name = meta["toolName"].as_str().filter(|s| !s.is_empty()).or_else(|| meta["title"].as_str()).unwrap_or_default();
         let name = name.split("__").flat_map(|s| s.split(['/', '.', ':'])).filter(|s| !s.is_empty()).last().unwrap_or_default();
         if !matches!(name, "display_from_library" | "upload_to_library" | "replace_library_file") {
             continue;
@@ -89,7 +89,8 @@ pub(crate) fn resolve(rows: &mut Vec<ChatMessage>) {
             mime_type: text(source, "mimeType"),
             size_bytes: source["sizeBytes"].as_u64(),
             caption: input["caption"].as_str().or_else(|| output["caption"].as_str()).unwrap_or_default().to_owned(),
-            unavailable: output["error"] == "FILE_NOT_FOUND",
+            unavailable: output["error"] == "FILE_NOT_FOUND"
+                || (meta["status"] == "failed" && source["id"].as_str().or_else(|| source["fileId"].as_str()).is_none()),
         });
         if target != i {
             remove.push(i);

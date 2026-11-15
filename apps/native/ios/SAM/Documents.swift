@@ -4,7 +4,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 extension ChatDocument {
-    var isImage: Bool { UTType(mimeType: mimeType)?.conforms(to: .image) == true || UTType(filenameExtension: (filename as NSString).pathExtension)?.conforms(to: .image) == true }
+    var isImage: Bool { mimeType != "image/svg+xml" && (filename as NSString).pathExtension.lowercased() != "svg" && (UTType(mimeType: mimeType)?.conforms(to: .image) == true || UTType(filenameExtension: (filename as NSString).pathExtension)?.conforms(to: .image) == true) }
     var label: String { filename.isEmpty ? String(localized: "File") : filename }
 }
 
@@ -38,6 +38,7 @@ struct DocumentCard: View {
                 if document.unavailable { Text("File no longer available").font(.caption).foregroundStyle(.secondary) }
                 else if document.fileId.isEmpty { Text("Preparing file…").font(.caption).foregroundStyle(.secondary) }
                 else if failed { Text("File unavailable. Tap to retry.").font(.caption).foregroundStyle(.secondary) }
+                else { Text(document.isImage ? String(localized: "Open gallery") : String(localized: "Open file")).font(.caption2).foregroundStyle(.secondary) }
             }.padding(10).frame(maxWidth: 260, alignment: .leading)
                 .glass(in: RoundedRectangle(cornerRadius: 16))
         }
@@ -84,14 +85,19 @@ struct DocumentGallery: View {
             if !documents.isEmpty {
                 let document = documents[index]
                 VStack(spacing: 12) {
-                    ScrollView([.horizontal, .vertical]) {
-                        if let data, let image = platformImage(data) {
-                            image.resizable().scaledToFit().frame(maxWidth: 1000, maxHeight: 700).scaleEffect(scale)
-                                .gesture(MagnificationGesture().onChanged { scale = min(max($0, 1), 4) })
-                                .onTapGesture(count: 2) { scale = scale == 1 ? 2 : 1 }
-                        } else if failed {
-                            Button("Retry") { Task { await load(document) } }
-                        } else { ProgressView() }
+                    GeometryReader { geometry in
+                        ScrollView([.horizontal, .vertical]) {
+                            Group {
+                                if let data, let image = platformImage(data) {
+                                    image.resizable().scaledToFit()
+                                        .frame(width: geometry.size.width * scale, height: geometry.size.height * scale)
+                                        .gesture(MagnificationGesture().onChanged { scale = min(max($0, 1), 4) })
+                                        .onTapGesture(count: 2) { scale = scale == 1 ? 2 : 1 }
+                                } else if failed {
+                                    Button("Retry") { Task { await load(document) } }
+                                } else { ProgressView() }
+                            }.frame(minWidth: geometry.size.width, minHeight: geometry.size.height)
+                        }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                     if !document.caption.isEmpty { Text(verbatim: document.caption).font(.caption) }
                     HStack {

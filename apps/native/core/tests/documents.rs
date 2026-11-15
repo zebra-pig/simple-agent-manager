@@ -63,3 +63,17 @@ async fn unauthorized_file_read_ends_the_session() {
     assert!(vm.document_bytes("f".into()).await.is_none());
     assert!(store.0.lock().unwrap().is_none());
 }
+
+#[tokio::test]
+async fn oversized_download_fails_without_retaining_preview_bytes() {
+    let server = serve(Arc::new(|r| match r.path.as_str() {
+        "/api/projects/p/sessions/s" => (200, json!({"session":{"id":"s","status":"stopped","startedAt":1},"messages":[{"id":"m","role":"tool","toolMetadata":{"toolName":"display_from_library","rawOutput":{"fileId":"f"}}}]}).to_string()),
+        _ => (200, "x".repeat(20 * 1024 * 1024 + 1)),
+    })).await;
+    let store = MemoryStore::default();
+    *store.0.lock().unwrap() = Some(Credentials { server_url: server, session_cookie: "session=abc".into() });
+    let vm = ChatViewModel::new(App::new(Box::new(store), None));
+    vm.load("p".into(), "s".into()).await;
+    assert!(vm.document_bytes("f".into()).await.is_none());
+    assert!(vm.state().error.is_none());
+}
