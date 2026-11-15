@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNode
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.assertIsFocused
@@ -15,7 +14,6 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performScrollToIndex
 import org.junit.Rule

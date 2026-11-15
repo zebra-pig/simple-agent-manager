@@ -16,5 +16,7 @@ From `apps/native/android`, regenerate with `./gradlew updateDebugScreenshotTest
 compare with `./gradlew validateDebugScreenshotTest`. Robolectric's `testDebugUnitTest`
 checks interaction, including expanding activity and using the history arrow.
 
-The composer still uses its existing layout; matching the user's collapsed/expanded
-references is pending recovery of the images lost during the workspace restart.
+The composer uses a floating neutral pill. Wrapped drafts expand above the attachment
+and send controls, retaining editor focus. The expanded draft has a separate preview.
+The original reference images were lost in a workspace restart, so these implement
+the recorded layout direction rather than claiming a pixel match.

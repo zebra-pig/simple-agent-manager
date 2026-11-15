@@ -96,7 +96,7 @@ struct Composer<Accessory: View>: View {
     let files: ComposerFiles
     let send: () -> Void
     let accessory: Accessory
-    @ScaledMetric(relativeTo: .body) private var lineHeight = 22
+    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
     @State private var dropTargeted = false
     @FocusState private var focused: Bool
     /// Follows `focused`, but hides a moment later, so tapping the accessory
