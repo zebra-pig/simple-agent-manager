@@ -6,6 +6,9 @@ struct ChatView: View {
     let ref: SessionRef
     @State private var chat: ChatModel
     @State private var draft = ""
+    @State private var tool: ChatTool?
+    @State private var confirmEnd = false
+    @State private var ending = false
     @Environment(\.openURL) private var openURL
 
     init(app: App, ref: SessionRef) {
@@ -52,14 +55,47 @@ struct ChatView: View {
         .inlineTitle()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if let session = chat.state.session {
-                    HStack(spacing: 6) {
-                        StatusDot(session: session)
-                        Text(statusLabel(session)).font(.caption).foregroundStyle(.secondary)
+                Menu {
+                    Section("Workspace and history") {
+                        if let session = chat.state.session, canBrowse(session) {
+                            Button("Files", systemImage: "folder") { tool = .files }
+                            Button("Git", systemImage: "arrow.triangle.branch") { tool = .git }
+                        }
+                        Button("Timeline", systemImage: "clock") { tool = .timeline }
+                        webTool("Related", icon: "link", action: .related)
+                        Button("Resources", systemImage: "chart.xyaxis.line") { tool = .resources }
+                        webTool("Automation", icon: "arrow.trianglehead.2.clockwise", action: .automation)
+                        webTool("Comments", icon: "text.bubble", action: .comments)
                     }
+                    Section("Session") {
+                        if let session = chat.state.session {
+                            if session.viewerAccess != nil { webTool("Share", icon: "person.2", action: .share) }
+                            if session.task != nil {
+                                if !(session.task?.status == "cancelled" && session.task?.terminalReason == "snapshot_expired") { webTool("Retry", icon: "arrow.clockwise", action: .retry) }
+                                webTool("Fork", icon: "arrow.triangle.branch", action: .fork)
+                            }
+                        }
+                    }
+                    Section {
+                        if chat.state.reportEnabled { webTool("Report", icon: "flag", action: .report) }
+                        if let end = endLabel {
+                            Button(end, systemImage: "checkmark.circle") { confirmEnd = true }.disabled(ending)
+                        }
+                        Button("Details", systemImage: "info.circle") { tool = .details }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").frame(width: 32, height: 32)
                 }
+                .accessibilityLabel("Session tools")
+                .glassButton()
             }
         }
+        .sheet(item: $tool) { selected in
+            ChatToolView(tool: selected, chat: chat)
+        }
+        .confirmationDialog(endLabel ?? String(localized: "Complete"), isPresented: $confirmEnd) {
+            Button(endLabel ?? String(localized: "Complete"), role: .destructive) { ending = true; Task { await chat.core.endTask(); ending = false } }
+        } message: { Text("This ends the task and stops its agent.") }
         .safeAreaInset(edge: .bottom) {
             if canReply {
                 Composer(placeholder: "Reply to the agent…", text: $draft, busy: chat.state.sending, files: chat.files) {
@@ -69,12 +105,36 @@ struct ChatView: View {
             }
         }
         .task(id: ref) {
+            chat.tools.core.load(projectId: ref.projectId, sessionId: ref.sessionId)
             await chat.core.load(projectId: ref.projectId, sessionId: ref.sessionId)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(finished ? 20 : 4))
                 if Task.isCancelled { break }
                 await chat.core.refresh()
             }
+        }
+    }
+
+    private func webTool(_ title: LocalizedStringKey, icon: String, action: WebChatTool) -> some View {
+        Button {
+            if let url = URL(string: chat.core.webToolUrl(tool: action)) { openURL(url) }
+        } label: {
+            Label { Text(title) + Text(" (web)") } icon: { Image(systemName: icon) }
+        }
+    }
+
+    private func canBrowse(_ session: ChatSession) -> Bool {
+        session.status == .active && session.workspaceId != nil && canDrive(session)
+    }
+    private func canDrive(_ session: ChatSession) -> Bool {
+        session.viewerAccess == "owner" || session.viewerAccess == "grantee" || (session.viewerAccess == nil && session.isMine)
+    }
+    private var endLabel: String? {
+        guard let session = chat.state.session, canDrive(session), let task = session.task else { return nil }
+        switch task.status {
+        case "in_progress", "sleeping": return String(localized: "Complete")
+        case "draft", "ready", "queued", "delegated": return String(localized: "Cancel task")
+        default: return nil
         }
     }
 
@@ -85,7 +145,7 @@ struct ChatView: View {
 
     private var canReply: Bool {
         guard let session = chat.state.session else { return false }
-        return session.status == .active || session.status == .sleeping
+        return canDrive(session) && (session.status == .active || session.status == .sleeping)
     }
 }
 

@@ -13,6 +13,7 @@ mod api;
 #[macro_use]
 mod attachments;
 mod chat;
+mod chat_tools;
 mod error;
 mod project;
 mod projects;
@@ -29,6 +30,7 @@ pub use attachments::{
     Attachment, AttachmentSource, AttachmentStatus, ATTACHMENT_BATCH_MAX_BYTES, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES,
 };
 pub use chat::*;
+pub use chat_tools::*;
 pub use error::UserError;
 pub use project::*;
 pub use projects::*;

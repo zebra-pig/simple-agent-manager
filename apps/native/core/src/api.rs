@@ -67,6 +67,8 @@ pub struct TaskSummary {
     #[serde(default)]
     pub execution_step: Option<String>,
     #[serde(default)]
+    pub terminal_reason: Option<String>,
+    #[serde(default)]
     pub error_message: Option<String>,
     #[serde(default)]
     pub output_branch: Option<String>,
@@ -80,6 +82,14 @@ pub struct TaskSummary {
 #[derive(Debug, Clone, PartialEq, Deserialize, uniffi::Record)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSession {
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub agent_session_id: Option<String>,
+    #[serde(default)]
+    pub viewer_access: Option<String>,
+    #[serde(default)]
+    pub is_mine: bool,
     pub id: String,
     #[serde(default)]
     pub topic: Option<String>,
@@ -104,6 +114,9 @@ pub struct ChatSession {
 }
 
 impl ChatSession {
+    pub fn can_drive(&self) -> bool {
+        matches!(self.viewer_access.as_deref(), Some("owner" | "grantee")) || (self.viewer_access.is_none() && self.is_mine)
+    }
     /// The latest activity, for sorting and "5 min ago".
     pub fn last_activity(&self) -> i64 {
         self.last_message_at.unwrap_or(self.started_at)

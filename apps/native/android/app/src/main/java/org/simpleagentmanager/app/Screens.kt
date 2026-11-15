@@ -286,6 +286,7 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     // Poll while on screen and in front; there is no push channel yet.
     LaunchedEffect(route) {
+        model.tools.load(route.projectId, route.sessionId)
         model.vm.load(route.projectId, route.sessionId)
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
@@ -309,14 +310,11 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
     Scaffold(
         topBar = {
             BackBar(session?.topic ?: stringResource(R.string.session), onBack) {
-                if (session != null) {
-                    StatusDot(session)
-                    Spacer(Modifier.size(16.dp))
-                }
+                ChatToolsMenu(model, state, openUrl)
             }
         },
         bottomBar = {
-            if (session != null && (session.status == SessionStatus.ACTIVE || session.status == SessionStatus.SLEEPING)) {
+            if (session != null && (session.viewerAccess == "owner" || session.viewerAccess == "grantee" || (session.viewerAccess == null && session.isMine)) && (session.status == SessionStatus.ACTIVE || session.status == SessionStatus.SLEEPING)) {
                 Composer(stringResource(R.string.reply_to_agent), draft, { draft = it }, busy = state.sending, if (current) state.attachments else emptyList(), model::attach, model::detach) {
                     model.send(draft) { draft = "" }
                 }
