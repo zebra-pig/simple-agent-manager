@@ -94,8 +94,9 @@ following; the down-arrow button returns to the latest messages. Older history i
 to the latest page from the server.
 
 Android's `ChatContent` accepts a state snapshot and callbacks. Robolectric tests exercise
-actual Compose views without signing in, including expanded activity and the history arrow.
-The official Compose screenshot plugin renders phone, dark, tablet, large-text and arrow previews:
+actual Compose views without signing in, including expanded activity, the history arrow,
+and editor focus while a draft wraps.
+The official Compose screenshot plugin renders phone, dark, tablet, large-text, arrow and expanded-composer previews:
 
 ```sh
 cd apps/native/android
