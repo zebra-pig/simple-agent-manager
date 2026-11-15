@@ -105,6 +105,7 @@ async function claimWarmNodeCandidate(
 ): Promise<boolean> {
   const nodeId = selection.nodeId;
   const eligible = await filterReusableNodesByCurrentAuthority(rc.env.DATABASE, {
+    requestingTaskId: state.taskId,
     userId: state.userId,
     projectId: state.projectId,
     selections: [selection],

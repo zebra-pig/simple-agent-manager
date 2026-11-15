@@ -110,6 +110,7 @@ export async function currentReusableNodeIds(
   nodes: readonly NodePlacementFields[]
 ): Promise<Set<string>> {
   return filterReusableNodesByCurrentAuthority(rc.env.DATABASE, {
+    requestingTaskId: state.taskId,
     userId: state.userId,
     projectId: state.projectId,
     selections: nodes.flatMap((node) => {
