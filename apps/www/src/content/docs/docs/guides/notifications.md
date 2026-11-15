@@ -99,6 +99,16 @@ On iPhone and iPad, install SAM to the Home Screen before enabling push. Other s
 browsers can enable push directly. Browser permission is requested only after you select
 **Enable push**, never on page load.
 
+The native app ([apps/native](https://github.com/raphaeltm/simple-agent-manager/tree/main/apps/native))
+gets the same notifications as native pushes: through Apple Push Notification service on iPhone,
+iPad and the Mac, and through Firebase Cloud Messaging on Android. It asks for permission once you
+sign in, and a tap opens the conversation. The **Settings → Notifications** push preferences apply
+to the app as well. Each deployment uses its own Apple key and Firebase project, set as Worker
+secrets (`APNS_*`, `FCM_SERVICE_ACCOUNT_JSON`, see the
+[configuration reference](/docs/reference/configuration/)); without them the app runs without push.
+Unlike Web Push, whose payload is encrypted to the browser, Apple and Google can read a native
+push's title and text.
+
 The question also appears in the conversation itself, as a card where the agent asked it. The card
 shows the full question (a long one starts collapsed behind **Show full question**) and the same
 answer buttons, or **Your answer** when the agent offered no choices. An answer given in the card, the
@@ -166,6 +176,8 @@ When agents call `update_task_status`, SAM creates progress notifications. To av
 | `/api/notifications/push/subscriptions`                                    | POST   | Add or refresh this browser's push subscription                      |
 | `/api/notifications/push/subscriptions`                                    | GET    | List the user's push subscriptions                                   |
 | `/api/notifications/push/subscriptions`                                    | DELETE | Remove this browser's push subscription                              |
+| `/api/notifications/push/native-tokens`                                    | POST   | Add or refresh a native app's device token (`apns` or `fcm`)         |
+| `/api/notifications/push/native-tokens`                                    | DELETE | Remove a native app's device token (the app does this on sign-out)   |
 | `/api/notifications/ws`                                                    | GET    | WebSocket for real-time delivery                                     |
 | `/api/config/vapid-public-key`                                             | GET    | Read the deployment's public VAPID key                               |
 | `/api/projects/:projectId/sessions/:sessionId/attention/:markerId`         | GET    | Read the full saved question (`?context=true` adds earlier messages) |

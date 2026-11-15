@@ -69,7 +69,7 @@ it (`apps/web/src/pages/project-chat/useAttachments.ts`), so the core needs no n
 1. `POST /api/projects/:id/tasks/request-upload` returns a presigned R2 URL.
 2. The core `PUT`s the bytes there (no cookie: the URL is the grant).
 3. `tasks/submit` or `sessions/:id/prompt` carries `attachments: [{uploadId, filename, size,
-   contentType}]`; the server checks them against R2 and copies them into the agent's workspace.
+contentType}]`; the server checks them against R2 and copies them into the agent's workspace.
 
 The shell hands the core each file as a name, a type, a size and an `AttachmentSource` callback;
 the core checks the limits (`ATTACHMENT_DEFAULTS`), makes the name safe (`sanitizeFilename`),
@@ -104,6 +104,33 @@ goes through the routes the web app uses (`apps/api/src/routes/agent-profiles.ts
 
 The lists the editor offers (`supported_efforts`, `permission_modes`, `task_modes`) mirror
 `packages/shared` and live in `core/src/agent_profiles.rs`. The agents come from `GET /api/agents`.
+
+## Push notifications
+
+The app gets the notifications the web app sends as Web Push (agent questions, task results,
+mentions), through the platform's own push service, and a tap opens the conversation. The server
+side mirrors Web Push (`apps/api/src/durable-objects/notification-native-push.ts`): the same
+payload builder, the same **Settings → Notifications** push preferences and the same receipts.
+
+1. Once signed in, the app asks for permission and registers with the OS (`ios/SAM/Push.swift`,
+   `android/.../Push.kt`).
+2. The OS hands over a device token; the shell passes it to `App::set_push_token`. The core sends
+   it to `POST /api/notifications/push/native-tokens` while signed in (again after a later sign-in)
+   and removes it with `DELETE` on sign-out.
+3. The server sends to APNs (iOS, macOS) or FCM (Android). A message carries `projectId` and
+   `sessionId`; tapping it opens that chat. On Android the server sends data-only messages and the
+   app shows them itself, so a tap works whether the app was open or not.
+
+Each deployment brings its own app identities, all through environment variables:
+
+| Where      | Variables                                                                                                                                                                                                                          |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SAM server | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY` (.p8, PEM or base64), `APNS_TOPIC` (= `SAM_BUNDLE_ID`), `FCM_SERVICE_ACCOUNT_JSON` (raw or base64). GitHub Environment secrets; `configure-secrets.sh` copies them to the Worker |
+| Android    | `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`, `FIREBASE_API_KEY`, `FIREBASE_SENDER_ID` at build time (Firebase → Project settings → your Android app). No `google-services.json`                                                       |
+| iOS, macOS | Nothing extra: enable Push Notifications on the App ID; the entitlement is in `SAM.entitlements` / `SAMMac.entitlements`                                                                                                           |
+
+A platform without its variables simply has no push. Debug builds register as APNs sandbox tokens,
+everything else as production.
 
 ## Core
 
@@ -161,14 +188,14 @@ the upstream defaults, and `ios/Config/Local.xcconfig` (gitignored) overrides th
 `scripts/configure-ios.sh` writes that file from the environment, and Xcode Cloud runs it. Android
 reads the same variables in `android/app/build.gradle.kts`.
 
-| Variable                | Default                      | What                                                                    |
-| ----------------------- | ---------------------------- | ----------------------------------------------------------------------- |
+| Variable                | Default                      | What                                                                           |
+| ----------------------- | ---------------------------- | ------------------------------------------------------------------------------ |
 | `BASE_DOMAIN`           | `simple-agent-manager.org`   | The deployment the app signs in to, named as on the platform (`api.` is added) |
-| `SAM_BUNDLE_ID`         | `org.simpleagentmanager.app` | Bundle id (iOS/macOS) and application id (Android)                      |
-| `SAM_APP_NAME`          | `SAM`                        | Name under the icon and on the sign-in screen                           |
-| `SAM_TEAM_ID`           | (none)                       | Apple Developer team id (iOS/macOS signing)                             |
-| `SAM_MARKETING_VERSION` | `0.1`                        | Version (iOS/macOS; Android uses `VERSION_NAME`)                        |
-| `SAM_BUILD_NUMBER`      | `1`, or `CI_BUILD_NUMBER`    | Build number (iOS/macOS; Android uses `VERSION_CODE`)                   |
+| `SAM_BUNDLE_ID`         | `org.simpleagentmanager.app` | Bundle id (iOS/macOS) and application id (Android)                             |
+| `SAM_APP_NAME`          | `SAM`                        | Name under the icon and on the sign-in screen                                  |
+| `SAM_TEAM_ID`           | (none)                       | Apple Developer team id (iOS/macOS signing)                                    |
+| `SAM_MARKETING_VERSION` | `0.1`                        | Version (iOS/macOS; Android uses `VERSION_NAME`)                               |
+| `SAM_BUILD_NUMBER`      | `1`, or `CI_BUILD_NUMBER`    | Build number (iOS/macOS; Android uses `VERSION_CODE`)                          |
 
 The upstream bundle id belongs to the upstream project. Build your own copy under your own id.
 
@@ -214,7 +241,6 @@ There is no GitHub Actions workflow for the native app yet; locally, the command
 ## Not yet
 
 - Live updates: the chat polls every 4 s while on screen. It doesn't use the web app's WebSocket.
-- Push notifications for sessions that need attention.
 - Per-task options besides the profile (VM size, node): tasks use the profile's or project's settings.
 - Profile provider and location, GitHub CLI policy, AI models, and hiding profiles from the picker: edit those on the web.
 - Older messages: the chat shows the latest page only.

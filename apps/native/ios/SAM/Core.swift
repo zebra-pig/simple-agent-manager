@@ -12,6 +12,7 @@ import Security
     init() {
         core = App(store: KeychainCredentialStore(), baseDomain: Brand.baseDomain)
         state = core.state()
+        Push.core = core
         core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
     }
 }

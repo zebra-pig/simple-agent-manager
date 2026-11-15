@@ -34,6 +34,11 @@ android {
         resValue("string", "app_name", brand("SAM_APP_NAME", "SAM"))
         // The platform's BASE_DOMAIN to suggest; the app talks to api.<BASE_DOMAIN>.
         buildConfigField("String", "BASE_DOMAIN", "\"${brand("BASE_DOMAIN", "simple-agent-manager.org")}\"")
+        // Push notifications through the deployment's own Firebase project (Project settings →
+        // your Android app). Unset: the app runs without push. No google-services.json needed.
+        for (name in listOf("FIREBASE_PROJECT_ID", "FIREBASE_APP_ID", "FIREBASE_API_KEY", "FIREBASE_SENDER_ID")) {
+            buildConfigField("String", name, "\"${brand(name, "")}\"")
+        }
     }
 
     buildFeatures {
@@ -77,5 +82,7 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.coroutines.android)
     implementation(libs.browser)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
 }

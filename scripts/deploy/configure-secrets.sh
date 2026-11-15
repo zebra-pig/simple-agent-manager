@@ -376,6 +376,15 @@ set_worker_secret "VAPID_PRIVATE_KEY" "$VAPID_PRIVATE_KEY" "$ENVIRONMENT" "true"
 set_worker_secret "VAPID_PUBLIC_KEY" "$VAPID_PUBLIC_KEY" "$ENVIRONMENT" "true" || FAILED=true
 set_worker_secret "VAPID_SUBJECT" "$VAPID_SUBJECT" "$ENVIRONMENT" "true" || FAILED=true
 
+# Native app push (optional; apps/native). Each platform is skipped at runtime
+# when its secrets are unset. APNS_PRIVATE_KEY and FCM_SERVICE_ACCOUNT_JSON may
+# be stored base64 encoded, like GH_APP_PRIVATE_KEY.
+set_worker_secret "APNS_KEY_ID" "${APNS_KEY_ID:-}" "$ENVIRONMENT" "false"
+set_worker_secret "APNS_TEAM_ID" "${APNS_TEAM_ID:-}" "$ENVIRONMENT" "false"
+set_worker_secret "APNS_PRIVATE_KEY" "${APNS_PRIVATE_KEY:-}" "$ENVIRONMENT" "false"
+set_worker_secret "APNS_TOPIC" "${APNS_TOPIC:-}" "$ENVIRONMENT" "false"
+set_worker_secret "FCM_SERVICE_ACCOUNT_JSON" "${FCM_SERVICE_ACCOUNT_JSON:-}" "$ENVIRONMENT" "false"
+
 # Configure purpose-specific secret overrides.
 # BETTER_AUTH_SECRET and CREDENTIAL_ENCRYPTION_KEY fall back to ENCRYPTION_KEY.
 # GITHUB_WEBHOOK_SECRET is optional. If absent, admins can set it in first-run setup/admin UI.
