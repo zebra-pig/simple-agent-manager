@@ -175,8 +175,9 @@ lists, task lists, quotes, code and tables; wide code and tables scroll horizont
 
 Follow-ups appear immediately in an outbox and remain marked as sending or queued until the
 server transcript contains them. Failed sends restore the draft. Reading older messages pauses
-following; the down-arrow button returns to the latest messages. Older history is still limited
-to the latest page from the server.
+following; the down-arrow button returns to the latest messages. Earlier messages load automatically as the top of the conversation comes into view. A small
+spinner appears while a page loads; failures show a retry action. Loaded messages keep stable
+identities so adding history preserves the reading position.
 
 Android's `ChatContent` accepts a state snapshot and callbacks. Robolectric tests exercise
 actual Compose views without signing in, including expanded activity, the history arrow,
@@ -357,7 +358,6 @@ There is no GitHub Actions workflow for the native app yet; locally, the command
 - Live updates: the chat polls every 4 s while on screen. It doesn't use the web app's WebSocket.
 - Per-task options besides the profile (VM size, node): tasks use the profile's or project's settings.
 - Profile provider and location, GitHub CLI policy, AI models, and hiding profiles from the picker: edit those on the web.
-- Older messages: the chat shows the latest page only.
 - Translations: the strings are extracted, but only English exists so far.
 - Release signing and store uploads on Android.
 
