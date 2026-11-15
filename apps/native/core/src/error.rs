@@ -64,6 +64,8 @@ pub enum UserError {
     ProfileNameRequired,
     /// The profile's agent has no such effort level.
     EffortNotSupported,
+    /// A number field of the profile editor holds something that isn't a valid value.
+    InvalidProfileNumber { field: crate::agent_profiles::ProfileNumberField },
 }
 
 impl From<&CoreError> for UserError {

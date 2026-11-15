@@ -71,7 +71,9 @@ read them. Follow-ups with files need durable prompt delivery on the server, as 
 ## Agent profiles
 
 A profile is a saved setup for new chats: the agent, model, effort, permission mode, work type
-(task or conversation) and extra instructions. The project screen shows the selected profile in
+(task or conversation) and extra instructions, the machine (runtime, minimum vCPUs, memory and disk,
+a dedicated node, the workspace and its devcontainer) and limits (max turns, timeout).
+The project screen shows the selected profile in
 the composer (on iOS and macOS, at the top of its glass container while the text field has focus;
 on Android, above it). Its menu switches profiles and opens the editor ("Edit", "New profile"). Everything
 goes through the routes the web app uses (`apps/api/src/routes/agent-profiles.ts`):
@@ -83,7 +85,11 @@ goes through the routes the web app uses (`apps/api/src/routes/agent-profiles.ts
 - `tasks/submit` sends the selected profile as `agentProfileId`. With no profile, the server uses
   the project's defaults.
 - `POST`, `PUT` and `DELETE .../agent-profiles[/:id]` save and delete profiles. The editor covers
-  the fields above. Fields it doesn't show (VM size, runtime, devcontainer, ...) keep their values.
+  the fields above. Fields it doesn't show (provider, location, GitHub CLI policy, AI models) keep
+  their values. The machine follows the web form: requirements go out as `resourceRequirementsJson`,
+  keeping any keys the app doesn't know. The older fixed size (`vmSizeOverride`) shows only while a
+  profile still has it, with a way to clear it. An instant container (`cf-container`) has no machine
+  settings and always uses a lightweight workspace.
   Only the project's own profiles can be edited here. The user's global profiles can be picked but
   not edited, as the server refuses that in a project's scope.
 
@@ -201,7 +207,7 @@ There is no GitHub Actions workflow for the native app yet; locally, the command
 - Live updates: the chat polls every 4 s while on screen. It doesn't use the web app's WebSocket.
 - Push notifications for sessions that need attention.
 - Per-task options besides the profile (VM size, node): tasks use the profile's or project's settings.
-- Profile fields beyond the basics (VM size, runtime, devcontainer, GitHub CLI policy) and hiding profiles from the picker: edit those on the web.
+- Profile provider and location, GitHub CLI policy, AI models, and hiding profiles from the picker: edit those on the web.
 - Older messages: the chat shows the latest page only.
 - Translations: the strings are extracted, but only English exists so far.
 - Release signing and store uploads on Android.

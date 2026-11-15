@@ -122,6 +122,15 @@ struct ProfileEditor: View {
                 } footer: {
                     Text("Added to the agent's system prompt in every chat with this profile.")
                 }
+                machineSection
+                Section {
+                    NumberField("Max turns", text: $draft.maxTurns)
+                    NumberField("Timeout (minutes)", text: $draft.timeoutMinutes)
+                } header: {
+                    Text("Limits")
+                } footer: {
+                    Text("When the agent stops on its own. Empty uses the project's settings.")
+                }
                 if let error = model.state.profileError {
                     Section { Text(error.message).foregroundStyle(.red) }
                 }
@@ -158,6 +167,10 @@ struct ProfileEditor: View {
                     }
                 }
             }
+            .onChange(of: draft.runtime) {
+                // An instant container always runs a lightweight workspace.
+                if draft.runtime == "cf-container" { draft.workspaceProfile = "lightweight" }
+            }
             .onChange(of: draft.agentType) {
                 // Another agent may not have this effort level.
                 if !draft.effort.isEmpty && !efforts.contains(draft.effort) { draft.effort = "" }
@@ -166,6 +179,103 @@ struct ProfileEditor: View {
             .interactiveDismissDisabled(saving)
         }
         .macSheet()
+    }
+}
+
+extension ProfileEditor {
+    private var instant: Bool { draft.runtime == "cf-container" }
+
+    /// Where the agent runs: the runtime, the minimum machine, the workspace.
+    @ViewBuilder private var machineSection: some View {
+        Section {
+            Picker("Runtime", selection: $draft.runtime) {
+                Text("Default").tag("")
+                ForEach(profileRuntimes(), id: \.self) { Text(runtimeLabel($0)).tag($0) }
+            }
+            if !instant {
+                NumberField("Min. vCPUs", text: $draft.minVcpu, decimal: true)
+                NumberField("Min. memory (GB)", text: $draft.minMemoryGb, decimal: true)
+                NumberField("Min. disk (GB)", text: $draft.minDiskGb, decimal: true)
+                Picker("Dedicated node", selection: Binding(
+                    get: { draft.exclusiveNode.map { $0 ? "yes" : "no" } ?? "" },
+                    set: { draft.exclusiveNode = $0.isEmpty ? nil : $0 == "yes" }
+                )) {
+                    Text("Default").tag("")
+                    Text("Yes").tag("yes")
+                    Text("No").tag("no")
+                }
+                if !draft.legacyVmSize.isEmpty {
+                    LabeledContent("Machine size") {
+                        HStack {
+                            Text(humanized(draft.legacyVmSize))
+                            Button("Clear") { draft.legacyVmSize = "" }
+                                .buttonStyle(.borderless)
+                        }
+                    }
+                }
+            }
+            Picker("Workspace", selection: $draft.workspaceProfile) {
+                Text("Default").tag("")
+                ForEach(workspaceProfiles(), id: \.self) { Text(workspaceProfileLabel($0)).tag($0) }
+            }
+            .disabled(instant)
+            if !instant && draft.workspaceProfile != "lightweight" {
+                LabeledContent("Devcontainer") {
+                    TextField("Devcontainer", text: $draft.devcontainerConfigName, prompt: Text("Auto-detect"))
+                        .labelsHidden()
+                        .multilineTextAlignment(.trailing)
+                        .autocorrectionDisabled()
+                        .urlKeyboard()
+                }
+            }
+        } header: {
+            Text("Machine")
+        } footer: {
+            if instant {
+                Text("An instant container starts in seconds, in a lightweight workspace without machine settings.")
+            } else {
+                Text("The smallest machine this profile runs on. Empty fields use the project's settings.")
+            }
+        }
+    }
+}
+
+/// A labelled number in a form row; empty shows "Default".
+struct NumberField: View {
+    let label: LocalizedStringKey
+    @Binding var text: String
+    var decimal = false
+
+    init(_ label: LocalizedStringKey, text: Binding<String>, decimal: Bool = false) {
+        self.label = label
+        _text = text
+        self.decimal = decimal
+    }
+
+    var body: some View {
+        LabeledContent(label) {
+            TextField(label, text: $text, prompt: Text("Default"))
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .numberKeyboard(decimal: decimal)
+        }
+    }
+}
+
+/// `AGENT_PROFILE_RUNTIMES` for people (the web's "Cloud VM" and "Instant container").
+func runtimeLabel(_ runtime: String) -> String {
+    switch runtime {
+    case "vm": String(localized: "Cloud VM", comment: "Profile runtime")
+    case "cf-container": String(localized: "Instant container", comment: "Profile runtime")
+    default: humanized(runtime)
+    }
+}
+
+func workspaceProfileLabel(_ profile: String) -> String {
+    switch profile {
+    case "full": String(localized: "Full", comment: "Workspace profile")
+    case "lightweight": String(localized: "Lightweight", comment: "Workspace profile")
+    default: humanized(profile)
     }
 }
 

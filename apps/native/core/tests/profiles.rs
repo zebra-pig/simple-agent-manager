@@ -136,7 +136,9 @@ async fn profiles_are_created_edited_and_deleted() {
     assert_eq!(
         put,
         json!({"name": "Chat (Opus)", "description": null, "agentType": "claude-code", "model": "claude-opus-5-5",
-               "effort": null, "permissionMode": null, "systemPromptAppend": null, "taskMode": null})
+               "effort": null, "permissionMode": null, "systemPromptAppend": null, "taskMode": null,
+               "maxTurns": null, "timeoutMinutes": null, "runtime": null, "vmSizeOverride": null,
+               "resourceRequirementsJson": null, "workspaceProfile": null, "devcontainerConfigName": null})
     );
     let state = vm.state();
     assert_eq!(state.selected_profile_id.as_deref(), Some("pa"));
