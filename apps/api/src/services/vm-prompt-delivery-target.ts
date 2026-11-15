@@ -246,6 +246,49 @@ async function resolveSleepingContainerTarget(
   return readyTarget(projectId, chatSessionId, row, row.node_id, row.agent_session_id);
 }
 
+/**
+ * Task statuses before the TaskRunner commits `in_progress`: the workspace row may not exist
+ * yet, or may not be linked to the chat session yet. `in_progress` is only written once the
+ * workspace is ready (`transitionToInProgress`), so a missing workspace there is not "starting".
+ */
+const STARTING_TASK_STATUSES = ['draft', 'ready', 'queued', 'delegated'];
+
+/**
+ * Whether this conversation's task has not provisioned its workspace yet (queued for node
+ * capacity, VM still booting). A follow-up sent in that window has no runtime to reach and
+ * nothing to wake: the conversation never slept. Without this check the missing workspace
+ * row reads as "slept and torn down", the resolver starts a sleep wake, and the wake refuses
+ * with `sleeping_snapshot_missing`, failing the follow-up (production 2026-11-15). Hold the
+ * delivery instead; it goes out once the agent session is running, like any prompt sent
+ * while the runtime boots.
+ *
+ * A retained sleep snapshot means the session really did sleep, and a wake reactivates its
+ * task to `queued`; that path stays with `ensureSessionRecovery`, which owns the wake claim.
+ */
+async function isTaskStillStarting(
+  env: Env,
+  projectId: string,
+  chatSessionId: string
+): Promise<boolean> {
+  const placeholders = STARTING_TASK_STATUSES.map(() => '?').join(', ');
+  const starting = await env.DATABASE.prepare(
+    `SELECT task.id AS task_id
+       FROM tasks task
+      WHERE task.project_id = ?
+        AND task.chat_session_id = ?
+        AND task.status IN (${placeholders})
+        AND NOT EXISTS (
+          SELECT 1 FROM session_snapshots snapshot
+           WHERE snapshot.chat_session_id = task.chat_session_id
+             AND snapshot.sleeping_at IS NOT NULL
+        )
+      LIMIT 1`
+  )
+    .bind(projectId, chatSessionId, ...STARTING_TASK_STATUSES)
+    .first<{ task_id: string }>();
+  return Boolean(starting?.task_id);
+}
+
 /** A steer reports this instead of starting a wake; nothing it carries may restart a runtime. */
 export const SESSION_NOT_AWAKE_REASON = 'session_not_awake';
 
@@ -313,6 +356,10 @@ export async function resolveVmPromptDeliveryTarget(
         'Sleeping container workspace no longer exists',
         runSideEffectGuard
       );
+    }
+    if (await isTaskStillStarting(env, projectId, chatSessionId)) {
+      // A retry cannot exhaust the delivery attempt budget (`applyPromptDeliveryResult`); TTL bounds it.
+      return { kind: 'retry', reason: 'Task is still starting; no workspace yet' };
     }
     const guarded = await runSideEffectGuard();
     if (guarded) return { kind: 'guarded', result: guarded };
