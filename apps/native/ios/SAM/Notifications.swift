@@ -35,7 +35,6 @@ struct NotificationsView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     if let error = model.state.error { Text(error.message).foregroundStyle(.red) }
-                    if model.state.loading && model.state.items.isEmpty { ProgressView() }
                     if !model.state.loading && model.state.items.isEmpty && model.state.error == nil {
                         ContentUnavailableView("No notifications", systemImage: "bell")
                     }
@@ -59,6 +58,7 @@ struct NotificationsView: View {
                     }
                 }.padding()
             }
+            .initialLoading(model.state.loading)
             .navigationTitle("Notifications")
             .refreshable { await model.core.load(projectId: "", sessionId: "") }
             .task {
@@ -105,7 +105,6 @@ struct RequestCard: View {
             Text(model.state.reason).textSelection(.enabled)
             if model.state.irreversible && model.state.canRespond { Text("Approving permanently deletes this resource. This cannot be undone.").foregroundStyle(.red) }
             if let error = model.state.error { Text(error.message).foregroundStyle(.red) }
-            if model.state.busy { ProgressView() }
             if model.state.canRespond {
                 if secret {
                     SecureField("Secret value", text: $value).autocorrectionDisabled()
@@ -132,7 +131,9 @@ struct RequestCard: View {
             } else if !model.state.status.isEmpty { Text(requestStatus(model.state.status)).font(.caption).foregroundStyle(.secondary) }
             if model.state.deliveryUnconfirmed { Text("Saved, but the agent could not be notified. Tell it in the conversation.").foregroundStyle(.orange) }
             if let answer = model.state.answer { Text(answer) }
-            Button("Refresh") { Task { await load() } }.font(.caption)
+            Button { Task { await load() } } label: {
+                LoadingLabel(title: "Refresh", loading: model.state.busy)
+            }.font(.caption).disabled(model.state.busy)
         }
     }
     private func load() async {

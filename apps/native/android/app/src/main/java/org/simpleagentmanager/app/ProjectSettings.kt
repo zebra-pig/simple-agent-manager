@@ -58,70 +58,71 @@ fun ProjectSettingsContent(
             } }, actions = {
                 TextButton(enabled = valid && !busy && (projectId == null || project != null), onClick = {
                     save(ProjectDraft(name, description, provider, installation, repoId?.toULong(), repoName, branch))
-                }) { Text(if (projectId == null) stringResource(R.string.project_create) else stringResource(R.string.save)) }
+                }) { LoadingLabel(if (projectId == null) stringResource(R.string.project_create) else stringResource(R.string.save), state.saving) }
             })
     }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            state.error?.let {
-                Text(it.message(), color = MaterialTheme.colorScheme.error)
-                if (!state.initialized) OutlinedButton(onClick = retry, enabled = !busy) { Text(stringResource(R.string.project_retry)) }
-            }
-            if (projectId == null || project != null) {
-                SettingsCard(stringResource(R.string.project_general)) {
-                    OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.project_project_name)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(description, { description = it }, label = { Text(stringResource(R.string.project_description_optional)) }, minLines = 2, enabled = !busy, modifier = Modifier.fillMaxWidth())
+        InitialLoading(state.loading && !state.initialized, Modifier.padding(padding)) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                state.error?.let {
+                    Text(it.message(), color = MaterialTheme.colorScheme.error)
+                    if (!state.initialized) OutlinedButton(onClick = retry, enabled = !busy) { Text(stringResource(R.string.project_retry)) }
                 }
-                SettingsCard(stringResource(R.string.project_repository)) {
-                    if (project != null) {
-                        Text(project.repository, style = MaterialTheme.typography.bodyLarge)
-                        Text(stringResource(R.string.project_the_repository_provider_is_fixed_after_creation), style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        ChoiceMenu(stringResource(R.string.project_provider), provider, buildList {
-                            add("github" to "GitHub"); add("gitlab" to "GitLab")
-                            if (state.artifactsEnabled) add("artifacts" to "SAM-hosted")
-                        }, !busy) { provider = it; repoId = null; repoName = ""; branch = "main"; loadedFor = "" }
-                        if (provider == "github") {
-                            ChoiceMenu(stringResource(R.string.project_github_account), installation, state.installations.map { it.id to it.accountName }, !busy) {
-                                installation = it; repoId = null; repoName = ""; loadedFor = ""
-                            }
-                            if (state.installations.isEmpty()) Text(stringResource(R.string.project_connect_a_github_account_in_sam_on_the_web_then_retry), style = MaterialTheme.typography.bodySmall)
-                        }
-                        if (provider == "artifacts") {
-                            Text(stringResource(R.string.project_sam_creates_a_private_git_repository_for_this_project))
-                        } else {
-                            OutlinedTextField(search, { search = it }, label = { Text(stringResource(R.string.project_search_repositories)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
-                            OutlinedButton(enabled = !busy && (provider == "gitlab" || installation.isNotEmpty()), onClick = {
-                                repoId = null; loadedFor = "$provider:$installation"; repositories(provider, installation, search)
-                            }) { Text(stringResource(R.string.project_load_repositories)) }
-                            if (loadedFor == "$provider:$installation") {
-                                state.repositories.filter { provider == "gitlab" || it.fullName.contains(search, ignoreCase = true) }.forEach { repo ->
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        RadioButton(selected = repoId == repo.id.toString(), enabled = !busy, onClick = {
-                                            repoId = repo.id.toString(); repoName = repo.fullName; branch = repo.defaultBranch
-                                            if (name.isBlank()) name = repo.fullName.substringAfterLast('/')
-                                        })
-                                        TextButton(enabled = !busy, onClick = {
-                                            repoId = repo.id.toString(); repoName = repo.fullName; branch = repo.defaultBranch
-                                            if (name.isBlank()) name = repo.fullName.substringAfterLast('/')
-                                        }) { Text(repo.fullName) }
-                                    }
-                                }
-                                if (!busy && state.repositories.isEmpty() && state.error == null) Text(stringResource(R.string.project_no_repositories_found))
-                            }
-                        }
+                if (projectId == null || project != null) {
+                    SettingsCard(stringResource(R.string.project_general)) {
+                        OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.project_project_name)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(description, { description = it }, label = { Text(stringResource(R.string.project_description_optional)) }, minLines = 2, enabled = !busy, modifier = Modifier.fillMaxWidth())
                     }
-                    if (provider != "artifacts") OutlinedTextField(branch, { branch = it }, label = { Text(stringResource(R.string.project_default_branch)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
-                }
-                if (project != null) SettingsCard(stringResource(R.string.project_delete_project)) {
-                    Text(stringResource(R.string.project_permanently_deletes_this_project_and_all_associated_data_this_cannot_b))
-                    if (deleting) {
-                        Text(stringResource(R.string.project_type_name_to_confirm, project.name))
-                        OutlinedTextField(confirmation, { confirmation = it }, label = { Text(stringResource(R.string.project_confirm_project_name)) }, enabled = !busy, modifier = Modifier.fillMaxWidth())
-                        OutlinedButton(onClick = { delete(confirmation) }, enabled = !busy && confirmation == project.name,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.project_permanently_delete)) }
-                        TextButton(onClick = { deleting = false; confirmation = "" }, enabled = !busy) { Text(stringResource(R.string.cancel)) }
-                    } else OutlinedButton(onClick = { deleting = true }, enabled = !busy) { Text(stringResource(R.string.project_delete_project), color = MaterialTheme.colorScheme.error) }
+                    SettingsCard(stringResource(R.string.project_repository)) {
+                        if (project != null) {
+                            Text(project.repository, style = MaterialTheme.typography.bodyLarge)
+                            Text(stringResource(R.string.project_the_repository_provider_is_fixed_after_creation), style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            ChoiceMenu(stringResource(R.string.project_provider), provider, buildList {
+                                add("github" to "GitHub"); add("gitlab" to "GitLab")
+                                if (state.artifactsEnabled) add("artifacts" to "SAM-hosted")
+                            }, !busy) { provider = it; repoId = null; repoName = ""; branch = "main"; loadedFor = "" }
+                            if (provider == "github") {
+                                ChoiceMenu(stringResource(R.string.project_github_account), installation, state.installations.map { it.id to it.accountName }, !busy) {
+                                    installation = it; repoId = null; repoName = ""; loadedFor = ""
+                                }
+                                if (state.installations.isEmpty()) Text(stringResource(R.string.project_connect_a_github_account_in_sam_on_the_web_then_retry), style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (provider == "artifacts") {
+                                Text(stringResource(R.string.project_sam_creates_a_private_git_repository_for_this_project))
+                            } else {
+                                OutlinedTextField(search, { search = it }, label = { Text(stringResource(R.string.project_search_repositories)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                                OutlinedButton(enabled = !busy && (provider == "gitlab" || installation.isNotEmpty()), onClick = {
+                                    repoId = null; loadedFor = "$provider:$installation"; repositories(provider, installation, search)
+                                }) { LoadingLabel(stringResource(R.string.project_load_repositories), state.loading) }
+                                if (loadedFor == "$provider:$installation") {
+                                    state.repositories.filter { provider == "gitlab" || it.fullName.contains(search, ignoreCase = true) }.forEach { repo ->
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            RadioButton(selected = repoId == repo.id.toString(), enabled = !busy, onClick = {
+                                                repoId = repo.id.toString(); repoName = repo.fullName; branch = repo.defaultBranch
+                                                if (name.isBlank()) name = repo.fullName.substringAfterLast('/')
+                                            })
+                                            TextButton(enabled = !busy, onClick = {
+                                                repoId = repo.id.toString(); repoName = repo.fullName; branch = repo.defaultBranch
+                                                if (name.isBlank()) name = repo.fullName.substringAfterLast('/')
+                                            }) { Text(repo.fullName) }
+                                        }
+                                    }
+                                    if (!busy && state.repositories.isEmpty() && state.error == null) Text(stringResource(R.string.project_no_repositories_found))
+                                }
+                            }
+                        }
+                        if (provider != "artifacts") OutlinedTextField(branch, { branch = it }, label = { Text(stringResource(R.string.project_default_branch)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                    }
+                    if (project != null) SettingsCard(stringResource(R.string.project_delete_project)) {
+                        Text(stringResource(R.string.project_permanently_deletes_this_project_and_all_associated_data_this_cannot_b))
+                        if (deleting) {
+                            Text(stringResource(R.string.project_type_name_to_confirm, project.name))
+                            OutlinedTextField(confirmation, { confirmation = it }, label = { Text(stringResource(R.string.project_confirm_project_name)) }, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                            OutlinedButton(onClick = { delete(confirmation) }, enabled = !busy && confirmation == project.name,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.project_permanently_delete)) }
+                            TextButton(onClick = { deleting = false; confirmation = "" }, enabled = !busy) { Text(stringResource(R.string.cancel)) }
+                        } else OutlinedButton(onClick = { deleting = true }, enabled = !busy) { Text(stringResource(R.string.project_delete_project), color = MaterialTheme.colorScheme.error) }
+                    }
                 }
             }
         }

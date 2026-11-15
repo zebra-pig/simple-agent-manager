@@ -36,7 +36,6 @@ struct ChatToolView: View {
                                 Text(error.message).foregroundStyle(.red)
                                 Button("Retry") { Task { await refresh() } }.glassButton()
                             }
-                            if tool != .progress && state.loading { ProgressView().frame(maxWidth: .infinity) }
                             switch tool {
                             case .resources: resources
                             case .details: details
@@ -46,6 +45,7 @@ struct ChatToolView: View {
                             }
                         }.padding()
                     }
+                    .initialLoading(tool != .progress && state.loading)
                 }
             }
             .navigationTitle(tool.title)
@@ -54,7 +54,9 @@ struct ChatToolView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 if tool != .files && tool != .git {
                     ToolbarItem(placement: .primaryAction) {
-                        Button("Refresh", systemImage: "arrow.clockwise") { Task { await refresh() } }.disabled(tool != .progress && state.loading)
+                        Button { Task { await refresh() } } label: {
+                            LoadingLabel(title: "Refresh", systemImage: "arrow.clockwise", loading: tool == .progress ? chat.state.loading : state.loading)
+                        }.disabled(tool == .progress ? chat.state.loading : state.loading)
                     }
                 }
             }

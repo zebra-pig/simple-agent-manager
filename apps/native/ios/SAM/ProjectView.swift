@@ -36,13 +36,12 @@ struct ProjectView: View {
             }
         }
         .overlay {
-            if model.state.sessions.isEmpty && model.state.loading {
-                ProgressView()
-            } else if model.state.sessions.isEmpty && model.state.error == nil {
+            if model.state.sessions.isEmpty && model.state.error == nil {
                 ContentUnavailableView("No sessions yet", systemImage: "bubble.left.and.bubble.right",
                                        description: Text("Describe a task below and an agent picks it up."))
             }
         }
+        .initialLoading(model.state.loading)
         .navigationTitle(project.name)
         .inlineTitle()
         #if os(iOS)

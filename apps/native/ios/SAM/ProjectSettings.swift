@@ -31,7 +31,6 @@ struct ProjectSettings: View {
     var body: some View {
         NavigationStack {
             Form {
-                if model.state.loading { ProgressView().frame(maxWidth: .infinity) }
                 if let error = model.state.error {
                     Text(error.message).foregroundStyle(.red)
                     if !model.state.initialized {
@@ -69,11 +68,13 @@ struct ProjectSettings: View {
                             }
                             if provider != "artifacts" {
                                 TextField("Search repositories", text: $search)
-                                Button("Load repositories") {
+                                Button {
                                     repositoryId = nil
                                     loadedFor = "\(provider):\(installation)"
                                     Task { await model.core.loadRepositories(provider: provider, installationId: installation, search: search) }
-                                }.buttonStyle(.borderless).disabled(provider == "github" && installation.isEmpty)
+                                } label: {
+                                    LoadingLabel(title: "Load repositories", loading: model.state.loading)
+                                }.buttonStyle(.borderless).disabled(model.state.loading || (provider == "github" && installation.isEmpty))
                                 ForEach(model.state.repositories.filter {
                                     loadedFor == "\(provider):\(installation)" &&
                                     (provider == "gitlab" || search.isEmpty || $0.fullName.localizedCaseInsensitiveContains(search))
@@ -129,6 +130,7 @@ struct ProjectSettings: View {
             .formStyle(.grouped)
             .textFieldStyle(.plain)
             .disabled(model.state.saving || model.state.loading)
+            .initialLoading(model.state.loading && !model.state.initialized)
             .navigationTitle(projectId == nil ? "New project" : "Project settings")
             .inlineTitle()
             .toolbar {
@@ -136,12 +138,14 @@ struct ProjectSettings: View {
                     Button("Cancel") { dismiss() }.disabled(model.state.saving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(projectId == nil ? "Create" : "Save") {
+                    Button {
                         Task {
                             let draft = ProjectDraft(name: name, description: description, provider: provider,
                                 installationId: installation, repositoryId: repositoryId, repository: repository, defaultBranch: branch)
                             if let project = await model.core.save(draft: draft) { saved(project); dismiss() }
                         }
+                    } label: {
+                        LoadingLabel(title: projectId == nil ? "Create" : "Save", loading: model.state.saving)
                     }.disabled(!valid || model.state.loading || model.state.saving || (projectId != nil && model.state.project == nil))
                 }
             }

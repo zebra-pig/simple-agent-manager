@@ -137,12 +137,8 @@ internal fun ProfileEditorScreen(route: Route.ProfileEditor, model: ProjectModel
     Scaffold(
         topBar = {
             BackBar(stringResource(if (route.profileId == null) R.string.new_profile else R.string.edit_profile), onBack) {
-                if (state.savingProfile) {
-                    CircularProgressIndicator(Modifier.size(24.dp).padding(end = 8.dp))
-                } else {
-                    TextButton(onClick = { model.saveProfile(route.profileId, draft, done = onBack) }, enabled = draft.name.isNotBlank()) {
-                        Text(stringResource(R.string.save))
-                    }
+                TextButton(onClick = { model.saveProfile(route.profileId, draft, done = onBack) }, enabled = !state.savingProfile && draft.name.isNotBlank()) {
+                    LoadingLabel(stringResource(R.string.save), state.savingProfile)
                 }
             }
         },

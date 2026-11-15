@@ -146,69 +146,70 @@ internal fun AssistantContent(
         }
     }) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                item { Text(stringResource(R.string.sam_private), style = MaterialTheme.typography.bodySmall) }
-                if (state.work.isNotEmpty()) item {
-                    AssistantDisclosure(stringResource(R.string.project_work)) {
-                        state.work.forEach { work ->
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(work.taskTitle ?: stringResource(R.string.untitled_task), style = MaterialTheme.typography.titleMedium)
-                                work.projectName?.let { Text(it) }
-                                Text(work.status.replace('_', ' '))
-                                if (work.attention) Text(stringResource(R.string.needs_attention))
-                                work.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                                TextButton(onClick = {
-                                    work.sessionId?.let { openChat(work.projectId, it) }
-                                        ?: open("/projects/${work.projectId}/tasks/${work.taskId}")
-                                }) { Text(stringResource(if (work.sessionId != null) R.string.open_conversation else R.string.open_on_web)) }
-                                if ((work.updates?.unread ?: 0u) > 0u) {
-                                    Text(pluralStringResource(R.plurals.sam_new_updates, work.updates!!.unread.toInt(), work.updates!!.unread.toInt()))
-                                    TextButton(onClick = { onSeen(work.actionId) }, enabled = !state.busy) { Text(stringResource(R.string.mark_seen)) }
+            InitialLoading(state.loading && !state.loaded) {
+                LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    item { Text(stringResource(R.string.sam_private), style = MaterialTheme.typography.bodySmall) }
+                    if (state.work.isNotEmpty()) item {
+                        AssistantDisclosure(stringResource(R.string.project_work)) {
+                            state.work.forEach { work ->
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(work.taskTitle ?: stringResource(R.string.untitled_task), style = MaterialTheme.typography.titleMedium)
+                                    work.projectName?.let { Text(it) }
+                                    Text(work.status.replace('_', ' '))
+                                    if (work.attention) Text(stringResource(R.string.needs_attention))
+                                    work.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                                    TextButton(onClick = {
+                                        work.sessionId?.let { openChat(work.projectId, it) }
+                                            ?: open("/projects/${work.projectId}/tasks/${work.taskId}")
+                                    }) { Text(stringResource(if (work.sessionId != null) R.string.open_conversation else R.string.open_on_web)) }
+                                    if ((work.updates?.unread ?: 0u) > 0u) {
+                                        Text(pluralStringResource(R.plurals.sam_new_updates, work.updates!!.unread.toInt(), work.updates!!.unread.toInt()))
+                                        TextButton(onClick = { onSeen(work.actionId) }, enabled = !state.busy) { Text(stringResource(R.string.mark_seen)) }
+                                    }
                                 }
+                                HorizontalDivider()
                             }
-                            HorizontalDivider()
                         }
                     }
-                }
-                if (state.legacyHistoryAvailable) item {
-                    AssistantDisclosure(stringResource(R.string.earlier_sam_history)) {
-                        state.earlier.forEach { message -> Text(message.role); AssistantMarkdown(message.content, open) }
-                        if (!state.earlierLoaded || state.earlierCursor != null) TextButton(onClick = onEarlier, enabled = !state.loading) { Text(stringResource(R.string.load_older)) }
-                    }
-                }
-                if (state.nextCursor != null) item { TextButton(onClick = onOlder, enabled = !state.loading) { Text(stringResource(R.string.load_older)) } }
-                if (state.loading && !state.loaded) item { CircularProgressIndicator() }
-                if (state.loaded && state.turns.isEmpty()) item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(stringResource(R.string.sam_welcome), style = MaterialTheme.typography.headlineSmall)
-                        listOf(R.string.sam_suggest_attention, R.string.sam_suggest_running, R.string.sam_suggest_ideas).forEach { id ->
-                            val suggestion = stringResource(id)
-                            OutlinedButton(onClick = { onDraft(suggestion) }) { Text(suggestion) }
+                    if (state.legacyHistoryAvailable) item {
+                        AssistantDisclosure(stringResource(R.string.earlier_sam_history)) {
+                            state.earlier.forEach { message -> Text(message.role); AssistantMarkdown(message.content, open) }
+                            if (!state.earlierLoaded || state.earlierCursor != null) TextButton(onClick = onEarlier, enabled = !state.loading) { Text(stringResource(R.string.load_older)) }
                         }
                     }
-                }
-                items(state.turns, key = { it.id }) { turn ->
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            Surface(shape = MaterialTheme.shapes.large, tonalElevation = 2.dp) { Text(turn.message, Modifier.padding(16.dp)) }
-                        }
-                        Text("SAM · ${turn.state.replace('_', ' ')}", style = MaterialTheme.typography.labelSmall)
-                        if (turn.state == "accepted" || turn.state == "running") turn.live?.let { live ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { CircularProgressIndicator(Modifier.size(16.dp)); Text(live.phase) }
-                            live.thinking?.let { AssistantDisclosure(stringResource(R.string.sam_thinking)) { Text(it) } }
-                            live.activity.forEach { Text("${assistantOperation(it.operation)} · ${it.state}", style = MaterialTheme.typography.bodySmall) }
-                            if (live.text.isNotEmpty()) AssistantMarkdown(live.text, open)
-                        }
-                        turn.response?.let { AssistantMarkdown(it, open) }
-                        turn.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        turn.actions.forEach { action ->
-                            AssistantActionCard(action, state.busy, open = open,
-                                confirm = { onConfirm(action.id, it) },
-                                reconcile = { onReconcile(action.id) })
+                    if (state.nextCursor != null) item { TextButton(onClick = onOlder, enabled = !state.loading) { Text(stringResource(R.string.load_older)) } }
+                    if (state.loaded && state.turns.isEmpty()) item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(stringResource(R.string.sam_welcome), style = MaterialTheme.typography.headlineSmall)
+                            listOf(R.string.sam_suggest_attention, R.string.sam_suggest_running, R.string.sam_suggest_ideas).forEach { id ->
+                                val suggestion = stringResource(id)
+                                OutlinedButton(onClick = { onDraft(suggestion) }) { Text(suggestion) }
+                            }
                         }
                     }
+                    items(state.turns, key = { it.id }) { turn ->
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                Surface(shape = MaterialTheme.shapes.large, tonalElevation = 2.dp) { Text(turn.message, Modifier.padding(16.dp)) }
+                            }
+                            Text("SAM · ${turn.state.replace('_', ' ')}", style = MaterialTheme.typography.labelSmall)
+                            if (turn.state == "accepted" || turn.state == "running") turn.live?.let { live ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { CircularProgressIndicator(Modifier.size(16.dp)); Text(live.phase) }
+                                live.thinking?.let { AssistantDisclosure(stringResource(R.string.sam_thinking)) { Text(it) } }
+                                live.activity.forEach { Text("${assistantOperation(it.operation)} · ${it.state}", style = MaterialTheme.typography.bodySmall) }
+                                if (live.text.isNotEmpty()) AssistantMarkdown(live.text, open)
+                            }
+                            turn.response?.let { AssistantMarkdown(it, open) }
+                            turn.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            turn.actions.forEach { action ->
+                                AssistantActionCard(action, state.busy, open = open,
+                                    confirm = { onConfirm(action.id, it) },
+                                    reconcile = { onReconcile(action.id) })
+                            }
+                        }
+                    }
+                    item { Spacer(Modifier.height(48.dp)) }
                 }
-                item { Spacer(Modifier.height(48.dp)) }
             }
             if (list.canScrollForward) LatestArrow(
                 onClick = { scope.launch {

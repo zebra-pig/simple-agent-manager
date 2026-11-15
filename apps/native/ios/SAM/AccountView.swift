@@ -12,8 +12,6 @@ struct AccountView: View {
                         LabeledContent("Name", value: viewer.name)
                         LabeledContent("Email", value: viewer.email)
                     }
-                } else {
-                    ProgressView().frame(maxWidth: .infinity)
                 }
                 Section {
                     LabeledContent("Server", value: app.state.serverUrl)
@@ -27,6 +25,7 @@ struct AccountView: View {
                     }
                 }
             }
+            .initialLoading(app.state.viewer == nil && app.state.error == nil)
             .formStyle(.grouped)
             .navigationTitle("Account")
             .inlineTitle()

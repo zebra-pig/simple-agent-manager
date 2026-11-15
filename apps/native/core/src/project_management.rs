@@ -66,13 +66,14 @@ pub struct ProjectManagementState {
     pub saving: bool,
     pub error: Option<UserError>,
 }
-observable!(ProjectManagementViewModel, ProjectManagementState, ProjectManagementObserver);
+observable!(ProjectManagementViewModel, ProjectManagementState, ProjectManagementObserver, Option<(String, String, String)>);
 #[uniffi::export(async_runtime = "tokio")]
 impl ProjectManagementViewModel {
     pub async fn load(&self, project_id: Option<String>) {
         let mut begin = false;
-        self.update(|s| {
+        self.update_data(|s, source| {
             if !s.loading && !s.saving {
+                *source = None;
                 *s = ProjectManagementState { loading: true, ..Default::default() };
                 begin = true;
             }
@@ -104,11 +105,15 @@ impl ProjectManagementViewModel {
     }
     pub async fn load_repositories(&self, provider: String, installation_id: String, search: String) {
         let mut begin = false;
-        self.update(|s| {
+        self.update_data(|s, source| {
             if !s.loading && !s.saving {
                 s.loading = true;
                 s.error = None;
-                s.repositories.clear();
+                let key = (provider.clone(), installation_id.clone(), search.clone());
+                if source.as_ref() != Some(&key) {
+                    s.repositories.clear();
+                }
+                *source = Some(key);
                 begin = true;
             }
         });

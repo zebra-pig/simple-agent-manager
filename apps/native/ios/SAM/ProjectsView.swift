@@ -44,13 +44,12 @@ struct ProjectsView: View {
                 }
             }
             .overlay {
-                if list.state.projects.isEmpty && list.state.loading {
-                    ProgressView()
-                } else if list.state.projects.isEmpty && list.state.error == nil {
+                if list.state.projects.isEmpty && list.state.error == nil {
                     ContentUnavailableView("No projects", systemImage: "folder",
                                            description: Text("Tap + to create your first project."))
                 }
             }
+            .initialLoading(list.state.loading)
             .navigationTitle("Projects")
             .searchable(text: $query)
             .refreshable { await list.core.load() }
