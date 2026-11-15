@@ -52,10 +52,14 @@ app-specific OAuth client.
 
 ## Provisioning status
 
-While a new chat's VM/container is being prepared, a compact card below the messages shows
-elapsed time, the current setup detail, and the web chat's four stages: provisioning the VM,
-cloning the repository, installing dependencies, and starting the agent. The existing chat poll
-refreshes it. It disappears when the agent starts; setup failures use the task card's error.
+Open **Session tools (⋯) → Progress** for task status, output/PR links, informational notifications,
+and setup details. Progress cards do not appear before or after the conversation. Questions,
+secret requests and approvals remain in chat, including requests recovered from older notifications.
+
+While a new chat's VM/container is being prepared, Progress shows elapsed time and the web chat's
+four stages: provisioning the VM, cloning the repository, installing dependencies, and starting
+the agent. The existing chat poll refreshes it; opening Progress also refreshes its snapshot.
+Setup progress disappears when the agent starts; setup failures use the task card's error.
 The core reads the full task only for queued/delegated active sessions, checking `startedAt`
 and `admissionState` so waking sessions and provider-limit holds do not show first-boot progress.
 

@@ -34,7 +34,7 @@ import java.text.DateFormat
 import java.util.Date
 
 internal enum class ChatTool(val title: Int) {
-    Files(R.string.tool_files), Git(R.string.tool_git), Timeline(R.string.tool_timeline), Resources(R.string.tool_resources), Details(R.string.tool_details)
+    Files(R.string.tool_files), Git(R.string.tool_git), Timeline(R.string.tool_timeline), Resources(R.string.tool_resources), Details(R.string.tool_details), Progress(R.string.tool_progress)
 }
 
 @Composable
@@ -69,7 +69,7 @@ fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit) 
     tool?.let { selected ->
         val state by model.toolsState.collectAsStateWithLifecycle()
         ModalBottomSheet(onDismissRequest = { tool = null }, containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .97f)) {
-            ChatToolContent(selected, chat, state, model.tools, model.vm, openUrl, onClose = { tool = null })
+            ChatToolContent(selected, chat, state, model.tools, model.vm, openUrl, model.app.state().serverUrl, onClose = { tool = null })
         }
     }
 }
@@ -94,6 +94,7 @@ internal fun ChatToolsMenuItems(chat: ChatState, ending: Boolean, onTool: (ChatT
     WebToolMenuItem(R.string.tool_automation) { onWeb(WebChatTool.AUTOMATION) }
     WebToolMenuItem(R.string.tool_comments) { onWeb(WebChatTool.COMMENTS) }
     HorizontalDivider(Modifier.padding(vertical = 6.dp))
+    ToolMenuItem(ChatTool.Progress) { onTool(it) }
     if (session?.viewerAccess != null) WebToolMenuItem(R.string.tool_share) { onWeb(WebChatTool.SHARE) }
     val task = session?.task
     if (task != null) {
@@ -126,7 +127,7 @@ private fun ToolGlass(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsState, vm: ChatToolsViewModel, chatVm: ChatViewModel, openUrl: (String) -> Unit, onClose: () -> Unit) {
+private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsState, vm: ChatToolsViewModel, chatVm: ChatViewModel, openUrl: (String) -> Unit, serverUrl: String, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var file by remember(tool, chat.sessionId) { mutableStateOf<String?>(null) }
     var diff by remember(tool) { mutableStateOf(false) }
@@ -144,6 +145,7 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
                 val owner = s?.viewerAccess == "owner" || (s?.viewerAccess == null && s?.isMine == true)
                 vm.details(if (owner) s?.workspaceId else null, s?.agentSessionId)
             }
+            ChatTool.Progress -> chatVm.refresh()
             ChatTool.Timeline -> Unit
         }
     }
@@ -155,11 +157,11 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
     Column(Modifier.fillMaxWidth().fillMaxHeight(.92f).padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(stringResource(tool.title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 10.dp))
-            TextButton(onClick = { scope.launch { refresh() } }, enabled = !state.loading) { Text(stringResource(R.string.tool_refresh)) }
+            TextButton(onClick = { scope.launch { refresh() } }, enabled = tool == ChatTool.Progress || !state.loading) { Text(stringResource(R.string.tool_refresh)) }
             TextButton(onClick = onClose) { Text(stringResource(R.string.done)) }
         }
-        if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        state.error?.let { error -> Text(error.message(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
+        if (tool != ChatTool.Progress && state.loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (tool != ChatTool.Progress) state.error?.let { error -> Text(error.message(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
         if (file != null) {
             Row {
                 TextButton(onClick = { file = null; scope.launch { refresh() } }) { Text(stringResource(R.string.tool_back)) }
@@ -219,6 +221,7 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
                     ChatTool.Details -> {
                         item { SessionDetails(chat, state) }
                     }
+                    ChatTool.Progress -> { item { ChatProgressContent(chat, openUrl, serverUrl) } }
                     ChatTool.Timeline -> {
                         items(chat.items, key = { it.id }) { message -> ToolGlass {
                             Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(message.createdAt)), style = MaterialTheme.typography.labelSmall)

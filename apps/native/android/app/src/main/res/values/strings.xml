@@ -324,4 +324,6 @@
     <string name="project_select">Select…</string>
     <string name="project_settings">Settings</string>
     <string name="project_repository_access_failed">Could not load all repositories. Reconnect your GitHub account on the web, then load repositories again.</string>
+    <string name="tool_progress">Progress</string>
+    <string name="no_progress_updates">No progress updates yet.</string>
 </resources>
