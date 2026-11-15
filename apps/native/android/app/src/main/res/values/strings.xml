@@ -185,7 +185,10 @@
     <string name="project_work">Project work</string>
     <string name="untitled_task">Untitled task</string>
     <string name="needs_attention">Needs attention</string>
-    <string name="sam_new_updates">%1$d new updates</string>
+    <plurals name="sam_new_updates">
+        <item quantity="one">%1$d new update</item>
+        <item quantity="other">%1$d new updates</item>
+    </plurals>
     <string name="mark_seen">Mark seen</string>
     <string name="earlier_sam_history">Earlier SAM history</string>
     <string name="load_older">Load older messages</string>

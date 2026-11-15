@@ -182,3 +182,28 @@ fn markdown_formats_text_without_executing_html_or_unsafe_links() {
     assert!(html.contains("&lt;script&gt;") && !html.contains("href=\"javascript:"));
     assert!(html.contains("href=\"/projects/p/chat/s\""));
 }
+
+#[tokio::test]
+async fn device_storage_failure_preserves_the_draft_and_never_sends() {
+    struct UnavailableStore;
+    impl AssistantStore for UnavailableStore {
+        fn load(&self, _: String) -> Option<AssistantPending> {
+            None
+        }
+        fn save(&self, _: String, _: AssistantPending) -> bool {
+            false
+        }
+        fn clear(&self, _: String) {}
+    }
+    let client = app(Arc::new(|r| match (r.method.as_str(), r.path.as_str()) {
+        ("GET", "/api/sam/settings") => (200, json!({"enabled":true,"available":true}).to_string()),
+        ("GET", "/api/sam/turns") => (200, json!({"conversationId":"private","turns":[]}).to_string()),
+        unexpected => panic!("must persist before any send: {unexpected:?}"),
+    }))
+    .await;
+    let vm = AssistantViewModel::new(client, Box::new(UnavailableStore));
+    vm.refresh().await;
+    vm.send("Keep my draft".into(), "request-1".into()).await;
+    assert_eq!(vm.state().pending.unwrap().message, "Keep my draft");
+    assert!(vm.state().error.is_some() && !vm.state().busy);
+}

@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.toArgb
@@ -60,7 +61,7 @@ private class AssistantPersistence(context: Context) : AssistantStore {
         cipher.init(Cipher.ENCRYPT_MODE, key())
         prefs.edit().putString(scope, Base64.encodeToString(cipher.iv + cipher.doFinal(json.toString().toByteArray()), Base64.NO_WRAP)).commit()
     }.getOrDefault(false)
-    override fun clear(scope: String) { prefs.edit().remove(scope).commit() }
+    override fun clear(scope: String) { prefs.edit().remove(scope).apply() }
 }
 
 @Composable
@@ -97,7 +98,7 @@ fun AssistantScreen(app: App, openUrl: (String) -> Unit, openChat: (String, Stri
         onSeen = { scope.launch { vm.markSeen(it) } }, onEarlier = { scope.launch { vm.loadEarlier() } },
         onOlder = { scope.launch { vm.loadOlder() } }, onConfirm = { id, approved -> scope.launch { vm.confirm(id, approved) } },
         onReconcile = { scope.launch { vm.reconcile(it) } },
-        voice = { AssistantVoiceButton(vm, enabled = !state.busy && state.pending == null && !active,
+        voice = { AssistantVoiceButton(vm, enabled = !state.busy && state.loaded && state.enabled && state.pending == null && !active,
             onText = { draft += (if (draft.isBlank()) "" else " ") + it }, onBusy = { voiceBusy = it }) })
 }
 
@@ -155,7 +156,7 @@ internal fun AssistantContent(
                                         ?: open("/projects/${work.projectId}/tasks/${work.taskId}")
                                 }) { Text(stringResource(if (work.sessionId != null) R.string.open_conversation else R.string.open_on_web)) }
                                 if ((work.updates?.unread ?: 0u) > 0u) {
-                                    Text(stringResource(R.string.sam_new_updates, work.updates!!.unread.toInt()))
+                                    Text(pluralStringResource(R.plurals.sam_new_updates, work.updates!!.unread.toInt(), work.updates!!.unread.toInt()))
                                     TextButton(onClick = { onSeen(work.actionId) }, enabled = !state.busy) { Text(stringResource(R.string.mark_seen)) }
                                 }
                             }

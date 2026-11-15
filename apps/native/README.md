@@ -59,6 +59,25 @@ refreshes it. It disappears when the agent starts; setup failures use the task c
 The core reads the full task only for queued/delegated active sessions, checking `startedAt`
 and `admissionState` so waking sessions and provider-limit holds do not show first-boot progress.
 
+## Global SAM assistant
+
+The main SAM tab appears when `/api/sam/settings` reports both `enabled` and `available`
+(`App::refresh_assistant_settings`, refreshed while the signed-in shell is active). It uses the
+same private account conversation as web, separate from project-agent chat.
+
+`AssistantViewModel` in `core/src/assistant.rs` reads current and earlier history, polls active-turn
+progress, submits messages, stops SAM, confirms or declines actions, reconciles uncertain task starts,
+and marks project-work updates seen. `ios/SAM/AssistantView.swift` and Android `Assistant.kt` render
+these states and open project chats natively. Other destinations, including Settings, open on web.
+The shells persist uncertain submissions in Keychain or encrypted private preferences before POST;
+retries retain the original request key and message across app restarts. The core binds requests to
+the login that created the view model and clears visible state when that login ends.
+
+Voice entry records at most two minutes and sends audio to the existing `/api/transcribe` endpoint
+(`AssistantViewModel::transcribe`). Transcription fills the draft for review; it never sends a turn.
+Recordings are removed after transcription or cancellation, and when the screen leaves the foreground.
+See [assistant verification](verification/assistant/README.md) for native layout renders and wire tests.
+
 ## Notifications and agent requests
 
 The Notifications tab loads the signed-in user's inbox, including read notifications, and follows

@@ -225,6 +225,9 @@ impl AssistantViewModel {
         if pending.message.trim().is_empty() || pending.request_key.is_empty() {
             return;
         }
+        // Keep the draft even if the device cannot persist it. Nothing is sent
+        // until a later retry successfully stores this exact request.
+        self.update(|s| s.pending = Some(pending.clone()));
         if !self.store.save(scope.clone(), pending.clone()) {
             self.finish(Err(crate::error::CoreError::Unexpected("Could not persist the retry receipt".into())));
             return;

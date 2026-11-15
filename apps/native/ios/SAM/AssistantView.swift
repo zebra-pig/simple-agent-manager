@@ -51,6 +51,7 @@ struct AssistantView: View {
     @State private var draft = ""
     @State private var voice = AssistantVoice()
     @State private var earlierOpen = false
+    @State private var linkedChat: SessionRef?
     @Environment(\.scenePhase) private var phase
     @Environment(\.openURL) private var openURL
     init(app: App) { self.app = app; _model = State(initialValue: AssistantModel(app: app)) }
@@ -107,6 +108,7 @@ struct AssistantView: View {
                 .safeAreaInset(edge: .bottom) { composer }
             }
             .navigationTitle("SAM").inlineTitle()
+            .navigationDestination(item: $linkedChat) { ref in ChatView(app: app, ref: ref) }
             .toolbar {
                 ToolbarItem { Button("Settings", systemImage: "gearshape") { open("/settings") } }
             }
@@ -226,10 +228,16 @@ struct AssistantView: View {
         } else { Button("Open on web") { open(link) } }
     }
     private func open(_ link: String) {
+        let parts = link.split(separator: "/").map(String.init)
+        if link.hasPrefix("/projects/"), parts.count == 4, parts[2] == "chat" {
+            linkedChat = SessionRef(projectId: parts[1].removingPercentEncoding ?? parts[1], sessionId: parts[3].removingPercentEncoding ?? parts[3])
+            return
+        }
         if let url = notificationUrl(serverUrl: app.state().serverUrl, actionUrl: link).flatMap(URL.init(string:)) { openURL(url) }
     }
     private func markdown(_ text: String) -> some View {
         Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)).textSelection(.enabled)
+            .environment(\.openURL, OpenURLAction { url in open(url.absoluteString); return .handled })
     }
 }
 private func assistantOperation(_ name: String) -> String {
