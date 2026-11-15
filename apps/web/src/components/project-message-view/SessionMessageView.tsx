@@ -30,13 +30,13 @@ import { useAcpPermissionPlacement } from './useAcpPermissionPlacement';
 import { useAnimatedUserMessages } from './useAnimatedUserMessages';
 import { useConversationJump } from './useConversationJump';
 import { useFilePanelAccessGate } from './useFilePanelAccessGate';
+import { useRequestedSessionTool } from './useRequestedSessionTool';
 import { useSessionCommentInbox } from './useSessionCommentInbox';
 import { useSessionLifecycle } from './useSessionLifecycle';
 import { useSessionLinkedWork } from './useSessionLinkedWork';
 import { useSessionOverlays } from './useSessionOverlays';
 import { useSessionTimeline } from './useSessionTimeline';
 import { useSessionTools } from './useSessionTools';
-import { useRequestedSessionTool } from './useRequestedSessionTool';
 import { useToolCallGroupRowState } from './useToolCallGroupRowState';
 
 export type { ProjectMessageViewProps };

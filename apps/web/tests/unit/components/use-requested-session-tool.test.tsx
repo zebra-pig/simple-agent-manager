@@ -1,8 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { Info } from 'lucide-react';
 import { type ReactNode, StrictMode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
-import { Info } from 'lucide-react';
+
 import type {
   SessionToolAction,
   SessionToolId,
