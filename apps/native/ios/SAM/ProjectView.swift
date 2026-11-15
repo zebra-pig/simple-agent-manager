@@ -147,7 +147,8 @@ struct Composer<Accessory: View>: View {
                                     .font(.body.weight(.semibold))
                                     .frame(width: 22, height: 22)
                             }
-                            .glassProminentButton()
+                            .glassButton()
+                            .tint(.primary)
                             .buttonBorderShape(.circle)
                             .disabled(!canSend)
                             .keyboardShortcut(.return, modifiers: .command)

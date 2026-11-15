@@ -4,12 +4,14 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.material3.*
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,10 +39,13 @@ class ChatRenderTest {
         ChatItem("activity", 2, ChatContent.Activity(listOf(ActivityStep.Tool(ToolCall("tool", "Run accessibility checks", false, ToolKind.EXECUTE, ToolStatus.COMPLETED, listOf("app/Chat.kt"), "All checks passed"))), ActivitySummary(3u, 0u, false, null))),
         ChatItem("plan", 3, ChatContent.Plan(listOf(PlanEntry("Add shortcuts", PlanStatus.COMPLETED), PlanEntry("Verify accessibility", PlanStatus.IN_PROGRESS)))),
     )
-    private fun render(name: String, dark: Boolean = false, expanded: Boolean = false) {
-        val state = ChatState("project", "session", ChatSession("session", "Keyboard shortcuts", SessionStatus.ACTIVE, 4u, 0, null, null, true, null), items, emptyList(), false, false, emptyList(), false, false, null)
+    private fun render(name: String, dark: Boolean = false, expanded: Boolean = false, largeText: Boolean = false, empty: Boolean = false) {
+        val state = ChatState("project", "session", ChatSession("session", "Keyboard shortcuts", SessionStatus.ACTIVE, 4u, 0, null, null, true, null), if (empty) emptyList() else items, emptyList(), false, false, emptyList(), false, false, null)
         compose.setContent { MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-            ChatContent(state, "", {}, {}, {}, {}, {}, {})
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, if (largeText) 1.5f else density.fontScale)) {
+                ChatContent(state, "", {}, {}, {}, {}, {}, {})
+            }
         } }
         if (expanded) {
             compose.onNodeWithText("Activity · 3 tools").performClick()
@@ -58,6 +63,11 @@ class ChatRenderTest {
         }
     }
     @Test fun lightChat() = render("chat-light")
+    @Test
+    @Config(qualifiers = "w1280dp-h800dp-160dpi")
+    fun tabletChat() = render("chat-tablet")
+    @Test fun largeTextChat() = render("chat-large-text", largeText = true)
+    @Test fun emptyChat() = render("chat-empty", empty = true)
     @Test fun darkChat() = render("chat-dark", dark = true)
     @Test fun expandedActivity() = render("chat-activity", expanded = true)
 }

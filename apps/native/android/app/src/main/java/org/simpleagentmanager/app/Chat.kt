@@ -2,6 +2,11 @@ package org.simpleagentmanager.app
 
 import android.net.Uri
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -77,7 +82,7 @@ fun ChatContent(
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 session?.task?.let { item("task") { TaskCard(it, openUrl) } }
                 if (state.hasMore) item("history") { Text(stringResource(R.string.latest_messages), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.items, key = { "message-${it.id}" }) { TimelineItem(it, openUrl) }
@@ -87,15 +92,22 @@ fun ChatContent(
                         Text(stringResource(if (it.accepted) R.string.message_queued else R.string.message_sending), style = MaterialTheme.typography.labelSmall)
                     }
                 }
-                if (state.working) item("working") { Text(stringResource(R.string.status_working), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
+                if (state.working) item("working") { Text(stringResource(R.string.status_working), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium) }
                 state.error?.let { item("error") { ErrorRow(it.message()) } }
                 if (state.items.isEmpty() && !state.loading && state.error == null) item("empty") { Text(stringResource(R.string.chat_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             if (state.loading && state.items.isEmpty()) CircularProgressIndicator(Modifier.align(Alignment.Center))
-            if (!atBottom) FilledTonalButton(
-                onClick = { scope.launch { list.animateScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } },
+            if (!atBottom) Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                shadowElevation = 6.dp,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
-            ) { Text(stringResource(R.string.jump_latest)) }
+            ) { IconButton(
+                onClick = { scope.launch { list.animateScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } },
+                modifier = Modifier.size(48.dp),
+            ) { Icon(Icons.Default.ArrowDownward, contentDescription = stringResource(R.string.jump_latest)) } }
         }
     }
 }
@@ -103,7 +115,7 @@ fun ChatContent(
 @Composable
 private fun UserBubble(text: String) {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.widthIn(max = 340.dp)) {
+        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.widthIn(max = 340.dp)) {
             SelectionContainer { Text(text, Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) }
         }
     }
@@ -118,10 +130,10 @@ private fun TimelineItem(item: ChatItem, openUrl: (String) -> Unit) {
         is Content.Activity -> {
             var expanded by rememberSaveable(item.id) { mutableStateOf(false) }
             Column {
-                TextButton(onClick = { expanded = !expanded }) {
+                TextButton(onClick = { expanded = !expanded }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
                     Text(stringResource(R.string.activity_count, content.summary.toolCount.toInt()) + if (content.summary.failedCount > 0u) stringResource(R.string.activity_failed, content.summary.failedCount.toInt()) else "")
                 }
-                if (content.summary.live) content.summary.liveTitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+                if (content.summary.live) content.summary.liveTitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (expanded) content.steps.forEach { step ->
                     when (step) {
                         is ActivityStep.Thought -> Detail(stringResource(R.string.thinking), step.text)
@@ -156,7 +168,7 @@ private fun TimelineItem(item: ChatItem, openUrl: (String) -> Unit) {
 private fun Detail(title: String, text: String, code: Boolean = false) {
     var expanded by rememberSaveable(title) { mutableStateOf(false) }
     Column {
-        TextButton(onClick = { expanded = !expanded }) { Text(title) }
+        TextButton(onClick = { expanded = !expanded }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text(title) }
         if (expanded) SelectionContainer {
             if (code) CodeBlock(text, null) else Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

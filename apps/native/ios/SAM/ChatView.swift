@@ -27,7 +27,7 @@ struct ChatView: View {
                     }
                     ForEach(chat.state.outbox, id: \.id) { message in
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(verbatim: message.text).padding(12).background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+                            Text(verbatim: message.text).padding(12).glass(in: RoundedRectangle(cornerRadius: 18))
                             Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, alignment: .trailing)
                     }
@@ -49,9 +49,17 @@ struct ChatView: View {
             .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
             .overlay(alignment: .bottom) {
                 if !followsLatest {
-                    Button("Jump to latest", systemImage: "arrow.down") {
+                    Button {
                         withAnimation { proxy.scrollTo("latest", anchor: .bottom) }
-                    }.buttonStyle(.borderedProminent).padding()
+                    } label: {
+                        Image(systemName: "arrow.down").font(.body.weight(.medium))
+                            .frame(width: 28, height: 28)
+                    }
+                    .glassButton()
+                    .buttonBorderShape(.circle)
+                    .tint(.primary)
+                    .accessibilityLabel(Text("Jump to latest"))
+                    .padding()
                 }
             }
         }
@@ -108,7 +116,7 @@ struct TimelineItemView: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(verbatim: text).textSelection(.enabled).padding(12)
-                    .glass(in: RoundedRectangle(cornerRadius: 18), tint: .accentColor.opacity(0.35))
+                    .glass(in: RoundedRectangle(cornerRadius: 18))
             }
         case let .agent(_, blocks):
             MarkdownView(blocks: blocks)
@@ -153,7 +161,7 @@ struct TimelineItemView: View {
                     .font(.callout.weight(.medium))
                 if let detail = notice.detail { DisclosureGroup("Details") { Text(verbatim: detail).font(.callout).textSelection(.enabled) } }
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                .background(notice.severity == .error ? Color.red.opacity(0.1) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .glass(in: RoundedRectangle(cornerRadius: 16), tint: notice.severity == .error ? .red.opacity(0.1) : nil)
         }
     }
 }

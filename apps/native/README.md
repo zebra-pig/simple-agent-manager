@@ -68,6 +68,28 @@ reads the file on a worker thread, and shows progress and errors in `state.attac
 blocked while a file is uploading or failed. A message with files and no text asks the agent to
 read them. Follow-ups with files need durable prompt delivery on the server, as on the web.
 
+## Chat timeline
+
+Both shells render the core's `ChatItem` snapshots. Streamed reply chunks join into one
+Markdown message; tool updates merge by call ID, and runs of tools and thoughts fold into
+expandable activity. Plans show their latest entries. System deliveries and workspace reports
+appear as notices with optional details. Markdown supports headings, inline styles, links,
+lists, task lists, quotes, code and tables; wide code and tables scroll horizontally.
+
+Follow-ups appear immediately in an outbox and remain marked as sending or queued until the
+server transcript contains them. Failed sends restore the draft. Reading older messages pauses
+following; the down-arrow button returns to the latest messages. Older history is still limited
+to the latest page from the server.
+
+Android's `ChatContent` accepts a state snapshot and callbacks. Its Robolectric tests render
+actual Compose views without signing in, including expanded activity, and save previews:
+
+```sh
+cd apps/native/android
+./gradlew assembleDebug testDebugUnitTest
+# app/build/outputs/chat-previews/*.png
+```
+
 ## Agent profiles
 
 A profile is a saved setup for new chats: the agent, model, effort, permission mode, work type
