@@ -191,16 +191,25 @@ struct ResourceChartSample: Identifiable {
 }
 
 #if DEBUG
+private var resourcePreviewPoints: [ResourcePoint] {
+    var points: [ResourcePoint] = []
+    for minute in 0..<90 {
+        let time: Int64 = 1_794_737_400_000 + Int64(minute) * 60_000
+        let cpu: Double? = minute == 35 ? nil : 0.3 + abs(sin(Double(minute) / 8.0)) * 1.8
+        let memory: Double = Double(450 + minute * 3) * 1_048_576.0
+        let read: Double = Double(minute % 12) * 1_048_576.0
+        let write: Double = Double(minute % 4) * 524_288.0
+        points.append(ResourcePoint(time: time, cpuCores: cpu, memoryBytes: memory,
+                    readBytes: read, writeBytes: write,
+                    runId: minute < 60 ? "first" : "restarted"))
+    }
+    return points
+}
+
 #Preview("Resource history") {
     ScrollView {
-        ResourceHistoryView(points: (0..<90).map { minute in
-            ResourcePoint(time: 1_794_737_400_000 + Int64(minute) * 60_000,
-                          cpuCores: minute == 35 ? nil : 0.3 + abs(sin(Double(minute) / 8)) * 1.8,
-                          memoryBytes: Double(450 + minute * 3) * 1_048_576,
-                          readBytes: Double(minute % 12) * 1_048_576,
-                          writeBytes: Double(minute % 4) * 524_288,
-                          runId: minute < 60 ? "first" : "restarted")
-        }, collection: "complete", omittedChunks: 1, loading: false).padding()
+        ResourceHistoryView(points: resourcePreviewPoints, collection: "complete",
+                            omittedChunks: 1, loading: false).padding()
     }.frame(width: 375, height: 700)
 }
 
