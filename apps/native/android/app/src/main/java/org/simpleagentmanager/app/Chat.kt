@@ -7,6 +7,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -25,8 +27,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import org.simpleagentmanager.core.*
 import org.simpleagentmanager.core.ChatContent as Content
 
@@ -64,9 +66,10 @@ fun ChatContent(
     onBack: () -> Unit, openUrl: (String) -> Unit,
     onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit,
     attachmentCard: @Composable (ChatDocument) -> Unit = { SquareImageTile(null, it.filename, 120.dp) },
+    listState: LazyListState = rememberLazyListState(),
     toolsMenu: @Composable () -> Unit = {}, documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
-    val list = rememberLazyListState()
+    val list = listState
     val scope = rememberCoroutineScope()
     val atBottom by remember { derivedStateOf { !list.canScrollForward } }
     var followsLatest by remember { mutableStateOf(true) }
@@ -123,7 +126,14 @@ fun ChatContent(
             }
             if (state.loading && state.items.isEmpty()) CircularProgressIndicator(Modifier.align(Alignment.Center))
             if (!atBottom) LatestArrow(
-                onClick = { scope.launch { list.animateScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } },
+                onClick = {
+                    scope.launch {
+                        list.scroll(MutatePriority.PreventUserInput) {
+                            list.requestScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                        }
+                        followsLatest = true
+                    }
+                },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
             )
         }

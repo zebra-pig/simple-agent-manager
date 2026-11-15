@@ -8,6 +8,7 @@ struct ChatView: View {
     @State private var chat: ChatModel
     @State private var draft = ""
     @State private var followsLatest = true
+    @State private var scrollControl = ChatScrollControl()
     @State private var tool: ChatTool?
     @State private var confirmEnd = false
     @State private var ending = false
@@ -21,61 +22,63 @@ struct ChatView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if chat.state.hasMore { Text("Showing the latest messages").font(.caption).foregroundStyle(.secondary) }
-                    ForEach(chat.state.items, id: \.id) { message in
-                        Group {
-                            if case let .document(document) = message.content {
-                                DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
-                            } else if case let .user(text, attachments) = message.content {
-                                UserMessageView(text: text, attachments: attachments, core: chat.core)
-                            } else { TimelineItemView(item: message) }
-                        }.id(message.id)
+            ZStack(alignment: .bottom) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        if chat.state.hasMore { Text("Showing the latest messages").font(.caption).foregroundStyle(.secondary) }
+                        ForEach(chat.state.items, id: \.id) { message in
+                            Group {
+                                if case let .document(document) = message.content {
+                                    DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
+                                } else if case let .user(text, attachments) = message.content {
+                                    UserMessageView(text: text, attachments: attachments, core: chat.core)
+                                } else { TimelineItemView(item: message) }
+                            }.id(message.id)
+                        }
+                        ForEach(chat.state.outbox, id: \.id) { message in
+                            VStack(alignment: .trailing, spacing: 4) {
+                                UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
+                                Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                        ForEach(chat.state.requests, id: \.id) { request in
+                            RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval)
+                                .padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                        }
+                        ForEach(chat.state.notifications.filter { item in
+                            guard let id = item.requestId else { return false }
+                            return !chat.state.requests.contains { $0.id == id }
+                        }, id: \.id) { item in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(item.title).font(.headline)
+                                if let id = item.requestId {
+                                    RequestCard(app: app, project: ref.projectId, session: ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval")
+                                } else if let body = item.body { Text(body) }
+                                if let action = item.actionUrl, let url = notificationUrl(serverUrl: app.state().serverUrl, actionUrl: action).flatMap(URL.init(string:)) {
+                                    Button("Open on web") { openURL(url) }
+                                }
+                            }.padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                        }
+                        if let error = chat.state.error {
+                            Text(error.message).foregroundStyle(.red).font(.callout)
+                        }
+                        Color.clear.frame(height: 1).id("latest")
+                            .onAppear { followsLatest = true }
+                            .onDisappear { followsLatest = false }
                     }
-                    ForEach(chat.state.outbox, id: \.id) { message in
-                        VStack(alignment: .trailing, spacing: 4) {
-                            UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
-                            Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    ForEach(chat.state.requests, id: \.id) { request in
-                        RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval)
-                            .padding().glass(in: RoundedRectangle(cornerRadius: 20))
-                    }
-                    ForEach(chat.state.notifications.filter { item in
-                        guard let id = item.requestId else { return false }
-                        return !chat.state.requests.contains { $0.id == id }
-                    }, id: \.id) { item in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(item.title).font(.headline)
-                            if let id = item.requestId {
-                                RequestCard(app: app, project: ref.projectId, session: ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval")
-                            } else if let body = item.body { Text(body) }
-                            if let action = item.actionUrl, let url = notificationUrl(serverUrl: app.state().serverUrl, actionUrl: action).flatMap(URL.init(string:)) {
-                                Button("Open on web") { openURL(url) }
-                            }
-                        }.padding().glass(in: RoundedRectangle(cornerRadius: 20))
-                    }
-                    if let error = chat.state.error {
-                        Text(error.message).foregroundStyle(.red).font(.callout)
-                    }
-                    Color.clear.frame(height: 1).id("latest")
-                        .onAppear { followsLatest = true }
-                        .onDisappear { followsLatest = false }
+                    .padding()
+                    .background(ChatScrollProbe(control: scrollControl))
                 }
-                .padding()
-            }
-            .defaultScrollAnchor(.bottom)
-            .interactiveKeyboardDismiss()
-            .onChange(of: chat.state.items) {
-                if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
-            }
-            .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
-            .overlay(alignment: .bottom) {
+                .defaultScrollAnchor(.bottom)
+                .interactiveKeyboardDismiss()
+                .onChange(of: chat.state.items) {
+                    if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
+                }
+                .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
                 if !followsLatest {
                     Button {
-                        withAnimation { proxy.scrollTo("latest", anchor: .bottom) }
+                        scrollControl.jump(using: proxy, to: "latest")
+                        followsLatest = true
                     } label: {
                         Image(systemName: "arrow.down").font(.body.weight(.medium))
                             .frame(width: 28, height: 28)
