@@ -109,17 +109,23 @@ struct DocumentGallery: View {
                     #else
                     GalleryPage(document: documents[index], core: core, active: true)
                         .id(documents[index].fileId)
+                        .focusable()
+                        .onMoveCommand { direction in
+                            if direction == .left { index = max(index - 1, 0) }
+                            if direction == .right { index = min(index + 1, documents.count - 1) }
+                        }
                     #endif
                     if documents.count > 1 {
-                        HStack(spacing: 16) {
-                            Button { withAnimation { index -= 1 } } label: { Image(systemName: "chevron.left") }
-                                .disabled(index == 0).accessibilityLabel("Previous")
-                            Text("\(index + 1) of \(documents.count)")
-                                .font(.subheadline.monospacedDigit()).accessibilityAddTraits(.updatesFrequently)
-                            Button { withAnimation { index += 1 } } label: { Image(systemName: "chevron.right") }
-                                .disabled(index == documents.count - 1).accessibilityLabel("Next")
-                        }
-                        .buttonStyle(.plain).padding(.horizontal, 18).padding(.vertical, 12)
+                        Text("\(index + 1) of \(documents.count)")
+                            .font(.subheadline.monospacedDigit())
+                            .accessibilityAdjustableAction { direction in
+                                switch direction {
+                                case .increment: index = min(index + 1, documents.count - 1)
+                                case .decrement: index = max(index - 1, 0)
+                                @unknown default: break
+                                }
+                            }
+                            .padding(.horizontal, 18).padding(.vertical, 12)
                         .background(.thinMaterial, in: Capsule()).padding(.bottom, 12)
                     }
                 } else { ContentUnavailableView("File no longer available", systemImage: "photo") }

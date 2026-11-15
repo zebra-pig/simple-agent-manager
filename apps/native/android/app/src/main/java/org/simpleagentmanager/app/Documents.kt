@@ -171,7 +171,6 @@ internal fun GalleryLayout(
     initialPage = documents.indexOfFirst { it.fileId == initial }.coerceAtLeast(0),
     pageCount = { documents.size },
   )
-  val scope = rememberCoroutineScope()
   val document = documents[pager.currentPage.coerceAtMost(documents.lastIndex)]
   Surface(Modifier.fillMaxSize()) {
     Column(Modifier.safeDrawingPadding()) {
@@ -189,20 +188,9 @@ internal fun GalleryLayout(
           Modifier.align(Alignment.CenterHorizontally).padding(vertical = 12.dp),
           shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
-              enabled = pager.currentPage > 0 && !pager.isScrollInProgress) {
-              val label = stringResource(R.string.document_previous)
-              Text("‹", Modifier.semantics { contentDescription = label }, style = MaterialTheme.typography.titleLarge)
-            }
-            Text(stringResource(R.string.document_position, pager.currentPage + 1, documents.size),
-              style = MaterialTheme.typography.labelLarge)
-            IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
-              enabled = pager.currentPage < documents.lastIndex && !pager.isScrollInProgress) {
-              val label = stringResource(R.string.document_next)
-              Text("›", Modifier.semantics { contentDescription = label }, style = MaterialTheme.typography.titleLarge)
-            }
-          }
+          Text(stringResource(R.string.document_position, pager.currentPage + 1, documents.size),
+            Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+            style = MaterialTheme.typography.labelLarge)
         }
       }
     }
