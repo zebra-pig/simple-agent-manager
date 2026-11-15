@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import org.simpleagentmanager.core.*
 import org.simpleagentmanager.core.ChatContent as Content
 
@@ -36,6 +37,7 @@ import org.simpleagentmanager.core.ChatContent as Content
 fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl: (String) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     var draft by rememberSaveable(route.sessionId) { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(route) {
         model.tools.load(route.projectId, route.sessionId)
@@ -51,6 +53,7 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
         ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach,
             toolsMenu = { ChatToolsMenu(model, state, openUrl) }, documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
             attachmentCard = { document -> DocumentCard(document, state.items.flatMap { (it.content as? Content.User)?.attachments ?: emptyList() } + state.outbox.flatMap { it.attachments }, model.vm, compactImage = true) },
+            onLoadOlder = { scope.launch { model.vm.loadOlder() } },
             serverUrl = model.app.state().serverUrl, requestCard = { request -> RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval, hideResolved = true) }) {
             val sent = draft
             draft = ""
@@ -67,22 +70,34 @@ fun ChatContent(
     onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit,
     attachmentCard: @Composable (ChatDocument) -> Unit = { SquareImageTile(null, it.filename, 120.dp) },
     listState: LazyListState = rememberLazyListState(),
+    onLoadOlder: () -> Unit = {},
     toolsMenu: @Composable () -> Unit = {}, documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
     val list = listState
     val scope = rememberCoroutineScope()
     val atBottom by remember { derivedStateOf { !list.canScrollForward } }
-    var followsLatest by remember { mutableStateOf(true) }
+    var followsLatest by remember(state.projectId, state.sessionId) { mutableStateOf(true) }
+    var positioned by remember(state.projectId, state.sessionId) { mutableStateOf(false) }
     LaunchedEffect(list) {
         snapshotFlow { list.isScrollInProgress to list.canScrollForward }.collect { (scrolling, more) ->
             if (scrolling) followsLatest = !more
         }
     }
+    val loadOlder by rememberUpdatedState(onLoadOlder)
+    LaunchedEffect(positioned, state.hasMore, state.loadingHistory, state.historyError, state.items.firstOrNull()?.id) {
+        if (positioned && state.hasMore && !state.loadingHistory && state.historyError == null) {
+            snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.key == "history" } }
+                .first { it }
+            followsLatest = false
+            loadOlder()
+        }
+    }
     val session = state.session
     LaunchedEffect(state.items, state.outbox) {
-        if (followsLatest || state.outbox.isNotEmpty()) {
+        if (!state.loadingHistory && (followsLatest || state.outbox.isNotEmpty())) {
             withFrameNanos { }
             if (list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1)
+            if (state.items.isNotEmpty()) positioned = true
         }
     }
     Scaffold(
@@ -94,7 +109,19 @@ fun ChatContent(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter).testTag("chat-timeline"), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                if (state.hasMore) item("history") { Text(stringResource(R.string.latest_messages), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (state.hasMore || state.loadingHistory) item("history") {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        val historyError = state.historyError
+                        if (historyError != null) {
+                            ErrorRow(historyError.message())
+                            TextButton(onClick = { followsLatest = false; loadOlder() }, enabled = !state.loadingHistory) {
+                                Text(stringResource(R.string.retry_earlier_messages))
+                            }
+                        } else {
+                            CircularProgressIndicator(Modifier.size(24.dp).testTag("history-loader"))
+                        }
+                    }
+                }
                 items(state.items, key = { "message-${it.id}" }) { item ->
                     val document = (item.content as? Content.Document)?.document
                     val user = item.content as? Content.User

@@ -149,3 +149,22 @@ fun AttachedMessagePhone() { MaterialTheme { AttachedMessage() } }
 @Preview(name = "Attached message tablet", widthDp = 1280, heightDp = 800)
 @Composable
 fun AttachedMessageTablet() { MaterialTheme(colorScheme = darkColorScheme()) { AttachedMessage() } }
+
+@PreviewTest
+@Preview(name = "HistoryLoading", widthDp = 411, heightDp = 500)
+@Composable
+fun HistoryLoadingChat() {
+    MaterialTheme(colorScheme = lightColorScheme()) {
+        ChatContent(previewState().copy(items = previewItems.take(1), hasMore = true, loadingHistory = true), "", {}, {}, {}, {}, {}, onSend = {})
+    }
+}
+
+@PreviewTest
+@Preview(name = "HistoryRetry", widthDp = 411, heightDp = 500)
+@Composable
+fun HistoryRetryChat() {
+    MaterialTheme(colorScheme = lightColorScheme()) {
+        ChatContent(previewState().copy(items = previewItems.take(1), hasMore = true,
+            historyError = UserError.Offline("Connection interrupted")), "", {}, {}, {}, {}, {}, onSend = {})
+    }
+}
