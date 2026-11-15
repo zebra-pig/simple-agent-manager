@@ -8,7 +8,7 @@ struct MarkdownView: View {
                 switch block {
                 case let .paragraph(spans): Text(styled(spans)).textSelection(.enabled)
                 case let .heading(level, spans):
-                    Text(styled(spans)).font(level == 1 ? .title2 : level == 2 ? .title3 : .headline).fontWeight(.semibold).padding(.top, 6)
+                    Text(styled(spans, baseFont: (level == 1 ? Font.title2 : level == 2 ? Font.title3 : Font.headline).weight(.semibold))).padding(.top, 6)
                 case let .listItem(depth, marker, spans):
                     HStack(alignment: .top, spacing: 8) {
                         Text(verbatim: markerText(marker)).frame(minWidth: 20, alignment: .leading).foregroundStyle(.secondary)
@@ -33,7 +33,7 @@ struct MarkdownView: View {
     private func tableRow(_ row: TableRow, heading: Bool) -> some View {
         GridRow {
             ForEach(Array(row.cells.enumerated()), id: \.offset) { _, cell in
-                Text(styled(cell)).fontWeight(heading ? .semibold : .regular).frame(minWidth: 48, maxWidth: 260, alignment: .leading).textSelection(.enabled)
+                Text(styled(cell, baseFont: heading ? .body.weight(.semibold) : .body)).frame(minWidth: 48, maxWidth: 260, alignment: .leading).textSelection(.enabled)
             }
         }
     }
@@ -47,10 +47,10 @@ struct MarkdownView: View {
         }
     }
 
-    private func styled(_ spans: [Span]) -> AttributedString {
+    private func styled(_ spans: [Span], baseFont: Font = .body) -> AttributedString {
         spans.reduce(into: AttributedString()) { result, span in
             var text = AttributedString(span.text)
-            var font: Font = span.code ? .system(.body, design: .monospaced) : .body
+            var font: Font = span.code ? .system(.body, design: .monospaced) : baseFont
             if span.bold { font = font.weight(.semibold) }
             if span.italic { font = font.italic() }
             text.font = font

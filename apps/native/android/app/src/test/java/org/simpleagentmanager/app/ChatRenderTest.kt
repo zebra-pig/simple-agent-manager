@@ -1,8 +1,6 @@
 package org.simpleagentmanager.app
 
 import android.app.Application
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import androidx.compose.material3.*
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
@@ -12,6 +10,9 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performScrollToIndex
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,7 +20,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.simpleagentmanager.core.*
-import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w411dp-h891dp-420dpi", application = Application::class)
@@ -39,8 +39,13 @@ class ChatRenderTest {
         ChatItem("activity", 2, ChatContent.Activity(listOf(ActivityStep.Tool(ToolCall("tool", "Run accessibility checks", false, ToolKind.EXECUTE, ToolStatus.COMPLETED, listOf("app/Chat.kt"), "All checks passed"))), ActivitySummary(3u, 0u, false, null))),
         ChatItem("plan", 3, ChatContent.Plan(listOf(PlanEntry("Add shortcuts", PlanStatus.COMPLETED), PlanEntry("Verify accessibility", PlanStatus.IN_PROGRESS)))),
     )
-    private fun render(name: String, dark: Boolean = false, expanded: Boolean = false, largeText: Boolean = false, empty: Boolean = false) {
-        val state = ChatState("project", "session", ChatSession("session", "Keyboard shortcuts", SessionStatus.ACTIVE, 4u, 0, null, null, true, null), if (empty) emptyList() else items, emptyList(), false, false, emptyList(), false, false, null)
+    private fun render(dark: Boolean = false, expanded: Boolean = false, largeText: Boolean = false, empty: Boolean = false, history: Boolean = false, table: Boolean = false) {
+        val historyItems = if (history) List(20) { i -> ChatItem("history-$i", 0, ChatContent.Agent("Earlier update $i", listOf(Block.Paragraph(listOf(span("Earlier update $i")))))) } else emptyList()
+        val tableItems = if (table) listOf(ChatItem("table", 4, ChatContent.Agent("", listOf(Block.Table(
+            TableRow(listOf(listOf(span("Action")), listOf(span("Shortcut")), listOf(span("Accessibility")))),
+            listOf(TableRow(listOf(listOf(span("Open command menu")), listOf(span("⌘K", true)), listOf(span("Focus moves to search"))))),
+        ))))) else emptyList()
+        val state = ChatState("project", "session", ChatSession("session", "Keyboard shortcuts", SessionStatus.ACTIVE, 4u, 0, null, null, true, null), if (empty) emptyList() else historyItems + items + tableItems, emptyList(), false, false, emptyList(), false, false, null)
         compose.setContent { MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, if (largeText) 1.5f else density.fontScale)) {
@@ -52,22 +57,23 @@ class ChatRenderTest {
             compose.onNodeWithText("Run accessibility checks").assertIsDisplayed()
         }
         compose.waitForIdle()
-        compose.runOnIdle {
-            val view = compose.activity.window.decorView
-            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-            view.draw(Canvas(bitmap))
-            val file = File("build/outputs/chat-previews/$name.png")
-            file.parentFile.mkdirs()
-            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-
+        if (history) {
+            compose.onNodeWithTag("chat-timeline").performScrollToIndex(0)
+            compose.onNodeWithContentDescription("Jump to latest").assertIsDisplayed()
+        }
+        compose.onNodeWithContentDescription("Send").assertIsDisplayed()
+        if (empty) compose.onNodeWithText("The conversation will appear here.").assertIsDisplayed()
+        if (history) {
+            compose.onNodeWithContentDescription("Jump to latest").performClick()
+            compose.onNodeWithText("Verify accessibility", substring = true).assertIsDisplayed()
         }
     }
-    @Test fun lightChat() = render("chat-light")
-    @Test
-    @Config(qualifiers = "w1280dp-h800dp-160dpi")
-    fun tabletChat() = render("chat-tablet")
-    @Test fun largeTextChat() = render("chat-large-text", largeText = true)
-    @Test fun emptyChat() = render("chat-empty", empty = true)
-    @Test fun darkChat() = render("chat-dark", dark = true)
-    @Test fun expandedActivity() = render("chat-activity", expanded = true)
+    @Test fun historyArrow() = render(history = true)
+    @Test fun markdownTable() = render(table = true)
+    @Test fun lightChat() = render()
+    @Test @Config(qualifiers = "w1280dp-h800dp-160dpi") fun tabletChat() = render()
+    @Test fun largeTextChat() = render(largeText = true)
+    @Test fun emptyChat() = render(empty = true)
+    @Test fun darkChat() = render(dark = true)
+    @Test fun expandedActivity() = render(expanded = true)
 }

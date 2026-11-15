@@ -4,8 +4,6 @@ import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,7 +14,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -82,7 +82,7 @@ fun ChatContent(
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter).testTag("chat-timeline"), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 session?.task?.let { item("task") { TaskCard(it, openUrl) } }
                 if (state.hasMore) item("history") { Text(stringResource(R.string.latest_messages), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.items, key = { "message-${it.id}" }) { TimelineItem(it, openUrl) }
@@ -97,17 +97,10 @@ fun ChatContent(
                 if (state.items.isEmpty() && !state.loading && state.error == null) item("empty") { Text(stringResource(R.string.chat_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             if (state.loading && state.items.isEmpty()) CircularProgressIndicator(Modifier.align(Alignment.Center))
-            if (!atBottom) Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                shadowElevation = 6.dp,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
-            ) { IconButton(
+            if (!atBottom) LatestArrow(
                 onClick = { scope.launch { list.animateScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } },
-                modifier = Modifier.size(48.dp),
-            ) { Icon(Icons.Default.ArrowDownward, contentDescription = stringResource(R.string.jump_latest)) } }
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+            )
         }
     }
 }
@@ -149,7 +142,7 @@ private fun TimelineItem(item: ChatItem, openUrl: (String) -> Unit) {
         }
         is Content.Plan -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.agent_plan), style = MaterialTheme.typography.titleSmall)
-            content.entries.forEach { entry -> Text("${when(entry.status) { PlanStatus.COMPLETED -> "✓"; PlanStatus.IN_PROGRESS -> "◉"; else -> "○" }}  ${entry.content}", color = if (entry.status == PlanStatus.IN_PROGRESS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+            content.entries.forEach { entry -> Text("${when(entry.status) { PlanStatus.COMPLETED -> "✓"; PlanStatus.IN_PROGRESS -> "◉"; else -> "○" }}  ${entry.content}", color = if (entry.status == PlanStatus.IN_PROGRESS) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         is Content.Notice -> {
             val notice = content.notice
@@ -188,3 +181,19 @@ private fun toolLabel(kind: ToolKind) = stringResource(when (kind) {
     ToolKind.SWITCH_MODE -> R.string.tool_mode
     ToolKind.OTHER -> R.string.tool_other
 })
+
+@Composable
+internal fun LatestArrow(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        shadowElevation = 6.dp,
+        modifier = modifier,
+    ) {
+        IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+            Icon(painterResource(R.drawable.ic_arrow_down), contentDescription = stringResource(R.string.jump_latest))
+        }
+    }
+}

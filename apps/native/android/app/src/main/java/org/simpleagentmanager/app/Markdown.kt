@@ -114,14 +114,14 @@ private fun ListMarkerView(marker: ListMarker) {
             is ListMarker.Number -> Text("${marker.value}.", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
             is ListMarker.Task -> Box(
                 Modifier.padding(top = 3.dp)
-                    .border(1.5.dp, if (marker.done) colors.primary else colors.outline, RoundedCornerShape(4.dp))
-                    .background(if (marker.done) colors.primary else Color.Transparent, RoundedCornerShape(4.dp)),
+                    .border(1.5.dp, if (marker.done) colors.onSurfaceVariant else colors.outline, RoundedCornerShape(4.dp))
+                    .background(if (marker.done) colors.onSurfaceVariant else Color.Transparent, RoundedCornerShape(4.dp)),
             ) {
                 Icon(
                     Icons.Default.Check,
                     contentDescription = null,
                     Modifier.padding(1.dp).width(14.dp).height(14.dp),
-                    tint = if (marker.done) colors.onPrimary else Color.Transparent,
+                    tint = if (marker.done) colors.surface else Color.Transparent,
                 )
             }
             ListMarker.Continuation -> {}

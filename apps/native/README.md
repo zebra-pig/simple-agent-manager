@@ -81,13 +81,16 @@ server transcript contains them. Failed sends restore the draft. Reading older m
 following; the down-arrow button returns to the latest messages. Older history is still limited
 to the latest page from the server.
 
-Android's `ChatContent` accepts a state snapshot and callbacks. Its Robolectric tests render
-actual Compose views without signing in, including expanded activity, and save previews:
+Android's `ChatContent` accepts a state snapshot and callbacks. Robolectric tests exercise
+actual Compose views without signing in, including expanded activity and the history arrow.
+The official Compose screenshot plugin renders phone, dark, tablet, large-text and arrow previews:
 
 ```sh
 cd apps/native/android
 ./gradlew assembleDebug testDebugUnitTest
-# app/build/outputs/chat-previews/*.png
+./gradlew updateDebugScreenshotTest       # regenerate preview baselines
+./gradlew validateDebugScreenshotTest     # compare against checked-in baselines
+# app/src/screenshotTestDebug/reference/
 ```
 
 ## Agent profiles
