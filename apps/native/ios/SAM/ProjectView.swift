@@ -61,6 +61,7 @@ struct ProjectView: View {
                     if let task = await model.core.submitTask(message: message) {
                         draft = ""
                         open(SessionRef(projectId: project.id, sessionId: task.sessionId))
+                        model.core.finishSubmission(sessionId: task.sessionId)
                     }
                 }
             } accessory: {

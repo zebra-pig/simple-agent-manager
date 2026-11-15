@@ -18,6 +18,13 @@ The shells stay thin. Each screen owns a Rust view model: the shell reads the fi
 `state()`, sends intents (`load`, `submit_task`, `send`, …), and receives every later snapshot
 through an observer callback. Logic and HTTP live in the core, so both platforms behave the same.
 
+New-chat submission stays locked in the shared core from intent admission through
+request completion, session refresh, and the UI handoff. After `submit_task`
+returns a session, each shell clears its draft and opens that session before
+calling `finish_submission(session_id)`. Only the matching accepted session can
+release the lock; failed requests unlock for retry. Apple also sets a local busy
+flag synchronously on tap, before observer delivery.
+
 ```mermaid
 flowchart LR
   subgraph Shell["SwiftUI / Compose"]

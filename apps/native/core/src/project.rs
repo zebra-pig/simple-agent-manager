@@ -25,6 +25,8 @@ pub struct ProjectState {
     pub agents: Vec<AgentOption>,
     pub loading: bool,
     pub submitting: bool,
+    /// Accepted submission awaiting the shell's draft-clear/navigation handoff.
+    pub submitted_session_id: Option<String>,
     /// A profile is being saved or deleted.
     pub saving_profile: bool,
     /// Why the last profile save or delete failed, shown in the editor.
@@ -125,41 +127,46 @@ impl ProjectViewModel {
 
     /// Intent: hand `message` and the attached files to an agent as a new
     /// task, with the selected profile. Returns the new session to open, or
-    /// `None` (the reason is in `state.error`).
+    /// `None` (the reason is in `state.error`). On success, the shell must clear
+    /// its draft, open the session, then call `finish_submission`.
     pub async fn submit_task(&self, message: String) -> Option<SubmittedTask> {
-        let ProjectState { project_id, attachments: attached, selected_profile_id, .. } = self.state();
-        let files = match attachments::ready(&attached) {
-            Ok(files) => files,
-            Err(e) => {
-                self.update(|s| s.error = Some(e));
-                return None;
-            }
-        };
-        let message = attachments::message_text(&message, !files.is_empty());
-        if message.is_empty() || project_id.is_empty() {
-            return None;
-        }
-        // Claim the submission atomically: shell observers can lag behind taps.
-        let mut started = false;
+        // Validate, snapshot and claim together: no stale draft/attachments can
+        // slip between a state read and acquiring the submission lock.
+        let mut submission = None;
         self.update(|s| {
-            if !s.submitting && s.project_id == project_id {
-                s.submitting = true;
-                s.error = None;
-                started = true;
+            if s.submitting || s.project_id.is_empty() {
+                return;
             }
+            let files = match attachments::ready(&s.attachments) {
+                Ok(files) => files,
+                Err(e) => {
+                    s.error = Some(e);
+                    return;
+                }
+            };
+            let message = attachments::message_text(&message, !files.is_empty());
+            if message.is_empty() {
+                return;
+            }
+            s.submitting = true;
+            s.error = None;
+            submission = Some((s.project_id.clone(), s.attachments.clone(), s.selected_profile_id.clone(), files, message));
         });
-        if !started {
-            return None;
-        }
+        let (project_id, attached, selected_profile_id, files, message) = submission?;
         let body = SubmitTask { message: &message, agent_profile_id: selected_profile_id.as_deref(), attachments: &files };
         let result: Result<SubmittedTask> = self.app.post(&format!("/api/projects/{}/tasks/submit", seg(&project_id)), &body).await;
+        let mut current = false;
         self.update(|s| {
             if s.project_id != project_id {
                 return;
             }
+            current = true;
             match &result {
                 // Files added while this was on its way stay for the next task.
-                Ok(_) => s.attachments.retain(|a| !attached.iter().any(|sent| sent.id == a.id)),
+                Ok(task) => {
+                    s.submitted_session_id = Some(task.session_id.clone());
+                    s.attachments.retain(|a| !attached.iter().any(|sent| sent.id == a.id));
+                }
                 Err(e) => {
                     s.submitting = false;
                     s.error = Some(UserError::from(e));
@@ -167,14 +174,28 @@ impl ProjectViewModel {
             }
         });
         let submitted = result.ok()?;
-        // Keep the composer busy while refreshing, until the shell can open the chat.
+        if !current {
+            return None;
+        }
         self.load(project_id.clone()).await;
+        let state = self.state();
+        if state.project_id != project_id || state.submitted_session_id.as_deref() != Some(&submitted.session_id) {
+            return None;
+        }
+        // Returning to the shell is not the end of submission: the draft is still
+        // visible until its continuation runs. Only its explicit handoff unlocks.
+        Some(submitted)
+    }
+
+    /// The shell cleared the draft and opened this accepted session. A stale or
+    /// unrelated handoff cannot unlock a different submission.
+    pub fn finish_submission(&self, session_id: String) {
         self.update(|s| {
-            if s.project_id == project_id {
+            if s.submitted_session_id.as_deref() == Some(&session_id) {
+                s.submitted_session_id = None;
                 s.submitting = false;
             }
         });
-        Some(submitted)
     }
 }
 
