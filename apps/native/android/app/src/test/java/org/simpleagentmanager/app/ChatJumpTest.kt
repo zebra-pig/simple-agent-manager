@@ -34,7 +34,7 @@ class ChatJumpTest {
             scope = rememberCoroutineScope()
             MaterialTheme {
                 val state = ChatState("project", "session", null, messages.value, emptyList(), false, false,
-                    emptyList(), emptyList(), null, emptyList(), null, false, false, false, null)
+                    emptyList(), emptyList(), null, emptyList(), null, false, false, false, null, false, null)
                 ChatContent(state, "", {}, {}, {}, {}, {}, listState = list, onSend = {})
             }
         }

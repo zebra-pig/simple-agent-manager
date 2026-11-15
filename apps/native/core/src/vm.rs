@@ -4,9 +4,14 @@
 
 /// `observable!(Vm, State, Observer)` declares `Observer` and `Vm { app, inner }`
 /// with `new(app)`, `set_observer`, `clear_observer`, `state` exported, and a
-/// private `update(|s| ...)`. Intents go in a separate `#[uniffi::export]` impl.
+/// private `update(|s| ...)`. An optional fourth type stores private model data
+/// under the same mutex; `update_data` changes it with the exported snapshot.
+/// Intents go in a separate `#[uniffi::export]` impl.
 macro_rules! observable {
     ($vm:ident, $state:ty, $observer:ident) => {
+        observable!($vm, $state, $observer, ());
+    };
+    ($vm:ident, $state:ty, $observer:ident, $data:ty) => {
         #[uniffi::export(callback_interface)]
         pub trait $observer: Send + Sync {
             fn on_state_changed(&self, state: $state);
@@ -15,14 +20,14 @@ macro_rules! observable {
         #[derive(uniffi::Object)]
         pub struct $vm {
             app: std::sync::Arc<crate::session::App>,
-            inner: std::sync::Mutex<($state, Option<std::sync::Arc<dyn $observer>>)>,
+            inner: std::sync::Mutex<($state, Option<std::sync::Arc<dyn $observer>>, $data)>,
         }
 
         #[uniffi::export]
         impl $vm {
             #[uniffi::constructor]
             pub fn new(app: std::sync::Arc<crate::session::App>) -> std::sync::Arc<Self> {
-                std::sync::Arc::new(Self { app, inner: std::sync::Mutex::new((<$state>::default(), None)) })
+                std::sync::Arc::new(Self { app, inner: std::sync::Mutex::new((<$state>::default(), None, <$data>::default())) })
             }
             pub fn set_observer(&self, observer: Box<dyn $observer>) {
                 self.inner.lock().unwrap().1 = Some(std::sync::Arc::from(observer));
@@ -38,9 +43,14 @@ macro_rules! observable {
         impl $vm {
             #[allow(dead_code)]
             fn update(&self, f: impl FnOnce(&mut $state)) {
+                self.update_data(|state, _| f(state));
+            }
+            #[allow(dead_code)]
+            fn update_data(&self, f: impl FnOnce(&mut $state, &mut $data)) {
                 let (snapshot, observer) = {
                     let mut g = self.inner.lock().unwrap();
-                    f(&mut g.0);
+                    let (state, _, data) = &mut *g;
+                    f(state, data);
                     (g.0.clone(), g.1.clone())
                 };
                 if let Some(o) = observer {

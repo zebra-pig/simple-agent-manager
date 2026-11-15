@@ -33,6 +33,8 @@ pub(crate) struct Row {
     /// Unix milliseconds.
     #[serde(default)]
     pub created_at: i64,
+    #[serde(default)]
+    pub sequence: Option<i64>,
     /// `system` for messages SAM sent on the user's behalf.
     #[serde(default)]
     pub origin: Option<String>,
@@ -589,6 +591,7 @@ mod tests {
             content: content.into(),
             tool_metadata: (!meta.is_null()).then_some(meta),
             created_at: at,
+            sequence: None,
             origin: None,
             document: None,
         }

@@ -7,6 +7,8 @@ struct ChatView: View {
     let ref: SessionRef
     @State private var chat: ChatModel
     @ChatDraft private var draft: String
+    @State private var historyAnchor: [String] = []
+    @State private var visibleMessage: String?
     @State private var followsLatest = true
     @State private var scrollControl = ChatScrollControl()
     @State private var tool: ChatTool?
@@ -28,7 +30,13 @@ struct ChatView: View {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        if chat.state.hasMore { Text("Showing the latest messages").font(.caption).foregroundStyle(.secondary) }
+                        if chat.state.hasMore || chat.state.loadingHistory {
+                            ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message) {
+                                followsLatest = false
+                                historyAnchor = chat.state.items.map(\.id)
+                                Task { await chat.core.loadOlder() }
+                            }.id("history")
+                        }
                         ForEach(chat.state.items, id: \.id) { message in
                             Group {
                                 if case let .document(document) = message.content {
@@ -69,13 +77,29 @@ struct ChatView: View {
                             .onAppear { followsLatest = true }
                             .onDisappear { followsLatest = false }
                     }
+                    .scrollTargetLayout()
                     .padding()
                     .background(ChatScrollProbe(control: scrollControl))
                 }
                 .defaultScrollAnchor(.bottom)
+                .scrollPosition(id: $visibleMessage, anchor: .top)
                 .interactiveKeyboardDismiss()
                 .onChange(of: chat.state.items) {
-                    if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
+                    if followsLatest && !chat.state.loadingHistory { proxy.scrollTo("latest", anchor: .bottom) }
+                }
+                .onChange(of: chat.state.loadingHistory) {
+                    guard !chat.state.loadingHistory, !historyAnchor.isEmpty else { return }
+                    let ids = Set(chat.state.items.map(\.id))
+                    // Streaming/tool groups may join across the page boundary;
+                    // prefer the first previously visible stable message ID.
+                    let retained = visibleMessage.map { historyAnchor.contains($0) && ids.contains($0) } ?? false
+                    if !retained, let anchor = historyAnchor.first(where: { ids.contains($0) }) {
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { proxy.scrollTo(anchor, anchor: .top) }
+                    }
+                    historyAnchor = []
+                    followsLatest = false
                 }
                 .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
                 if !followsLatest {

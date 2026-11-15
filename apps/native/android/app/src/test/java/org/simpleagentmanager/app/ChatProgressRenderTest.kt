@@ -31,7 +31,7 @@ class ChatProgressRenderTest {
         ),
         notificationsError = null, attachments = emptyList(),
         provisioning = ProvisioningState(1u, ProvisioningStep.WORKSPACE_CREATION, 0),
-        reportEnabled = false, loading = false, sending = false, error = null,
+        reportEnabled = false, loading = false, sending = false, error = null, loadingHistory = false, historyError = null,
     )
 
     @OptIn(ExperimentalMaterial3Api::class)
