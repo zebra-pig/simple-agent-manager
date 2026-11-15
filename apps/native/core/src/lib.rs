@@ -16,6 +16,7 @@ mod chat;
 mod error;
 mod project;
 mod projects;
+mod provisioning;
 mod server;
 mod session;
 
@@ -31,6 +32,7 @@ pub use chat::*;
 pub use error::UserError;
 pub use project::*;
 pub use projects::*;
+pub use provisioning::{ProvisioningState, ProvisioningStep};
 pub use server::deployment_name;
 pub use session::*;
 

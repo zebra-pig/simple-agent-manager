@@ -17,11 +17,14 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    if let task = chat.state.session?.task {
+                    if chat.state.provisioning == nil, let task = chat.state.session?.task {
                         TaskCard(task: task) { openURL($0) }
                     }
                     ForEach(chat.state.messages, id: \.id) { message in
                         MessageView(message: message).id(message.id)
+                    }
+                    if let provisioning = chat.state.provisioning {
+                        ProvisioningView(state: provisioning).id("provisioning")
                     }
                     if let error = chat.state.error {
                         Text(error.message).foregroundStyle(.red).font(.callout)
@@ -33,7 +36,12 @@ struct ChatView: View {
             .interactiveKeyboardDismiss()
             .onChange(of: chat.state.messages.last?.id) {
                 if let last = chat.state.messages.last?.id {
-                    withAnimation { proxy.scrollTo(last, anchor: .bottom) }
+                    withAnimation { proxy.scrollTo(chat.state.provisioning == nil ? last : "provisioning", anchor: .bottom) }
+                }
+            }
+            .onChange(of: chat.state.provisioning != nil) {
+                if chat.state.provisioning != nil {
+                    withAnimation { proxy.scrollTo("provisioning", anchor: .bottom) }
                 }
             }
         }

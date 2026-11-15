@@ -124,4 +124,22 @@
     <string name="error_profile_name_required">Give the profile a name.</string>
     <string name="error_invalid_profile_number">Enter a valid number for %1$s.</string>
     <string name="error_effort_not_supported">This agent doesn\'t offer that effort level.</string>
+    <string name="setup_vm">Provisioning VM</string>
+    <string name="setup_clone">Cloning repository</string>
+    <string name="setup_install">Installing dependencies</string>
+    <string name="setup_agent">Starting agent</string>
+    <string name="setup_stage">%1$s · %2$d of 4</string>
+    <string name="setup_seconds">%1$ds</string>
+    <string name="setup_minutes">%1$dm %2$ds</string>
+    <string name="setup_detail">%1$s This usually takes 2–4 minutes.</string>
+    <string name="setup_waiting">Waiting for the task runner.</string>
+    <string name="setup_node_selection">Finding a server.</string>
+    <string name="setup_capacity">Waiting for server capacity.</string>
+    <string name="setup_node_provisioning">Setting up a new server.</string>
+    <string name="setup_node_ready">Waiting for server to start.</string>
+    <string name="setup_workspace_creation">Creating workspace.</string>
+    <string name="setup_workspace_dispatch">Starting workspace on server.</string>
+    <string name="setup_workspace_ready">Setting up development environment.</string>
+    <string name="setup_attachments">Uploading attachments to workspace.</string>
+    <string name="setup_agent_session">Starting AI agent.</string>
 </resources>

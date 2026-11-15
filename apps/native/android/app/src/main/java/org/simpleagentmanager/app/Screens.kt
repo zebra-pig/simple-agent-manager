@@ -298,10 +298,12 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
     val current = state.sessionId == route.sessionId
     val messages = if (current) state.messages else emptyList()
     val session = state.session.takeIf { current }
+    val provisioning = state.provisioning.takeIf { current }
     val list = rememberLazyListState()
     // Follow the conversation: the last message's row, after the optional task card.
-    LaunchedEffect(messages.lastOrNull()?.id) {
-        if (messages.isNotEmpty()) list.animateScrollToItem(messages.size - 1 + if (session?.task != null) 1 else 0)
+    LaunchedEffect(messages.lastOrNull()?.id, provisioning != null) {
+        val count = messages.size + (if (session?.task != null && provisioning == null) 1 else 0) + (if (provisioning != null) 1 else 0)
+        if (count > 0) list.animateScrollToItem(count - 1)
     }
 
     Scaffold(
@@ -323,8 +325,9 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                session?.task?.let { task -> item { TaskCard(task, openUrl) } }
+                if (provisioning == null) session?.task?.let { task -> item { TaskCard(task, openUrl) } }
                 items(messages, key = { it.id }) { MessageRow(it) }
+                provisioning?.let { item(key = "provisioning") { ProvisioningCard(it) } }
                 if (current) state.error?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
             }
             if (messages.isEmpty() && (state.loading || !current)) CircularProgressIndicator(Modifier.align(Alignment.Center))
