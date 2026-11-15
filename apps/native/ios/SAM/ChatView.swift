@@ -73,6 +73,9 @@ struct ChatView: View {
         }
         .navigationTitle(chat.state.session?.topic ?? String(localized: "Session"))
         .inlineTitle()
+        #if os(iOS)
+        .toolbar(.hidden, for: .tabBar)
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if let session = chat.state.session {
