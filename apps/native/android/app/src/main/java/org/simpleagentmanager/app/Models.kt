@@ -137,6 +137,7 @@ class ProjectModel(application: Application) : AndroidViewModel(application) {
         vm.submitTask(message)?.let {
             sent()
             open(it.sessionId)
+            vm.finishSubmission(it.sessionId)
         }
     }
 

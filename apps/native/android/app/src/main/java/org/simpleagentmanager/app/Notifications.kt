@@ -66,7 +66,7 @@ fun NotificationsScreen(app: App, openUrl: (String) -> Unit, openChat: (String, 
 }
 
 @Composable
-fun RequestCard(app: App, project: String, session: String, id: String, secret: Boolean, approval: Boolean = false) {
+fun RequestCard(app: App, project: String, session: String, id: String, secret: Boolean, approval: Boolean = false, hideResolved: Boolean = false) {
     val vm = remember(app, project, session, id, secret, approval) { RequestViewModel(app) }
     val snapshot = remember(vm) { mutableStateOf(vm.state()) }
     val state by snapshot
@@ -92,9 +92,16 @@ fun RequestCard(app: App, project: String, session: String, id: String, secret: 
             snapshot.value = vm.state()
         }
     }
-    RequestContent(state, secret, approval, value, { value = it }, confirmedVersion, { confirmedVersion = it }, ::respond) {
-        scope.launch { vm.load(project, session, id, secret, approval); snapshot.value = vm.state() }
+    // Keep polling while hidden so a genuinely reopened request can reappear.
+    if (hideResolved && requestIsResolved(state.status)) return
+    val content: @Composable () -> Unit = {
+        RequestContent(state, secret, approval, value, { value = it }, confirmedVersion, { confirmedVersion = it }, ::respond) {
+            scope.launch { vm.load(project, session, id, secret, approval); snapshot.value = vm.state() }
+        }
     }
+    if (hideResolved) {
+        Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { content() } }
+    } else { content() }
 }
 
 @Composable

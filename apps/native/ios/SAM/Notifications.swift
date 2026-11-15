@@ -77,14 +77,29 @@ struct RequestCard: View {
     let id: String
     let secret: Bool
     let approval: Bool
+    let hideResolved: Bool
     @State private var model: RequestModel
     @State private var value = ""
     @State private var confirmedVersion: String?
-    init(app: App, project: String, session: String, id: String, secret: Bool, approval: Bool = false) {
-        self.project = project; self.session = session; self.id = id; self.secret = secret; self.approval = approval
+    init(app: App, project: String, session: String, id: String, secret: Bool, approval: Bool = false, hideResolved: Bool = false) {
+        self.project = project; self.session = session; self.id = id; self.secret = secret; self.approval = approval; self.hideResolved = hideResolved
         _model = State(initialValue: RequestModel(app: app))
     }
     var body: some View {
+        Group {
+            if !hideResolved || !requestIsResolved(status: model.state.status) {
+                if hideResolved {
+                    content.padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                } else { content }
+            }
+        }
+        .disabled(model.state.busy)
+        .task {
+            while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(15)) }
+        }
+        .onDisappear { value = ""; confirmedVersion = nil }
+    }
+    private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             if !model.state.title.isEmpty { Text(approval ? approvalTitle(model.state.title) : model.state.title).font(.headline) }
             Text(model.state.reason).textSelection(.enabled)
@@ -119,11 +134,6 @@ struct RequestCard: View {
             if let answer = model.state.answer { Text(answer) }
             Button("Refresh") { Task { await load() } }.font(.caption)
         }
-        .disabled(model.state.busy)
-        .task {
-            while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(15)) }
-        }
-        .onDisappear { value = ""; confirmedVersion = nil }
     }
     private func load() async {
         await model.core.load(projectId: project, sessionId: session, requestId: id, secret: secret, approval: approval)

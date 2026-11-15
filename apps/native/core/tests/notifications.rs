@@ -50,6 +50,7 @@ async fn answers_use_authoritative_options_and_pending_delivery_disables_resubmi
     assert_eq!(vm.state().options, ["Yes", "No"]);
     assert!(vm.respond("p1".into(), "s1".into(), "a1".into(), false, false, "Yes".into(), false, None).await);
     assert_eq!(vm.state().status, "delivering");
+    assert!(!sam_core::request_is_resolved(vm.state().status));
     assert!(!vm.state().can_respond);
     assert!(!vm.respond("p1".into(), "s1".into(), "a1".into(), false, false, "Yes".into(), false, None).await);
     assert_eq!(*posts.lock().unwrap(), 1);
@@ -77,6 +78,7 @@ async fn secrets_use_dedicated_endpoint_and_versioned_replacement_without_retain
     assert_eq!(vm.state().existing_version.as_deref(), Some("v1"));
     assert!(vm.respond("p1".into(), "s1".into(), "r1".into(), true, false, "private-token".into(), false, Some("v1".into())).await);
     assert_eq!(vm.state().status, "fulfilled");
+    assert!(sam_core::request_is_resolved(vm.state().status));
     assert!(!format!("{:?}", vm.state()).contains("private-token"));
 }
 #[tokio::test]
@@ -125,6 +127,7 @@ async fn expired_and_forbidden_requests_cannot_be_answered_and_load_failure_can_
     vm.load("p1".into(), "s1".into(), "a1".into(), false, false).await;
     assert!(vm.state().error.is_none());
     assert_eq!(vm.state().status, "expired");
+    assert!(sam_core::request_is_resolved(vm.state().status));
     assert!(!vm.respond("p1".into(), "s1".into(), "a1".into(), false, false, "answer".into(), false, None).await);
 }
 #[tokio::test]
@@ -144,6 +147,7 @@ async fn approvals_show_server_target_and_use_decision_endpoint() {
     assert!(vm.state().title.contains("node1"));
     assert!(vm.respond("p1".into(), "s1".into(), "op1".into(), false, true, "deny".into(), false, None).await);
     assert_eq!(vm.state().status, "denied");
+    assert!(sam_core::request_is_resolved(vm.state().status));
     assert!(vm.state().delivery_unconfirmed);
     assert!(!vm.state().can_respond);
     vm.load("another-project".into(), "s1".into(), "op1".into(), false, true).await;
@@ -190,4 +194,34 @@ async fn a_new_secret_omits_optional_replacement_fields() {
     let vm = RequestViewModel::new(app(server));
     vm.load("p1".into(), "s1".into(), "r1".into(), true, false).await;
     assert!(vm.respond("p1".into(), "s1".into(), "r1".into(), true, false, "token".into(), false, None).await);
+}
+
+#[tokio::test]
+async fn answered_question_stays_resolved_after_refresh_and_cannot_be_answered_again() {
+    let answered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stored = answered.clone();
+    let server = serve(Arc::new(move |r| {
+        if r.method == "GET" {
+            return (200, json!({"request": {
+                "reason": "Continue with this approach?", "options": ["Yes", "No"],
+                // Even an inconsistent canAnswer must not resurrect a resolved form.
+                "canAnswer": true,
+                "resolvedAt": if stored.load(std::sync::atomic::Ordering::SeqCst) { json!(1234) } else { Value::Null },
+                "resolvedAnswer": if stored.load(std::sync::atomic::Ordering::SeqCst) { json!("Yes") } else { Value::Null }
+            }}).to_string());
+        }
+        stored.store(true, std::sync::atomic::Ordering::SeqCst);
+        (200, json!({"resolved": true, "answer": "Yes"}).to_string())
+    })).await;
+    let vm = RequestViewModel::new(app(server));
+    vm.load("p1".into(), "s1".into(), "a1".into(), false, false).await;
+    assert!(!sam_core::request_is_resolved(vm.state().status));
+    assert!(vm.state().can_respond);
+    assert!(vm.respond("p1".into(), "s1".into(), "a1".into(), false, false, "Yes".into(), false, None).await);
+    assert!(sam_core::request_is_resolved(vm.state().status));
+    assert_eq!(vm.state().answer.as_deref(), Some("Yes"));
+    vm.load("p1".into(), "s1".into(), "a1".into(), false, false).await;
+    assert!(sam_core::request_is_resolved(vm.state().status));
+    assert!(!vm.state().can_respond);
+    assert!(!vm.respond("p1".into(), "s1".into(), "a1".into(), false, false, "No".into(), false, None).await);
 }

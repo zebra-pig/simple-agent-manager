@@ -38,8 +38,9 @@ struct ProjectsView: View {
                 }
                 ForEach(projects, id: \.id) { project in
                     NavigationLink(value: project) {
-                        ProjectRow(project: project).padding(12)
-                    }.listRowBackground(Color.clear).listRowSeparator(.hidden)
+                        ProjectRow(project: project)
+                    }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                 }
             }
             .overlay {
