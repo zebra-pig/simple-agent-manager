@@ -69,11 +69,28 @@ struct ResourceHistoryRender {
                 .environment(\.timeZone, TimeZone(secondsFromGMT: 0)!)
             let renderer = ImageRenderer(content: view)
             renderer.scale = 2
-            guard let image = renderer.cgImage,
-                  let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            guard let measured = renderer.cgImage else { fatalError("Chart measurement failed") }
+            // ImageRenderer substitutes a warning symbol for AppKit-backed
+            // controls. Snapshot a real hosting view to include the native picker.
+            let size = NSSize(width: width, height: Double(measured.height) / renderer.scale)
+            let host = NSHostingView(rootView: view)
+            host.frame = NSRect(origin: .zero, size: size)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            window.contentView = host
+            window.orderFrontRegardless()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            host.layoutSubtreeIfNeeded()
+            host.displayIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+                fatalError("Native chart bitmap allocation failed: \(name)")
+            }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            guard let png = bitmap.representation(using: .png, properties: [:]) else {
                 fatalError("Native chart render failed: \(name)")
             }
             try png.write(to: output.appendingPathComponent("\(name).png"))
+            window.orderOut(nil)
         }
         print("Resource chart data checks and six native SwiftUI renders passed")
     }
