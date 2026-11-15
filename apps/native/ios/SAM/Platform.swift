@@ -19,6 +19,14 @@ extension View {
         #endif
     }
 
+    func numberKeyboard(decimal: Bool) -> some View {
+        #if os(iOS)
+        keyboardType(decimal ? .decimalPad : .numberPad)
+        #else
+        self
+        #endif
+    }
+
     /// Messages-style: dragging the content down pulls the keyboard away with
     /// the finger (the composer, and its profile selector, follow it).
     func interactiveKeyboardDismiss() -> some View {

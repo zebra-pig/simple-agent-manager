@@ -21,7 +21,10 @@ mod server;
 mod session;
 mod timeline;
 
-pub use agent_profiles::{permission_modes, profile_draft, supported_efforts, task_modes, AgentOption, AgentProfile, ProfileDraft};
+pub use agent_profiles::{
+    permission_modes, profile_draft, profile_runtimes, supported_efforts, task_modes, workspace_profiles, AgentOption, AgentProfile,
+    ProfileDraft, ProfileNumberField,
+};
 pub use api::{ChatSession, Project, SessionStatus, SubmittedTask, TaskSummary, Viewer};
 pub use attachments::{
     Attachment, AttachmentSource, AttachmentStatus, ATTACHMENT_BATCH_MAX_BYTES, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES,

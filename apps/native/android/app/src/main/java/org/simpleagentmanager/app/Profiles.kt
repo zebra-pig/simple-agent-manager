@@ -47,11 +47,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.simpleagentmanager.core.AgentProfile
+import org.simpleagentmanager.core.ProfileDraft
+import org.simpleagentmanager.core.ProfileNumberField
 import org.simpleagentmanager.core.ProjectState
 import org.simpleagentmanager.core.permissionModes
 import org.simpleagentmanager.core.profileDraft
+import org.simpleagentmanager.core.profileRuntimes
 import org.simpleagentmanager.core.supportedEfforts
 import org.simpleagentmanager.core.taskModes
+import org.simpleagentmanager.core.workspaceProfiles
 
 /**
  * Which agent profile the next task runs with: a chip above the composer that
@@ -184,6 +188,11 @@ internal fun ProfileEditorScreen(route: Route.ProfileEditor, model: ProjectModel
                 maxLines = 10,
                 modifier = Modifier.fillMaxWidth(),
             )
+            MachineFields(draft) { draft = it }
+            SectionTitle(stringResource(R.string.profile_limits))
+            NumberField(stringResource(R.string.profile_max_turns), draft.maxTurns, decimal = false) { draft = draft.copy(maxTurns = it) }
+            NumberField(stringResource(R.string.profile_timeout), draft.timeoutMinutes, decimal = false) { draft = draft.copy(timeoutMinutes = it) }
+            Text(stringResource(R.string.profile_limits_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (profile != null) {
                 TextButton(onClick = { confirmDelete = true }, enabled = !state.savingProfile) {
                     Text(stringResource(R.string.delete_profile), color = MaterialTheme.colorScheme.error)
@@ -207,6 +216,109 @@ internal fun ProfileEditorScreen(route: Route.ProfileEditor, model: ProjectModel
         )
     }
 }
+
+/** Where the agent runs: the runtime, the minimum machine, the workspace. */
+@Composable
+private fun MachineFields(draft: ProfileDraft, onChange: (ProfileDraft) -> Unit) {
+    val default = stringResource(R.string.profile_default)
+    val instant = draft.runtime == "cf-container"
+    SectionTitle(stringResource(R.string.profile_machine))
+    Choice(stringResource(R.string.profile_runtime), draft.runtime, listOf("" to default) + profileRuntimes().map { it to runtimeLabel(it) }) {
+        // An instant container always runs a lightweight workspace.
+        onChange(if (it == "cf-container") draft.copy(runtime = it, workspaceProfile = "lightweight") else draft.copy(runtime = it))
+    }
+    if (!instant) {
+        NumberField(stringResource(R.string.profile_min_vcpu), draft.minVcpu, decimal = true) { onChange(draft.copy(minVcpu = it)) }
+        NumberField(stringResource(R.string.profile_min_memory), draft.minMemoryGb, decimal = true) { onChange(draft.copy(minMemoryGb = it)) }
+        NumberField(stringResource(R.string.profile_min_disk), draft.minDiskGb, decimal = true) { onChange(draft.copy(minDiskGb = it)) }
+        val exclusive = when (draft.exclusiveNode) {
+            true -> "yes"
+            false -> "no"
+            null -> ""
+        }
+        Choice(
+            stringResource(R.string.profile_dedicated_node),
+            exclusive,
+            listOf("" to default, "yes" to stringResource(R.string.yes), "no" to stringResource(R.string.no)),
+        ) { onChange(draft.copy(exclusiveNode = if (it.isEmpty()) null else it == "yes")) }
+        if (draft.legacyVmSize.isNotEmpty()) {
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.profile_machine_size)) },
+                supportingContent = { Text(humanize(draft.legacyVmSize)) },
+                trailingContent = { TextButton(onClick = { onChange(draft.copy(legacyVmSize = "")) }) { Text(stringResource(R.string.clear)) } },
+            )
+        }
+    }
+    if (instant) {
+        ListItem(headlineContent = { Text(stringResource(R.string.profile_workspace)) }, supportingContent = { Text(workspaceProfileLabel("lightweight")) })
+    } else {
+        Choice(stringResource(R.string.profile_workspace), draft.workspaceProfile, listOf("" to default) + workspaceProfiles().map { it to workspaceProfileLabel(it) }) {
+            onChange(draft.copy(workspaceProfile = it))
+        }
+    }
+    if (!instant && draft.workspaceProfile != "lightweight") {
+        OutlinedTextField(
+            draft.devcontainerConfigName,
+            { onChange(draft.copy(devcontainerConfigName = it)) },
+            label = { Text(stringResource(R.string.profile_devcontainer)) },
+            placeholder = { Text(stringResource(R.string.profile_devcontainer_auto)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    Text(
+        stringResource(if (instant) R.string.profile_machine_help_instant else R.string.profile_machine_help),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
+}
+
+/** A number as typed; empty shows "Default". */
+@Composable
+private fun NumberField(label: String, value: String, decimal: Boolean, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value,
+        onChange,
+        label = { Text(label) },
+        placeholder = { Text(stringResource(R.string.profile_default)) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/** `AGENT_PROFILE_RUNTIMES` for people (the web's "Cloud VM" and "Instant container"). */
+@Composable
+private fun runtimeLabel(runtime: String): String = when (runtime) {
+    "vm" -> stringResource(R.string.runtime_vm)
+    "cf-container" -> stringResource(R.string.runtime_instant)
+    else -> humanize(runtime)
+}
+
+@Composable
+private fun workspaceProfileLabel(profile: String): String = when (profile) {
+    "full" -> stringResource(R.string.workspace_full)
+    "lightweight" -> stringResource(R.string.workspace_lightweight)
+    else -> humanize(profile)
+}
+
+/** The editor's number fields, for `UserError.InvalidProfileNumber`. */
+@Composable
+internal fun ProfileNumberField.label(): String = stringResource(
+    when (this) {
+        ProfileNumberField.MIN_VCPU -> R.string.profile_min_vcpu
+        ProfileNumberField.MIN_MEMORY_GB -> R.string.profile_min_memory
+        ProfileNumberField.MIN_DISK_GB -> R.string.profile_min_disk
+        ProfileNumberField.MAX_TURNS -> R.string.profile_max_turns
+        ProfileNumberField.TIMEOUT_MINUTES -> R.string.profile_timeout
+    },
+)
 
 /** A labelled value that opens a menu of `options` (value to label). */
 @Composable

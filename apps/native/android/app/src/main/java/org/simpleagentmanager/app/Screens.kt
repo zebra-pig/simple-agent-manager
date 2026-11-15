@@ -437,6 +437,7 @@ fun UserError.message(): String = when (this) {
     UserError.AttachmentsNotReady -> stringResource(R.string.error_attachments_not_ready)
     UserError.ProfileNameRequired -> stringResource(R.string.error_profile_name_required)
     UserError.EffortNotSupported -> stringResource(R.string.error_effort_not_supported)
+    is UserError.InvalidProfileNumber -> stringResource(R.string.error_invalid_profile_number, field.label())
 }
 
 /** Execution steps are progress detail: `in_progress` -> `In progress`, not translated. */
