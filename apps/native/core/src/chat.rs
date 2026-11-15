@@ -203,3 +203,17 @@ fn user_count(items: &[ChatItem], text: &str) -> u32 {
     let text = text.trim();
     items.iter().filter(|i| matches!(&i.content, ChatContent::User { text: t } if t.trim() == text)).count() as u32
 }
+
+#[uniffi::export(async_runtime = "tokio")]
+impl ChatViewModel {
+    /// Fetch only a file referenced in the currently displayed project transcript.
+    /// The shell owns its temporary preview and the OS file viewer.
+    pub async fn document_bytes(&self, file_id: String) -> Option<Vec<u8>> {
+        let state = self.state();
+        if file_id.is_empty() || !state.items.iter().any(|m| matches!(&m.content, ChatContent::Document { document: d } if d.file_id == file_id && !d.unavailable))
+        {
+            return None;
+        }
+        self.app.library_bytes(&state.project_id, &file_id).await.ok()
+    }
+}

@@ -25,7 +25,11 @@ struct ChatView: View {
                         TaskCard(task: task) { openURL($0) }
                     }
                     ForEach(chat.state.items, id: \.id) { message in
-                        TimelineItemView(item: message).id(message.id)
+                        Group {
+                            if case let .document(document) = message.content {
+                                DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
+                            } else { TimelineItemView(item: message) }
+                        }.id(message.id)
                     }
                     ForEach(chat.state.outbox, id: \.id) { message in
                         VStack(alignment: .trailing, spacing: 4) {
@@ -142,6 +146,7 @@ struct TimelineItemView: View {
     let item: ChatItem
     var body: some View {
         switch item.content {
+        case .document: EmptyView()
         case let .user(text):
             HStack {
                 Spacer(minLength: 40)

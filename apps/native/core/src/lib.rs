@@ -17,6 +17,7 @@ mod chat;
 pub use assistant::*;
 mod notifications;
 pub use notifications::*;
+mod documents;
 mod error;
 mod markdown;
 mod project;
@@ -35,6 +36,7 @@ pub use attachments::{
     Attachment, AttachmentSource, AttachmentStatus, ATTACHMENT_BATCH_MAX_BYTES, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES,
 };
 pub use chat::*;
+pub use documents::ChatDocument;
 pub use error::UserError;
 pub use markdown::{Block, ListMarker, Span, TableRow};
 pub use project::*;

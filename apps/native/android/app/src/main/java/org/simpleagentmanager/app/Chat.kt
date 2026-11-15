@@ -44,6 +44,7 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
     }
     if (state.projectId == route.projectId && state.sessionId == route.sessionId) {
         ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach,
+            documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
             serverUrl = model.app.state().serverUrl, requestCard = { request -> RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval) }) {
             val sent = draft
             draft = ""
@@ -58,7 +59,7 @@ fun ChatContent(
     state: ChatState, draft: String, onDraft: (String) -> Unit,
     onBack: () -> Unit, openUrl: (String) -> Unit,
     onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit,
-    serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
+    documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -87,7 +88,10 @@ fun ChatContent(
             LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter).testTag("chat-timeline"), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 session?.task?.takeIf { state.provisioning == null }?.let { item("task") { TaskCard(it, openUrl) } }
                 if (state.hasMore) item("history") { Text(stringResource(R.string.latest_messages), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(state.items, key = { "message-${it.id}" }) { TimelineItem(it, openUrl) }
+                items(state.items, key = { "message-${it.id}" }) { item ->
+                    val document = (item.content as? Content.Document)?.document
+                    if (document != null) documentCard(document) else TimelineItem(item, openUrl)
+                }
                 items(state.outbox, key = { it.id }) {
                     Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
                         UserBubble(it.text)
@@ -134,6 +138,7 @@ private fun UserBubble(text: String) {
 @Composable
 private fun TimelineItem(item: ChatItem, openUrl: (String) -> Unit) {
     when (val content = item.content) {
+        is Content.Document -> Unit
         is Content.User -> UserBubble(content.text)
         is Content.Agent -> SelectionContainer { MarkdownBlocks(content.blocks, openUrl) }
         is Content.Thinking -> Detail(stringResource(R.string.thinking), content.text)

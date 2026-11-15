@@ -36,6 +36,8 @@ pub(crate) struct Row {
     /// `system` for messages SAM sent on the user's behalf.
     #[serde(default)]
     pub origin: Option<String>,
+    #[serde(skip)]
+    pub document: Option<crate::ChatDocument>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -49,6 +51,7 @@ pub struct ChatItem {
 
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum ChatContent {
+    Document { document: crate::ChatDocument },
     /// What the user sent.
     User {
         text: String,
@@ -179,9 +182,14 @@ const OUTPUT_LIMIT: usize = 4000;
 /// `working`: the agent is mid-turn, so the newest activity is live.
 pub(crate) fn build(mut rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
     rows.sort_by_key(|r| r.created_at);
+    crate::documents::resolve(&mut rows);
     let mut items: Vec<Positioned> = Vec::with_capacity(rows.len());
     let mut calls_by_id: std::collections::HashMap<String, usize> = Default::default();
     for row in rows {
+        if let Some(document) = row.document {
+            items.push(Item::Document(document).at(row.id, row.created_at));
+            continue;
+        }
         let meta = row.tool_metadata.as_ref().and_then(Value::as_object);
         match row.role.as_str() {
             "user" => {
@@ -239,6 +247,7 @@ pub(crate) fn build(mut rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
 
 /// Mid-build items, before tool calls are grouped.
 enum Item {
+    Document(crate::ChatDocument),
     User(String),
     Agent(String),
     Thinking(String),
@@ -320,6 +329,7 @@ fn flush_run(run: &mut Vec<Positioned>, out: &mut Vec<ChatItem>) {
 
 fn finish(p: Positioned) -> ChatItem {
     let content = match p.item {
+        Item::Document(document) => ChatContent::Document { document },
         Item::User(text) => ChatContent::User { text },
         Item::Agent(text) => ChatContent::Agent { blocks: markdown::parse(&text), text },
         Item::Thinking(text) => ChatContent::Thinking { text: text.trim().to_owned() },
@@ -577,6 +587,7 @@ mod tests {
             tool_metadata: (!meta.is_null()).then_some(meta),
             created_at: at,
             origin: None,
+            document: None,
         }
     }
 
@@ -584,6 +595,7 @@ mod tests {
         items
             .iter()
             .map(|i| match i.content {
+                ChatContent::Document { .. } => "document",
                 ChatContent::User { .. } => "user",
                 ChatContent::Agent { .. } => "agent",
                 ChatContent::Thinking { .. } => "thinking",
