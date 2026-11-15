@@ -12,6 +12,7 @@ struct ProjectsView: View {
     @State private var path = NavigationPath()
     @State private var query = ""
     @State private var showingAccount = false
+    @State private var creating = false
     @State private var push = PushRouter.shared
 
     init(app: App) {
@@ -34,7 +35,9 @@ struct ProjectsView: View {
                     Text(error.message).foregroundStyle(.red)
                 }
                 ForEach(projects, id: \.id) { project in
-                    NavigationLink(value: project) { ProjectRow(project: project) }
+                    NavigationLink(value: project) {
+                        ProjectRow(project: project).padding(12).glass(in: RoundedRectangle(cornerRadius: 20))
+                    }.listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
             }
             .overlay {
@@ -42,7 +45,7 @@ struct ProjectsView: View {
                     ProgressView()
                 } else if list.state.projects.isEmpty && list.state.error == nil {
                     ContentUnavailableView("No projects", systemImage: "folder",
-                                           description: Text("Create a project in \(Brand.name) on the web to get started."))
+                                           description: Text("Tap + to create your first project."))
                 }
             }
             .navigationTitle("Projects")
@@ -50,15 +53,28 @@ struct ProjectsView: View {
             .refreshable { await list.core.load() }
             .task { await list.core.load() }
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("New project", systemImage: "plus") { creating = true }
+                }
                 ToolbarItem(placement: .navigation) {
                     Button("Account", systemImage: "person.crop.circle") { showingAccount = true }
                 }
             }
             .navigationDestination(for: Project.self) { project in
-                ProjectView(app: app, project: project) { path.append($0) }
+                ProjectView(app: app, project: project, changed: { updated in
+                    path = NavigationPath()
+                    Task { await list.core.load() }
+                    if let updated { path.append(updated) }
+                }) { path.append($0) }
             }
             .navigationDestination(for: SessionRef.self) { ref in
                 ChatView(app: app, ref: ref)
+            }
+            .sheet(isPresented: $creating) {
+                ProjectSettings(app: app) { project in
+                    Task { await list.core.load() }
+                    if let project { path.append(project) }
+                }
             }
             .sheet(isPresented: $showingAccount) { AccountView().macSheet() }
             // A tapped notification opens its session on top of the stack.

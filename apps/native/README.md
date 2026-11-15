@@ -249,3 +249,22 @@ There is no GitHub Actions workflow for the native app yet; locally, the command
 - Older messages: the chat shows the latest page only.
 - Translations: the strings are extracted, but only English exists so far.
 - Release signing and store uploads on Android.
+
+## Project management
+
+The Projects toolbar creates projects natively. Choose a connected GitHub account and repository,
+search GitLab projects, or select SAM-hosted when the deployment enables it. Repository selection
+fills the default branch and suggests a project name; the name and optional description are editable.
+Connect new provider accounts on the web before selecting them here.
+
+Project settings (in the project's toolbar) edit its name, description and default branch. Repository
+identity stays fixed, as on the web. Deleting a project requires typing its current name exactly and
+permanently removes associated data. Server authorization errors stay in the editor, preserving the
+draft. Existing agent-profile management remains in the composer. Advanced access, account,
+infrastructure, runtime and deployment settings remain available in the web app.
+
+Both shells use `ProjectManagementViewModel`: GitHub installation/repository discovery, GitLab
+project search, deployment capability discovery, and `POST /api/projects`, `GET/PATCH/DELETE
+/api/projects/:id`. PATCH sends only general settings, so other settings keep their values.
+Concurrent loads and mutations are serialized. Apple sheets and project cards use Liquid Glass
+with material fallbacks on older OS versions.

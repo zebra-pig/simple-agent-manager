@@ -120,3 +120,16 @@ enum Brand {
     /// The platform's `BASE_DOMAIN` this build suggests; the API is `api.<domain>`.
     static let baseDomain = Bundle.main.object(forInfoDictionaryKey: "SAMBaseDomain") as? String
 }
+
+@MainActor @Observable final class ProjectManagementModel {
+    let core: ProjectManagementViewModel
+    private(set) var state: ProjectManagementState
+    init(app: App) {
+        core = ProjectManagementViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+extension Relay: ProjectManagementObserver where State == ProjectManagementState {
+    func onStateChanged(state: ProjectManagementState) { send(state) }
+}

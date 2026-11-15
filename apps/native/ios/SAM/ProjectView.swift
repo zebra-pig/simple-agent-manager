@@ -3,13 +3,18 @@ import SwiftUI
 /// A project's chat sessions, plus the composer that hands a new task (and any
 /// attached files) to an agent, with the agent profile picked in it.
 struct ProjectView: View {
+    let app: App
+    let changed: (Project?) -> Void
     let project: Project
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
     @State private var draft = ""
+    @State private var settings = false
     @State private var editing: ProfileEditing?
 
-    init(app: App, project: Project, open: @escaping (SessionRef) -> Void) {
+    init(app: App, project: Project, changed: @escaping (Project?) -> Void, open: @escaping (SessionRef) -> Void) {
+        self.app = app
+        self.changed = changed
         self.project = project
         self.open = open
         _model = State(initialValue: ProjectModel(app: app))
@@ -55,6 +60,12 @@ struct ProjectView: View {
                 ProfileMenu(model: model) { editing = ProfileEditing(profile: $0) }
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Project settings", systemImage: "gearshape") { settings = true }
+            }
+        }
+        .sheet(isPresented: $settings) { ProjectSettings(app: app, projectId: project.id, saved: changed) }
         .sheet(item: $editing) { ProfileEditor(model: model, profile: $0.profile) }
     }
 }

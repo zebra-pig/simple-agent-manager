@@ -60,6 +60,8 @@ pub enum UserError {
     AttachmentsTooLarge { max_bytes: u64 },
     /// Some files are still uploading or failed; remove the failed ones to send.
     AttachmentsNotReady,
+    /// GitHub could not load repositories for one or more connected accounts.
+    RepositoryAccessFailed,
     /// A profile needs a name.
     ProfileNameRequired,
     /// The profile's agent has no such effort level.
