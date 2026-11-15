@@ -17,3 +17,7 @@ Build validation: use Xcode Cloud for both iOS and macOS. Native presentation an
 ## Chat tab bar
 
 Open a conversation from Projects, from Notifications, and from a push notification. Confirm the app tab bar is hidden while chat is visible, with the reply composer above the system safe area. Go back and confirm tabs return on the parent screen. Repeat with keyboard open/closed and an interactive back gesture (including cancelling the gesture). On macOS confirm navigation and chat still build; there is no iOS tab-bar modifier on that platform. Android already limits its bottom tabs to the Projects and Notifications roots. These checks have not been executed on a device in this workspace.
+
+## Project tab bar
+
+Open a project from the Projects root. Confirm the app tab bar is hidden with the keyboard closed and open. Enter chat and go back to the project: tabs should remain hidden. Go back to the Projects root: tabs should return. Check an interactive back gesture and cancel it; the project should keep tabs hidden. Repeat with an empty project and with the profile editor sheet open/closed. These are manual device procedures, not executed checks. Android already limits bottom tabs to root routes.

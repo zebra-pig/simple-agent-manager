@@ -39,6 +39,9 @@ struct ProjectView: View {
         }
         .navigationTitle(project.name)
         .inlineTitle()
+        #if os(iOS)
+        .toolbar(.hidden, for: .tabBar)
+        #endif
         .refreshable { await model.core.load(projectId: project.id) }
         .interactiveKeyboardDismiss()
         .task { await model.core.load(projectId: project.id) }
