@@ -135,6 +135,10 @@ pub struct ChatMessage {
     pub role: MessageRole,
     #[serde(default)]
     pub content: String,
+    #[serde(default, deserialize_with = "crate::documents::metadata_json")]
+    pub tool_metadata: String,
+    #[serde(skip)]
+    pub document: Option<crate::documents::ChatDocument>,
     /// Unix milliseconds.
     #[serde(default)]
     pub created_at: i64,
@@ -186,6 +190,7 @@ pub(crate) fn merge_messages(mut rows: Vec<ChatMessage>) -> Vec<ChatMessage> {
             _ => out.push(row),
         }
     }
+    crate::documents::resolve(&mut out);
     out
 }
 

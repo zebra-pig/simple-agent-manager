@@ -326,7 +326,9 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
         Box(Modifier.padding(padding).fillMaxSize()) {
             LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (provisioning == null) session?.task?.let { task -> item { TaskCard(task, openUrl) } }
-                items(messages, key = { it.id }) { MessageRow(it) }
+                items(messages, key = { it.id }) { message ->
+                    message.document?.let { DocumentCard(it, messages.mapNotNull { row -> row.document }, model.vm) } ?: MessageRow(message)
+                }
                 provisioning?.let { item(key = "provisioning") { ProvisioningCard(it) } }
                 if (current) state.error?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
             }

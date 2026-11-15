@@ -142,4 +142,15 @@
     <string name="setup_workspace_ready">Setting up development environment.</string>
     <string name="setup_attachments">Uploading attachments to workspace.</string>
     <string name="setup_agent_session">Starting AI agent.</string>
+    <string name="document_file">File</string>
+    <string name="open_gallery">Open gallery</string>
+    <string name="open_file">Open file</string>
+    <string name="document_unavailable">File unavailable. Tap to retry.</string>
+    <string name="document_retry">Retry</string>
+    <string name="document_done">Done</string>
+    <string name="document_previous">Previous</string>
+    <string name="document_next">Next</string>
+    <string name="document_position">%1$d of %2$d</string>
+    <string name="document_deleted">File no longer available</string>
+    <string name="document_preparing">Preparing file…</string>
 </resources>

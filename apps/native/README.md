@@ -220,3 +220,17 @@ There is no GitHub Actions workflow for the native app yet; locally, the command
 - Older messages: the chat shows the latest page only.
 - Translations: the strings are extracted, but only English exists so far.
 - Release signing and store uploads on Android.
+
+### Viewing files in chat
+
+`documents::resolve` in the core recognizes the persisted `display_from_library`,
+`upload_to_library`, and `replace_library_file` tool metadata, including sparse updates
+correlated by `toolCallId`. The native transcript shows library images as small cards;
+tapping one opens the session's image gallery with navigation and zoom. Other library
+files show their name, size and caption and open in Quick Look on Apple platforms or
+an installed Android file viewer. Deleted files retain an unavailable card.
+
+`ChatViewModel::document_bytes` fetches referenced files through the signed-in core,
+using the project-scoped library download route. Preview downloads are limited to
+20 MiB. Cookies and remote URLs never pass to external viewers. Android shares only
+the downloaded file through a temporary read grant; Apple previews use a temporary copy.

@@ -121,3 +121,17 @@ impl ChatViewModel {
         ok
     }
 }
+
+#[uniffi::export(async_runtime = "tokio")]
+impl ChatViewModel {
+    /// Fetch only a file referenced in the currently displayed project transcript.
+    /// The shell owns its temporary preview and the OS file viewer.
+    pub async fn document_bytes(&self, file_id: String) -> Option<Vec<u8>> {
+        let state = self.state();
+        if file_id.is_empty() || !state.messages.iter().any(|m| m.document.as_ref().is_some_and(|d| d.file_id == file_id && !d.unavailable))
+        {
+            return None;
+        }
+        self.app.library_bytes(&state.project_id, &file_id).await.ok()
+    }
+}

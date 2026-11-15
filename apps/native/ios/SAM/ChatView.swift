@@ -21,7 +21,13 @@ struct ChatView: View {
                         TaskCard(task: task) { openURL($0) }
                     }
                     ForEach(chat.state.messages, id: \.id) { message in
-                        MessageView(message: message).id(message.id)
+                        VStack(alignment: .leading, spacing: 6) {
+                            if let document = message.document {
+                                DocumentCard(document: document, documents: chat.state.messages.compactMap(\.document), core: chat.core)
+                            } else {
+                                MessageView(message: message)
+                            }
+                        }.id(message.id)
                     }
                     if let provisioning = chat.state.provisioning {
                         ProvisioningView(state: provisioning).id("provisioning")
