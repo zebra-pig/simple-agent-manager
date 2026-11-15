@@ -63,6 +63,9 @@ struct ChatView: View {
                                 RequestCard(app: app, project: ref.projectId, session: item.sessionId ?? ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval", hideResolved: true)
                             }
                         }
+                        if let provisioning = chat.state.provisioning {
+                            ProvisioningView(state: provisioning)
+                        }
                         if let error = chat.state.error {
                             Text(error.message).foregroundStyle(.red).font(.callout)
                         }
@@ -98,7 +101,6 @@ struct ChatView: View {
                 if !followsLatest {
                     Button {
                         scrollControl.jump(using: proxy, to: "latest")
-                        followsLatest = true
                     } label: {
                         Image(systemName: "arrow.down").font(.body.weight(.medium))
                             .frame(width: 28, height: 28)

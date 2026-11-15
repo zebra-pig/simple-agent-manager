@@ -5,11 +5,13 @@ import UIKit
 
 /// Cancels native gesture/momentum ownership before an explicit chat jump.
 @MainActor final class ChatScrollControl {
+    private var jumpTask: Task<Void, Never>?
     #if os(iOS)
     weak var scrollView: UIScrollView?
     #endif
 
     func jump(using proxy: ScrollViewProxy, to id: String) {
+        jumpTask?.cancel()
         #if os(iOS)
         if let scrollView {
             let pan = scrollView.panGestureRecognizer
@@ -18,12 +20,38 @@ import UIKit
                 pan.isEnabled = true
             }
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+            // LazyVStack refines its content height as each chunk is materialized.
+            // Follow that moving destination instead of animating to one estimate.
+            jumpTask = Task { @MainActor [weak scrollView] in
+                var settledFrames = 0
+                for _ in 0..<240 {
+                    guard !Task.isCancelled, let scrollView,
+                          !scrollView.isDragging, !scrollView.isTracking else { return }
+                    scrollView.layoutIfNeeded()
+                    let bottom = max(-scrollView.adjustedContentInset.top,
+                                     scrollView.contentSize.height - scrollView.bounds.height
+                                     + scrollView.adjustedContentInset.bottom)
+                    let distance = bottom - scrollView.contentOffset.y
+                    if abs(distance) <= 0.5 {
+                        settledFrames += 1
+                        if settledFrames >= 4 { return }
+                    } else {
+                        settledFrames = 0
+                        let step = UIAccessibility.isReduceMotionEnabled ? distance : distance * 0.22
+                        scrollView.setContentOffset(
+                            CGPoint(x: scrollView.contentOffset.x, y: scrollView.contentOffset.y + step),
+                            animated: false)
+                    }
+                    do { try await Task.sleep(for: .milliseconds(16)) }
+                    catch { return }
+                }
+            }
+            return
         }
         #endif
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { proxy.scrollTo(id, anchor: .bottom) }
+        withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(id, anchor: .bottom) }
     }
+
 }
 
 /// Resolve only the ancestor scroll view of the chat content; never a nested image/code scroller.

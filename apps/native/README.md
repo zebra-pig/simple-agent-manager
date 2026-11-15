@@ -60,10 +60,10 @@ app-specific OAuth client.
 ## Provisioning status
 
 Open **Session tools (⋯) → Progress** for task status, output/PR links, informational notifications,
-and setup details. Progress cards do not appear before or after the conversation. Questions,
+and setup details. While a chat is provisioning, its setup card also appears inline in the conversation. Questions,
 secret requests and approvals remain in chat, including requests recovered from older notifications.
 
-While a new chat's VM/container is being prepared, Progress shows elapsed time and the web chat's
+While a new chat's VM/container is being prepared, the inline card and Progress show elapsed time and the web chat's
 four stages: provisioning the VM, cloning the repository, installing dependencies, and starting
 the agent. The existing chat poll refreshes it; opening Progress also refreshes its snapshot.
 Setup progress disappears when the agent starts; setup failures use the task card's error.
