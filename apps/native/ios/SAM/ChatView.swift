@@ -28,12 +28,14 @@ struct ChatView: View {
                         Group {
                             if case let .document(document) = message.content {
                                 DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
+                            } else if case let .user(text, attachments) = message.content {
+                                UserMessageView(text: text, attachments: attachments, core: chat.core)
                             } else { TimelineItemView(item: message) }
                         }.id(message.id)
                     }
                     ForEach(chat.state.outbox, id: \.id) { message in
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(verbatim: message.text).padding(12).glass(in: RoundedRectangle(cornerRadius: 18))
+                            UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
                             Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, alignment: .trailing)
                     }
@@ -197,7 +199,7 @@ struct TimelineItemView: View {
     var body: some View {
         switch item.content {
         case .document: EmptyView()
-        case let .user(text):
+        case let .user(text, _):
             HStack {
                 Spacer(minLength: 40)
                 Text(verbatim: text).textSelection(.enabled).padding(12)
@@ -206,18 +208,28 @@ struct TimelineItemView: View {
         case let .agent(_, blocks):
             MarkdownView(blocks: blocks)
         case let .thinking(text):
-            DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+            ThinkingView(text: text)
         case let .activity(steps, summary):
             DisclosureGroup {
                 ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                     switch step {
                     case let .thought(text):
-                        DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary) }
+                        ThinkingView(text: text)
                     case let .tool(call):
                         VStack(alignment: .leading, spacing: 6) {
-                            Label { Text(verbatim: call.title ?? toolLabel(call.kind)) }
+                            Label { Text(verbatim: toolLabel(call.kind)) }
                                 icon: { Image(systemName: call.status == .failed ? "exclamationmark.circle" : "terminal") }
                                 .font(.callout).foregroundStyle(call.status == .failed ? Color.red : Color.secondary)
+                            if let title = call.title {
+                                if call.kind == .execute {
+                                    CodeView(code: title, language: nil)
+                                } else {
+                                    Text(verbatim: title)
+                                        .font(.callout)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
                             ForEach(call.locations, id: \.self) { Text(verbatim: $0).font(.caption.monospaced()) }
                             if let output = call.output {
                                 DisclosureGroup("Output") { CodeView(code: output, language: nil) }
@@ -227,11 +239,24 @@ struct TimelineItemView: View {
                 }
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Activity · \(summary.toolCount) tools").font(.callout)
+                    if summary.toolCount == 1 {
+                        Text("Activity · 1 tool").font(.callout)
+                    } else {
+                        Text("Activity · \(summary.toolCount) tools").font(.callout)
+                    }
                     if summary.failedCount > 0 { Text("\(summary.failedCount) failed").font(.caption).foregroundStyle(.red) }
-                    if summary.live, let title = summary.liveTitle { Text(verbatim: title).font(.caption).foregroundStyle(Color.accentColor) }
+                    if summary.live, let title = summary.liveTitle {
+                        Text(verbatim: title)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
                 }
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .tint(.primary)
         case let .plan(entries):
             VStack(alignment: .leading, spacing: 8) {
                 Text("Plan").font(.headline)
@@ -299,5 +324,30 @@ private func toolLabel(_ kind: ToolKind) -> String {
     case .fetch: String(localized: "Fetch resource")
     case .switchMode: String(localized: "Change mode")
     case .other: String(localized: "Tool call")
+    }
+}
+
+struct UserMessageView: View {
+    let text: String
+    let attachments: [ChatDocument]
+    let core: ChatViewModel
+    var body: some View {
+        HStack {
+            Spacer(minLength: 40)
+            VStack(alignment: .trailing, spacing: 10) {
+                if !attachments.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(attachments, id: \.fileId) { document in
+                                DocumentCard(document: document, documents: attachments, core: core, compactImage: true)
+                            }
+                        }
+                    }
+                }
+                if !text.isEmpty { Text(verbatim: text).textSelection(.enabled).multilineTextAlignment(.leading) }
+            }
+            .padding(12)
+            .glass(in: RoundedRectangle(cornerRadius: 18))
+        }
     }
 }

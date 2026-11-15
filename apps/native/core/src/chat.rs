@@ -46,6 +46,7 @@ pub struct OutgoingMessage {
     pub text: String,
     /// The server accepted it; it shows up in `items` on a later refresh.
     pub accepted: bool,
+    pub attachments: Vec<crate::ChatDocument>,
     /// How many user messages with this text the chat had when it was sent:
     /// one more means it arrived.
     pub baseline: u32,
@@ -135,7 +136,7 @@ impl ChatViewModel {
                     s.session = Some(detail.session);
                     let items = &s.items;
                     // Accepted messages leave the outbox once the chat has them.
-                    s.outbox.retain(|m| !m.accepted || user_count(items, &m.text) <= m.baseline);
+                    s.outbox.retain(|m| !m.accepted || user_count(items, &m.text, &m.attachments) <= m.baseline);
                     s.error = None;
                 }
                 Err(e) => s.error = Some(UserError::from(&e)),
@@ -169,8 +170,10 @@ impl ChatViewModel {
             started = true;
             s.sending = true;
             s.error = None;
-            let baseline = user_count(&s.items, &content);
-            s.outbox.push(OutgoingMessage { id: local_id.clone(), text: content.clone(), accepted: false, baseline });
+            let attachments = attached.iter().filter_map(crate::documents::from_attachment).collect::<Vec<_>>();
+            let display_content = if !attachments.is_empty() && content == attachments::DEFAULT_ATTACHMENT_MESSAGE { String::new() } else { content.clone() };
+            let baseline = user_count(&s.items, &display_content, &attachments);
+            s.outbox.push(OutgoingMessage { id: local_id.clone(), text: display_content, accepted: false, baseline, attachments });
         });
         if !started {
             return false;
@@ -209,9 +212,9 @@ impl ChatViewModel {
     }
 }
 
-fn user_count(items: &[ChatItem], text: &str) -> u32 {
+fn user_count(items: &[ChatItem], text: &str, attachments: &[crate::ChatDocument]) -> u32 {
     let text = text.trim();
-    items.iter().filter(|i| matches!(&i.content, ChatContent::User { text: t } if t.trim() == text)).count() as u32
+    items.iter().filter(|i| matches!(&i.content, ChatContent::User { text: t, attachments: a } if t.trim() == text && a.iter().map(|d| &d.file_id).eq(attachments.iter().map(|d| &d.file_id)))).count() as u32
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -220,13 +223,14 @@ impl ChatViewModel {
     /// The shell owns its temporary preview and the OS file viewer.
     pub async fn document_bytes(&self, file_id: String) -> Option<Vec<u8>> {
         let state = self.state();
-        if file_id.is_empty()
-            || !state
-                .items
-                .iter()
-                .any(|m| matches!(&m.content, ChatContent::Document { document: d } if d.file_id == file_id && !d.unavailable))
-        {
-            return None;
+        let allowed = state.items.iter().any(|m| match &m.content {
+            ChatContent::Document { document } => document.file_id == file_id && !document.unavailable,
+            ChatContent::User { attachments, .. } => attachments.iter().any(|d| d.file_id == file_id && !d.unavailable),
+            _ => false,
+        }) || state.outbox.iter().any(|m| m.attachments.iter().any(|d| d.file_id == file_id));
+        if !allowed || file_id.is_empty() { return None }
+        if let Some((upload, filename)) = file_id.strip_prefix("attachment:").and_then(|s| s.split_once('/')) {
+            return self.app.attachment_bytes(&state.project_id, upload, filename).await.ok();
         }
         self.app.library_bytes(&state.project_id, &file_id).await.ok()
     }

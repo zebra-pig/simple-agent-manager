@@ -20,7 +20,7 @@ import { log } from '../../lib/logger';
 import { ulid } from '../../lib/ulid';
 import { getAuth, requireApproved,requireAuth } from '../../middleware/auth';
 import { errors } from '../../middleware/error';
-import { requireProjectCapability } from '../../middleware/project-auth';
+import { requireProjectAccess, requireProjectCapability } from '../../middleware/project-auth';
 import { jsonValidator, RequestAttachmentUploadSchema } from '../../schemas';
 import { generatePresignedUploadUrl } from '../../services/attachment-upload';
 
@@ -100,6 +100,28 @@ uploadRoutes.post('/request-upload', requireAuth(), requireApproved(), jsonValid
   };
 
   return c.json(response, 200);
+});
+
+/** Owner-scoped preview of an original upload; never accepts a storage key or URL. */
+uploadRoutes.get('/uploads/:uploadId/:filename', requireAuth(), requireApproved(), async (c) => {
+  const userId = getAuth(c).user.id;
+  const projectId = c.req.param('projectId');
+  if (!projectId) throw errors.badRequest('projectId is required');
+  await requireProjectAccess(drizzle(c.env.DATABASE, { schema }), projectId, userId);
+  const uploadId = c.req.param('uploadId');
+  const filename = c.req.param('filename');
+  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(uploadId) || !SAFE_FILENAME_REGEX.test(filename) || filename === '.' || filename === '..') {
+    throw errors.badRequest('Invalid attachment reference');
+  }
+  const object = await c.env.R2.get(`temp-uploads/${userId}/${uploadId}/${filename}`);
+  if (!object) throw errors.notFound('Attachment');
+  return new Response(object.body, { headers: {
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': String(object.size),
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  } });
 });
 
 export { uploadRoutes };

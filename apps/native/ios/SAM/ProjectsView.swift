@@ -38,7 +38,7 @@ struct ProjectsView: View {
                 }
                 ForEach(projects, id: \.id) { project in
                     NavigationLink(value: project) {
-                        ProjectRow(project: project).padding(12).glass(in: RoundedRectangle(cornerRadius: 20))
+                        ProjectRow(project: project).padding(12)
                     }.listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
             }

@@ -73,3 +73,24 @@ struct CodeView: View {
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 }
+
+/// Keep reasoning readable without exposing inline Markdown delimiters.
+struct ThinkingView: View {
+    let text: String
+    var font: Font = .callout
+
+    private var formatted: AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+    }
+
+    var body: some View {
+        DisclosureGroup("Thinking") {
+            Text(formatted)
+                .font(font)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}

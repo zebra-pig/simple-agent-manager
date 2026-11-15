@@ -4,6 +4,7 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -14,7 +15,7 @@ import org.simpleagentmanager.core.*
 
 private fun span(text: String, code: Boolean = false) = Span(text, false, false, code, false, null)
 private val previewItems = listOf(
-        ChatItem("user", 0, ChatContent.User("Please add keyboard shortcuts and check accessibility.")),
+        ChatItem("user", 0, ChatContent.User("Please add keyboard shortcuts and check accessibility.", emptyList())),
         ChatItem("agent", 1, ChatContent.Agent("", listOf(
             Block.Heading(2u, listOf(span("Keyboard shortcuts"))),
             Block.Paragraph(listOf(span("I’ve added shortcuts for the main actions. They work with "), span("⌘K", true), span(" and respect the current focus."))),
@@ -121,3 +122,30 @@ fun ClearConversation() {
         }, onSend = {})
     }
 }
+
+private fun attachedMessageState() = previewState().copy(items = listOf(
+    ChatItem("attached-user", 1, ChatContent.User("Can we improve how messages with attachments are shown?", listOf(
+        ChatDocument("attachment:01M7FSHXZ07Z2V7660M26N06SY/landscape.png", "landscape.png", "image/png", 100uL, "", false),
+        ChatDocument("attachment:01M7FSHXZ07Z2V7660M26N06SY/portrait.png", "portrait.png", "image/png", 100uL, "", false),
+    ))),
+))
+
+@Composable
+private fun AttachedMessage() {
+    val bitmap = remember { android.graphics.Bitmap.createBitmap(300, 150, android.graphics.Bitmap.Config.ARGB_8888).apply {
+        eraseColor(0xff477d9b.toInt())
+        for (x in 100 until 200) for (y in 0 until height) setPixel(x, y, if (y < 75) 0xffd6ad70.toInt() else 0xff56836d.toInt())
+    } }
+    ChatContent(attachedMessageState(), "", {}, {}, {}, {}, {},
+        attachmentCard = { SquareImageTile(bitmap.asImageBitmap(), it.filename, 120.dp) }, onSend = {})
+}
+
+@PreviewTest
+@Preview(name = "Attached message phone", widthDp = 375, heightDp = 700)
+@Composable
+fun AttachedMessagePhone() { MaterialTheme { AttachedMessage() } }
+
+@PreviewTest
+@Preview(name = "Attached message tablet", widthDp = 1280, heightDp = 800)
+@Composable
+fun AttachedMessageTablet() { MaterialTheme(colorScheme = darkColorScheme()) { AttachedMessage() } }

@@ -530,11 +530,19 @@ pub(crate) fn seg(id: &str) -> String {
 impl App {
     /// Bounded binary transport; never accepts a remote URL from tool output.
     pub(crate) async fn library_bytes(&self, project: &str, file: &str) -> Result<Vec<u8>> {
+        self.binary_bytes(&format!("/api/projects/{}/library/{}/download", seg(project), seg(file))).await
+    }
+
+    pub(crate) async fn attachment_bytes(&self, project: &str, upload: &str, filename: &str) -> Result<Vec<u8>> {
+        self.binary_bytes(&format!("/api/projects/{}/tasks/uploads/{}/{}", seg(project), seg(upload), seg(filename))).await
+    }
+
+    async fn binary_bytes(&self, path: &str) -> Result<Vec<u8>> {
         const MAX: usize = 20 * 1024 * 1024;
         let c = self.credentials()?;
         let mut res = self
             .http
-            .get(format!("{}/api/projects/{}/library/{}/download", c.server_url, seg(project), seg(file)))
+            .get(format!("{}{path}", c.server_url))
             .header(reqwest::header::COOKIE, &c.session_cookie)
             .send()
             .await?;

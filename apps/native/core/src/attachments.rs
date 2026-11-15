@@ -58,6 +58,8 @@ pub struct Attachment {
     pub status: AttachmentStatus,
     /// Set once uploaded.
     pub upload_id: Option<String>,
+    /// Local, bounded thumbnail; never included in upload requests.
+    pub thumbnail: Option<Vec<u8>>,
 }
 
 /// A file the shell picked or received by drag and drop. `read` runs once, on
@@ -66,6 +68,8 @@ pub struct Attachment {
 pub trait AttachmentSource: Send + Sync {
     /// The file's bytes, or `None` when it can't be read (anymore).
     fn read(&self) -> Option<Vec<u8>>;
+    /// Best-effort platform thumbnail, at most 1 MiB. Called before read.
+    fn thumbnail(&self) -> Option<Vec<u8>> { None }
 }
 
 /// `TaskAttachment` in packages/shared/src/types/task.ts.
@@ -108,6 +112,7 @@ pub(crate) fn stage(attached: &[Attachment], filename: &str, content_type: &str,
         content_type: content_type_or_default(content_type),
         status: AttachmentStatus::Uploading,
         upload_id: None,
+        thumbnail: None,
     };
     if size == 0 {
         attachment.status = AttachmentStatus::Failed { error: UserError::FileEmpty };
@@ -128,7 +133,7 @@ pub(crate) async fn upload(
     app: &App,
     project_id: &str,
     attachment: &Attachment,
-    source: Box<dyn AttachmentSource>,
+    source: std::sync::Arc<dyn AttachmentSource>,
 ) -> Result<TaskAttachment> {
     let data = tokio::task::spawn_blocking(move || source.read())
         .await
@@ -220,6 +225,19 @@ macro_rules! observable_attachments {
                 if attachment.status != crate::attachments::AttachmentStatus::Uploading {
                     return;
                 }
+                let is_image = attachment.content_type.starts_with("image/");
+                let source: std::sync::Arc<dyn crate::attachments::AttachmentSource> = source.into();
+                let preview_source = source.clone();
+                let thumbnail = tokio::task::spawn_blocking(move || {
+                    if is_image {
+                        preview_source.thumbnail().filter(|data| data.len() <= 1024 * 1024)
+                    } else { None }
+                }).await.unwrap_or(None);
+                self.update(|s| {
+                    if let Some(a) = s.attachments.iter_mut().find(|a| a.id == attachment.id) {
+                        a.thumbnail = thumbnail;
+                    }
+                });
                 let result = crate::attachments::upload(&self.app, &project_id, &attachment, source).await;
                 self.update(|s| {
                     let Some(a) = s.attachments.iter_mut().find(|a| a.id == attachment.id) else { return };
@@ -311,6 +329,7 @@ mod tests {
             content_type: "text/plain".into(),
             status: AttachmentStatus::Ready,
             upload_id: Some("u".into()),
+            thumbnail: None,
         }
     }
 
