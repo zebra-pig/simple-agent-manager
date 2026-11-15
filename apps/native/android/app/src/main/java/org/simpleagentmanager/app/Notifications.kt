@@ -35,16 +35,16 @@ fun NotificationsScreen(app: App, openUrl: (String) -> Unit, openChat: (String, 
             while (true) { vm.load("", ""); snapshot.value = vm.state(); delay(10_000) }
         }
     }
+    InitialLoading(state.loading) {
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(stringResource(R.string.notifications), style = MaterialTheme.typography.headlineMedium)
-                TextButton(onClick = { scope.launch { vm.load("", ""); snapshot.value = vm.state() } }, enabled = !state.loading) { Text(stringResource(R.string.refresh_request)) }
+                TextButton(onClick = { scope.launch { vm.load("", ""); snapshot.value = vm.state() } }, enabled = !state.loading) { LoadingLabel(stringResource(R.string.refresh_request), state.loading) }
             }
         }
         state.error?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
-        if (state.loading && state.items.isEmpty()) item { CircularProgressIndicator() }
-        else if (state.items.isEmpty() && state.error == null) item { Text(stringResource(R.string.no_notifications)) }
+        if (state.items.isEmpty() && state.error == null) item { Text(stringResource(R.string.no_notifications)) }
         items(state.items, key = { it.id }) { item ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -63,6 +63,7 @@ fun NotificationsScreen(app: App, openUrl: (String) -> Unit, openChat: (String, 
             }
         }
     }
+}
 }
 
 @Composable
@@ -116,7 +117,6 @@ internal fun RequestContent(
         Text(state.reason)
         if (state.irreversible && state.canRespond) Text(stringResource(R.string.irreversible_approval), color = MaterialTheme.colorScheme.error)
         state.error?.let { Text(it.message(), color = MaterialTheme.colorScheme.error) }
-        if (state.busy) CircularProgressIndicator()
         if (state.canRespond) {
             if (secret) {
                 OutlinedTextField(value, onValue, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.secret_value)) }, visualTransformation = PasswordVisualTransformation(), enabled = !state.busy)
@@ -142,7 +142,7 @@ internal fun RequestContent(
         } else if (state.status.isNotEmpty()) Text(requestStatus(state.status))
         if (state.deliveryUnconfirmed) Text(stringResource(R.string.request_delivery_unconfirmed))
         state.answer?.let { Text(it) }
-        TextButton(onClick = onRefresh, enabled = !state.busy) { Text(stringResource(R.string.refresh_request)) }
+        TextButton(onClick = onRefresh, enabled = !state.busy) { LoadingLabel(stringResource(R.string.refresh_request), state.busy) }
     }
 }
 @Composable

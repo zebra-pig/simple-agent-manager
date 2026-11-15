@@ -151,12 +151,14 @@ struct Rollup {
     io_write_bytes: Vec<Option<f64>>,
 }
 
-observable!(ChatToolsViewModel, ChatToolsState, ChatToolsObserver);
+// Private identity keeps refreshes visible without showing another file on failed navigation.
+observable!(ChatToolsViewModel, ChatToolsState, ChatToolsObserver, Option<(String, bool, bool)>);
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ChatToolsViewModel {
     pub fn load(&self, project_id: String, session_id: String) {
-        self.update(|s| {
+        self.update_data(|s, source| {
+            *source = None;
             *s = ChatToolsState { project_id, session_id, request_id: s.request_id + 1, path: ".".into(), ..Default::default() }
         });
     }
@@ -191,8 +193,14 @@ impl ChatToolsViewModel {
         });
     }
     pub async fn open_file(&self, path: String, diff: bool, staged: bool) {
+        self.update_data(|s, source| {
+            let key = (path.clone(), diff, staged);
+            if source.as_ref() != Some(&key) {
+                s.lines.clear();
+            }
+            *source = Some(key);
+        });
         let state = self.begin();
-        self.update(|s| s.lines.clear());
         let endpoint =
             if diff { format!("git/diff?path={}&staged={staged}", seg(&path)) } else { format!("files/view?path={}", seg(&path)) };
         let result: crate::error::Result<serde_json::Value> = self.app.get(&format!("{}/{}", base(&state), endpoint)).await;

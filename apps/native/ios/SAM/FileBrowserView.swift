@@ -42,6 +42,7 @@ struct FileBrowserView: View {
                 }
             }
         }
+        .initialLoading(model.state.loading)
         .listStyle(.plain)
         .navigationTitle(path == "." ? String(localized: "Files") : (path as NSString).lastPathComponent)
         .inlineTitle()
@@ -98,6 +99,7 @@ struct GitChangesView: View {
                 }
             }
         }
+        .initialLoading(model.state.loading)
         .listStyle(.plain)
         .searchable(text: $search, prompt: "Filter files")
         .toolbar { ToolRefreshButton(loading: model.state.loading, refresh: refresh) }
@@ -157,6 +159,7 @@ struct SourceFileView: View {
                 }
             }
         }
+        .initialLoading(model.state.loading)
         .navigationTitle((path as NSString).lastPathComponent)
         .inlineTitle()
         .toolbar {
@@ -190,7 +193,6 @@ private struct ToolLoadStatus: View {
                 Button("Retry") { Task { await retry() } }.disabled(state.loading)
             }.padding(.vertical, 8)
         }
-        if state.loading { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8) }
     }
 }
 
@@ -199,7 +201,9 @@ private struct ToolRefreshButton: ToolbarContent {
     let refresh: () async -> Void
     var body: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await refresh() } }.disabled(loading)
+            Button { Task { await refresh() } } label: {
+                LoadingLabel(title: "Refresh", systemImage: "arrow.clockwise", loading: loading)
+            }.disabled(loading)
         }
     }
 }

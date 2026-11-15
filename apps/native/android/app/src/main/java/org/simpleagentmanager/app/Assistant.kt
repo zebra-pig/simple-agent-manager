@@ -146,6 +146,7 @@ internal fun AssistantContent(
         }
     }) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
+            InitialLoading(state.loading && !state.loaded) {
             LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item { Text(stringResource(R.string.sam_private), style = MaterialTheme.typography.bodySmall) }
                 if (state.work.isNotEmpty()) item {
@@ -177,7 +178,6 @@ internal fun AssistantContent(
                     }
                 }
                 if (state.nextCursor != null) item { TextButton(onClick = onOlder, enabled = !state.loading) { Text(stringResource(R.string.load_older)) } }
-                if (state.loading && !state.loaded) item { CircularProgressIndicator() }
                 if (state.loaded && state.turns.isEmpty()) item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(stringResource(R.string.sam_welcome), style = MaterialTheme.typography.headlineSmall)
@@ -209,6 +209,7 @@ internal fun AssistantContent(
                     }
                 }
                 item { Spacer(Modifier.height(48.dp)) }
+            }
             }
             if (list.canScrollForward) LatestArrow(
                 onClick = { scope.launch {

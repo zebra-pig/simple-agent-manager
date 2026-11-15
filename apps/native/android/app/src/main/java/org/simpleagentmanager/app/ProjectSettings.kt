@@ -58,11 +58,11 @@ fun ProjectSettingsContent(
             } }, actions = {
                 TextButton(enabled = valid && !busy && (projectId == null || project != null), onClick = {
                     save(ProjectDraft(name, description, provider, installation, repoId?.toULong(), repoName, branch))
-                }) { Text(if (projectId == null) stringResource(R.string.project_create) else stringResource(R.string.save)) }
+                }) { LoadingLabel(if (projectId == null) stringResource(R.string.project_create) else stringResource(R.string.save), state.saving) }
             })
     }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        InitialLoading(state.loading && !state.initialized, Modifier.padding(padding)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             state.error?.let {
                 Text(it.message(), color = MaterialTheme.colorScheme.error)
                 if (!state.initialized) OutlinedButton(onClick = retry, enabled = !busy) { Text(stringResource(R.string.project_retry)) }
@@ -93,7 +93,7 @@ fun ProjectSettingsContent(
                             OutlinedTextField(search, { search = it }, label = { Text(stringResource(R.string.project_search_repositories)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
                             OutlinedButton(enabled = !busy && (provider == "gitlab" || installation.isNotEmpty()), onClick = {
                                 repoId = null; loadedFor = "$provider:$installation"; repositories(provider, installation, search)
-                            }) { Text(stringResource(R.string.project_load_repositories)) }
+                            }) { LoadingLabel(stringResource(R.string.project_load_repositories), state.loading) }
                             if (loadedFor == "$provider:$installation") {
                                 state.repositories.filter { provider == "gitlab" || it.fullName.contains(search, ignoreCase = true) }.forEach { repo ->
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -126,6 +126,7 @@ fun ProjectSettingsContent(
             }
         }
     }
+}
 }
 
 @Composable

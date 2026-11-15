@@ -153,3 +153,25 @@ async fn repository_requests_are_serialized_and_cannot_save_while_loading() {
     assert_eq!(vm.state().repositories[0].full_name, "first/repo");
     assert!(!vm.state().loading);
 }
+
+#[tokio::test]
+async fn repository_refresh_retains_results_and_changed_account_clears_them() {
+    use sam_core::{ProjectManagementObserver, ProjectManagementState};
+    struct Snapshots(Arc<Mutex<Vec<ProjectManagementState>>>);
+    impl ProjectManagementObserver for Snapshots {
+        fn on_state_changed(&self, state: ProjectManagementState) { self.0.lock().unwrap().push(state); }
+    }
+    let vm = setup(Log::default()).await;
+    vm.load(None).await;
+    vm.load_repositories("github".into(), "installation/db".into(), "".into()).await;
+    let repositories = vm.state().repositories;
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    vm.set_observer(Box::new(Snapshots(snapshots.clone())));
+    vm.load_repositories("github".into(), "installation/db".into(), "".into()).await;
+    assert!(snapshots.lock().unwrap().iter().any(|s| s.loading));
+    assert!(snapshots.lock().unwrap().iter().all(|s| s.repositories == repositories));
+    snapshots.lock().unwrap().clear();
+    vm.load_repositories("github".into(), "revoked".into(), "".into()).await;
+    assert!(snapshots.lock().unwrap().iter().all(|s| s.repositories.is_empty()));
+    assert!(vm.state().error.is_some());
+}

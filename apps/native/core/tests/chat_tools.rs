@@ -104,3 +104,32 @@ async fn later_navigation_wins_over_a_slow_response() {
     assert_eq!(tools.state().path, "fast");
     assert!(!tools.state().loading);
 }
+
+#[tokio::test]
+async fn file_refresh_preserves_text_but_new_navigation_clears_it() {
+    use sam_core::{ChatToolsObserver, ChatToolsState};
+    use std::sync::Mutex;
+    struct Snapshots(Arc<Mutex<Vec<ChatToolsState>>>);
+    impl ChatToolsObserver for Snapshots {
+        fn on_state_changed(&self, state: ChatToolsState) { self.0.lock().unwrap().push(state); }
+    }
+    let server = serve(Arc::new(|r| {
+        if r.path.contains("missing") { (500, "{}".into()) }
+        else { (200, json!({"content":"one\ntwo"}).to_string()) }
+    })).await;
+    let store = MemoryStore::default();
+    store.0.lock().unwrap().replace(Credentials { server_url: server, session_cookie: "session=abc".into() });
+    let tools = ChatToolsViewModel::new(App::new(Box::new(store), None));
+    tools.load("p".into(), "s".into());
+    tools.open_file("file.rs".into(), false, false).await;
+    let text = tools.state().lines;
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    tools.set_observer(Box::new(Snapshots(snapshots.clone())));
+    tools.open_file("file.rs".into(), false, false).await;
+    assert!(snapshots.lock().unwrap().iter().any(|s| s.loading));
+    assert!(snapshots.lock().unwrap().iter().all(|s| s.lines == text));
+    snapshots.lock().unwrap().clear();
+    tools.open_file("missing.rs".into(), false, false).await;
+    assert!(tools.state().error.is_some());
+    assert!(snapshots.lock().unwrap().iter().all(|s| s.lines.is_empty()));
+}

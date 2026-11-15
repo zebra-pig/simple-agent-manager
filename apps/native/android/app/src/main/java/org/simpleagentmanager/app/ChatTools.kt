@@ -132,6 +132,7 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
     var file by remember(tool, chat.sessionId) { mutableStateOf<String?>(null) }
     var diff by remember(tool) { mutableStateOf(false) }
     var staged by remember(tool) { mutableStateOf(false) }
+    var folder by remember(tool, chat.sessionId) { mutableStateOf(state.path.ifEmpty { "." }) }
     var filter by remember(tool) { mutableStateOf("") }
     suspend fun refresh() {
         val path = file
@@ -157,10 +158,12 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
     Column(Modifier.fillMaxWidth().fillMaxHeight(.92f).padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(stringResource(tool.title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 10.dp))
-            TextButton(onClick = { scope.launch { refresh() } }, enabled = tool == ChatTool.Progress || !state.loading) { Text(stringResource(R.string.tool_refresh)) }
+            TextButton(onClick = { scope.launch { refresh() } }, enabled = tool == ChatTool.Progress || !state.loading) { LoadingLabel(stringResource(R.string.tool_refresh), if (tool == ChatTool.Progress) chat.loading else state.loading) }
             TextButton(onClick = onClose) { Text(stringResource(R.string.done)) }
         }
-        if (tool != ChatTool.Progress && state.loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        key(tool, file, diff, staged, folder) {
+        InitialLoading(tool != ChatTool.Progress && state.loading) {
+        Column {
         if (tool != ChatTool.Progress) state.error?.let { error -> Text(error.message(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
         if (file != null) {
             Row {
@@ -179,7 +182,7 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
                         item {
                             Text(state.path, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
                             if (state.path != "." && state.path.isNotEmpty()) TextButton(onClick = {
-                                scope.launch { vm.browse(state.path.substringBeforeLast('/', ".").ifEmpty { "." }) }
+                                folder = state.path.substringBeforeLast('/', ".").ifEmpty { "." }; scope.launch { vm.browse(folder) }
                             }) { Text(stringResource(R.string.parent_folder)) }
                             if (state.entries.isEmpty() && !state.loading) Text(stringResource(R.string.empty_folder))
                         }
@@ -187,7 +190,7 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
                             ToolGlass {
                                 TextButton(onClick = {
                                     val path = if (state.path == ".") entry.name else "${state.path}/${entry.name}"
-                                    if (entry.kind == "dir") scope.launch { vm.browse(path) } else open(path)
+                                    if (entry.kind == "dir") { folder = path; scope.launch { vm.browse(path) } } else open(path)
                                 }) {
                                     Text(stringResource(if (entry.kind == "dir") R.string.folder_entry else R.string.file_entry, entry.name), modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurface)
                                 }
@@ -234,6 +237,9 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
             }
         }
     }
+}
+        }
+        }
 }
 
 @Composable

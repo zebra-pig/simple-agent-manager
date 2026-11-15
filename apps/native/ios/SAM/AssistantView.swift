@@ -87,7 +87,6 @@ struct AssistantView: View {
                         if model.state.nextCursor != nil {
                             Button("Load older messages") { Task { await model.core.loadOlder() } }.disabled(model.state.loading)
                         }
-                        if model.state.loading && !model.state.loaded { ProgressView("Loading conversation…") }
                         if model.state.loaded && model.state.turns.isEmpty {
                             Text("Your private SAM assistant").font(.title2.bold())
                             ForEach(["What needs my attention?", "What is running across my projects?", "Show my recent ideas"], id: \.self) { suggestion in
@@ -101,6 +100,7 @@ struct AssistantView: View {
                     }.padding().frame(maxWidth: 760).frame(maxWidth: .infinity)
                     .background(ChatScrollProbe(control: scrollControl))
                 }
+                .initialLoading(model.state.loading && !model.state.loaded)
                 .interactiveKeyboardDismiss()
                 .refreshable { await model.core.refresh() }
                 .defaultScrollAnchor(.bottom)
@@ -135,7 +135,9 @@ struct AssistantView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let error = model.state.error {
                 Text(error.message).foregroundStyle(.red).font(.footnote)
-                Button("Refresh") { Task { await model.core.refresh() } }.disabled(model.state.loading)
+                Button { Task { await model.core.refresh() } } label: {
+                    LoadingLabel(title: "Refresh", loading: model.state.loading)
+                }.disabled(model.state.loading)
             }
             if let pending = model.state.pending { Text(pending.message).font(.footnote).lineLimit(4) }
             if let error = voice.error { Text(error).foregroundStyle(.red).font(.footnote) }
