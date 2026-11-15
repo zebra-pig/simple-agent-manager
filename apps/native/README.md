@@ -50,6 +50,15 @@ Every API call sends that cookie. A `401` signs the app out and clears the store
 (`App::send` in `core/src/session.rs`). The flow needs no server-side changes and no
 app-specific OAuth client.
 
+## Provisioning status
+
+While a new chat's VM/container is being prepared, a compact card below the messages shows
+elapsed time, the current setup detail, and the web chat's four stages: provisioning the VM,
+cloning the repository, installing dependencies, and starting the agent. The existing chat poll
+refreshes it. It disappears when the agent starts; setup failures use the task card's error.
+The core reads the full task only for queued/delegated active sessions, checking `startedAt`
+and `admissionState` so waking sessions and provider-limit holds do not show first-boot progress.
+
 ## Attachments
 
 The composer takes files from its attach button (Files and Photos on Apple platforms, files and

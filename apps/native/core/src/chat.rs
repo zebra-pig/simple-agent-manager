@@ -5,6 +5,7 @@
 use crate::api::{merge_messages, ChatMessage, ChatSession, Prompt, SessionDetail};
 use crate::attachments::{self, Attachment};
 use crate::error::UserError;
+use crate::provisioning::{ProvisioningState, ProvisioningTask};
 use crate::session::seg;
 
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
@@ -16,6 +17,8 @@ pub struct ChatState {
     pub messages: Vec<ChatMessage>,
     /// Files for the next follow-up.
     pub attachments: Vec<Attachment>,
+    /// Visible only during first-boot VM/container setup.
+    pub provisioning: Option<ProvisioningState>,
     pub loading: bool,
     pub sending: bool,
     pub error: Option<UserError>,
@@ -45,13 +48,32 @@ impl ChatViewModel {
         }
         let result: crate::error::Result<SessionDetail> =
             self.app.get(&format!("/api/projects/{}/sessions/{}", seg(&project_id), seg(&session_id))).await;
+        // The session embed lacks startedAt/admissionState. Read the full task
+        // only during setup so wake-ups and provider holds use the same gates as web.
+        let provisioning = if let Ok(detail) = &result {
+            if let Some(task) = detail.session.task.as_ref().filter(|t| {
+                detail.session.status == crate::api::SessionStatus::Active && matches!(t.status.as_str(), "queued" | "delegated")
+            }) {
+                let task: crate::error::Result<ProvisioningTask> =
+                    self.app.get(&format!("/api/projects/{}/tasks/{}", seg(&project_id), seg(&task.id))).await;
+                // Keep the last snapshot during a transient task-fetch failure.
+                task.map(|t| t.state(&detail.session)).ok()
+            } else {
+                Some(None)
+            }
+        } else {
+            None
+        };
         self.update(|s| {
-            if s.session_id != session_id {
+            if s.project_id != project_id || s.session_id != session_id {
                 return;
             }
             s.loading = false;
             match result {
                 Ok(detail) => {
+                    if let Some(provisioning) = provisioning {
+                        s.provisioning = provisioning;
+                    }
                     s.session = Some(detail.session);
                     s.messages = merge_messages(detail.messages);
                     s.error = None;
