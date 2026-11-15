@@ -1,5 +1,6 @@
 // Files for the next message: picked with the composer's attach button (Files,
-// Photos), pasted into the input or dropped onto the composer. The shell only turns each into a name,
+// Photos), pasted into the input or dropped onto the composer. The shell turns
+// each into a name,
 // a type, a size and an AttachmentSource; the core checks the limits, reads the
 // file off the main thread, uploads it and reports progress in its state.
 
@@ -120,22 +121,25 @@ enum AttachmentIntake {
             let types = provider.registeredContentTypes.filter { $0.conforms(to: .data) || $0.conforms(to: .content) }
             let type = types.first { !$0.conforms(to: .heic) && !$0.conforms(to: .heif) } ?? types.first
             guard let type else { continue }
-            _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, _ in
-                guard let url, let copy = AttachmentIntake.temporaryCopy(of: url) else {
-                    // Clipboard images may offer bytes but no file representation.
-                    _ = provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
-                        guard let data else { return }
-                        var name = provider.suggestedName ?? "Pasted-\(UUID().uuidString)"
-                        if (name as NSString).pathExtension.isEmpty, let ext = type.preferredFilenameExtension {
-                            name += ".\(ext)"
-                        }
-                        DispatchQueue.main.async {
-                            files.add(name, type.preferredMIMEType ?? "", UInt64(data.count), DataSource(data))
-                        }
+            // Clipboard images may offer bytes but no file representation.
+            // Capture only value metadata in the asynchronous load callbacks.
+            let suggestedName = provider.suggestedName
+            if type.conforms(to: .image) {
+                _ = provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
+                    guard let data else { return }
+                    var name = suggestedName ?? "Pasted-\(UUID().uuidString)"
+                    if (name as NSString).pathExtension.isEmpty, let ext = type.preferredFilenameExtension {
+                        name += ".\(ext)"
                     }
-                    return
+                    DispatchQueue.main.async {
+                        files.add(name, type.preferredMIMEType ?? "", UInt64(data.count), DataSource(data))
+                    }
                 }
-                var name = provider.suggestedName ?? url.deletingPathExtension().lastPathComponent
+                continue
+            }
+            _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, _ in
+                guard let url, let copy = AttachmentIntake.temporaryCopy(of: url) else { return }
+                var name = suggestedName ?? url.deletingPathExtension().lastPathComponent
                 if (name as NSString).pathExtension.isEmpty, let ext = type.preferredFilenameExtension ?? url.pathExtension.nonEmpty {
                     name += ".\(ext)"
                 }
