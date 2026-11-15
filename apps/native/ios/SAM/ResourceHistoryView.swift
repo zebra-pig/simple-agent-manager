@@ -18,10 +18,7 @@ struct ResourceHistoryView: View {
 
     var body: some View {
         let samples = metric.samples(from: points)
-        let selected = selectedDate.flatMap { date in
-            samples.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
-                .flatMap { abs($0.date.timeIntervalSince(date)) <= 30 ? $0 : nil }
-        }
+        let selected = selectedDate.flatMap { metric.sample(at: $0, in: samples) }
         let displayed = selectedDate == nil ? samples.last : selected
         VStack(alignment: .leading, spacing: 20) {
             Picker("Resource", selection: $metric) {
@@ -94,11 +91,11 @@ struct ResourceHistoryView: View {
                         .accessibilityValue(Text("\(sample.value.formatted(.number.precision(.fractionLength(0...2)))) \(metric.unit)"))
                 }
             }
-            if let date = selected?.date ?? selectedDate {
+            if let date = selected.map({ $0.date.addingTimeInterval(metric.isIO ? 30 : 0) }) ?? selectedDate {
                 RuleMark(x: .value("Time", date)).foregroundStyle(Color.secondary.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4])).accessibilityHidden(true)
             }
-            if let selected {
+            if let selected, !metric.isIO {
                 PointMark(x: .value("Time", selected.date), y: .value(metric.title, selected.value))
                     .foregroundStyle(Color.accentColor).symbolSize(70).accessibilityHidden(true)
             }
@@ -132,7 +129,7 @@ struct ResourceHistoryView: View {
         let dates = points.map { Date(timeIntervalSince1970: Double($0.time) / 1000) }
         let first = dates.min() ?? .now
         let last = dates.max() ?? first
-        return first.addingTimeInterval(-30)...max(last.addingTimeInterval(30), first.addingTimeInterval(60))
+        return first.addingTimeInterval(-30)...max(last.addingTimeInterval(metric.isIO ? 60 : 30), first.addingTimeInterval(60))
     }
 
     private func summary(_ title: LocalizedStringKey, value: Double) -> some View {
@@ -160,6 +157,15 @@ enum ResourceMetric: String, CaseIterable, Identifiable {
     var explanation: String {
         isIO ? String(localized: "Disk I/O totals per minute. Gaps indicate missing measurements.")
              : String(localized: "Minute averages. Gaps indicate missing measurements or a workspace restart.")
+    }
+    func sample(at date: Date, in samples: [ResourceChartSample]) -> ResourceChartSample? {
+        if isIO {
+            return samples.first { (0..<60).contains(date.timeIntervalSince($0.date)) }
+        }
+        guard let nearest = samples.min(by: {
+            abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date))
+        }), abs(nearest.date.timeIntervalSince(date)) <= 30 else { return nil }
+        return nearest
     }
     func samples(from points: [ResourcePoint]) -> [ResourceChartSample] {
         var samples: [ResourceChartSample] = []

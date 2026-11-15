@@ -46,6 +46,11 @@ struct ResourceHistoryRender {
         precondition(sparseCPU[0].segment != sparseCPU[1].segment)
         precondition(ResourceMetric.read.samples(from: sparse).last?.value == 1)
         precondition(ResourceMetric.memory.samples(from: sparse).isEmpty)
+        let reads = ResourceMetric.read.samples(from: sparse)
+        precondition(ResourceMetric.read.sample(at: Date(timeIntervalSince1970: 45), in: reads)?.value == 0,
+                     "Disk selection must use the selected minute, not the next minute")
+        precondition(ResourceMetric.read.sample(at: Date(timeIntervalSince1970: 90), in: reads) == nil)
+        precondition(ResourceMetric.cpu.sample(at: Date(timeIntervalSince1970: 90), in: sparseCPU) == nil)
 
         for (name, width, metric, data, collection, dark) in [
             ("cpu-narrow", 375.0, ResourceMetric.cpu, points, "complete", false),
