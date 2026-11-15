@@ -66,3 +66,19 @@ fi
 
 install_rust_if_needed
 "$repo_dir/apps/native/scripts/build-ios.sh"
+
+# Exercise real Swift bindings, authenticated fallback transport, and ImageIO
+# against an offline HTTP fixture after the generated Rust library is available.
+if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
+    preview_test_dir=$(mktemp -d)
+    preview_generated="$repo_dir/apps/native/ios/Generated"
+    xcrun --sdk macosx swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.0" \
+        -I "$preview_generated/SamCore.xcframework/macos-arm64/Headers" \
+        "$preview_generated/SamCore.swift" \
+        "$repo_dir/apps/native/ios/tests/uploaded-preview-macos.swift" \
+        -L "$preview_generated/SamCore.xcframework/macos-arm64" \
+        -lsam_core -framework Security -framework SystemConfiguration \
+        -o "$preview_test_dir/preview-test"
+    python3 "$repo_dir/apps/native/ios/tests/uploaded-preview-server.py" "$preview_test_dir/preview-test"
+    rm -rf "$preview_test_dir"
+fi

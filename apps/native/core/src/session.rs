@@ -533,19 +533,48 @@ impl App {
         self.binary_bytes(&format!("/api/projects/{}/library/{}/download", seg(project), seg(file))).await
     }
 
-    pub(crate) async fn attachment_bytes(&self, project: &str, upload: &str, filename: &str) -> Result<Vec<u8>> {
-        self.binary_bytes(&format!("/api/projects/{}/tasks/uploads/{}/{}", seg(project), seg(upload), seg(filename))).await
+    pub(crate) async fn attachment_bytes(&self, project: &str, session: &str, upload: &str, filename: &str) -> Result<Vec<u8>> {
+        // Attachment IDs may also arrive through tool metadata. Never turn an
+        // arbitrary referenced ID into a filesystem path outside this directory.
+        if upload.len() != 26
+            || !upload.bytes().all(|b| b.is_ascii_alphanumeric())
+            || filename.is_empty()
+            || filename == "."
+            || filename == ".."
+            || filename.contains(['/', '\\'])
+            || filename.chars().any(char::is_control)
+        {
+            return Err(CoreError::Unexpected("Invalid attachment reference".into()));
+        }
+        let original = format!("/api/projects/{}/tasks/uploads/{}/{}", seg(project), seg(upload), seg(filename));
+        // Delivery copies the original into the workspace before staged R2
+        // bytes are deleted/expire. This route also exists on older servers.
+        let copied = format!(
+            "/api/projects/{}/sessions/{}/files/raw?path={}",
+            seg(project),
+            seg(session),
+            seg(&format!("/workspaces/.private/{upload}/{filename}"))
+        );
+        self.binary_bytes_with_fallback(&original, Some(&copied)).await
     }
 
     async fn binary_bytes(&self, path: &str) -> Result<Vec<u8>> {
+        self.binary_bytes_with_fallback(path, None).await
+    }
+
+    async fn binary_bytes_with_fallback(&self, path: &str, fallback: Option<&str>) -> Result<Vec<u8>> {
         const MAX: usize = 20 * 1024 * 1024;
         let c = self.credentials()?;
-        let mut res = self
-            .http
-            .get(format!("{}{path}", c.server_url))
-            .header(reqwest::header::COOKIE, &c.session_cookie)
-            .send()
-            .await?;
+        let mut res = self.http.get(format!("{}{path}", c.server_url)).header(reqwest::header::COOKIE, &c.session_cookie).send().await?;
+        if matches!(res.status().as_u16(), 404 | 410) {
+            if let Some(fallback) = fallback {
+                if self.credentials.lock().unwrap().as_ref() != Some(&c) {
+                    return Err(CoreError::Unauthenticated);
+                }
+                res =
+                    self.http.get(format!("{}{fallback}", c.server_url)).header(reqwest::header::COOKIE, &c.session_cookie).send().await?;
+            }
+        }
         if res.status() == 401 {
             if self.credentials.lock().unwrap().as_ref() == Some(&c) {
                 self.expire();

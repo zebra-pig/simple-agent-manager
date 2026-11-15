@@ -354,7 +354,7 @@ impl ChatViewModel {
             return None;
         }
         if let Some((upload, filename)) = file_id.strip_prefix("attachment:").and_then(|s| s.split_once('/')) {
-            return self.app.attachment_bytes(&state.project_id, upload, filename).await.ok();
+            return self.app.attachment_bytes(&state.project_id, &state.session_id, upload, filename).await.ok();
         }
         self.app.library_bytes(&state.project_id, &file_id).await.ok()
     }
