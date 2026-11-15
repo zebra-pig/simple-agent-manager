@@ -37,6 +37,8 @@ pub struct ChatState {
     pub loading: bool,
     pub sending: bool,
     pub error: Option<UserError>,
+    pub loading_history: bool,
+    pub history_error: Option<UserError>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -54,15 +56,62 @@ pub struct OutgoingMessage {
 
 static NEXT_LOCAL_ID: AtomicU64 = AtomicU64::new(1);
 
-observable!(ChatViewModel, ChatState, ChatObserver);
+#[derive(Default)]
+struct ChatHistory {
+    rows: Vec<timeline::Row>,
+    generation: u64,
+    refreshing: bool,
+}
+
+/// Navigation can drop an in-flight intent. Release its busy flag even then.
+struct ChatLoad<'a> {
+    model: &'a ChatViewModel,
+    generation: u64,
+    older: bool,
+    active: bool,
+}
+impl Drop for ChatLoad<'_> {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.model.update_data(|state, history| {
+            if history.generation == self.generation {
+                if self.older {
+                    state.loading_history = false;
+                } else {
+                    history.refreshing = false;
+                }
+            }
+        });
+    }
+}
+
+fn position(row: &timeline::Row) -> (i64, i64, &str) {
+    (row.created_at, row.sequence.unwrap_or(0), &row.id)
+}
+fn cursor(row: &timeline::Row) -> String {
+    serde_json::json!([row.created_at, row.sequence.unwrap_or(0), row.id]).to_string()
+}
+fn merge_rows(rows: &mut Vec<timeline::Row>, incoming: Vec<timeline::Row>) {
+    let mut merged: std::collections::HashMap<String, timeline::Row> = rows.drain(..).map(|r| (r.id.clone(), r)).collect();
+    for row in incoming {
+        merged.insert(row.id.clone(), row);
+    }
+    *rows = merged.into_values().collect();
+    rows.sort_by(|a, b| position(a).cmp(&position(b)));
+}
+
+observable!(ChatViewModel, ChatState, ChatObserver, ChatHistory);
 observable_attachments!(ChatViewModel);
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ChatViewModel {
     /// Intent: show this session (first load or a switch).
     pub async fn load(&self, project_id: String, session_id: String) {
-        self.update(|s| {
+        self.update_data(|s, history| {
             if s.project_id != project_id || s.session_id != session_id {
+                *history = ChatHistory { generation: history.generation + 1, ..Default::default() };
                 *s = ChatState { project_id, session_id, ..Default::default() };
             }
             s.loading = true;
@@ -81,12 +130,29 @@ impl ChatViewModel {
 
     /// Intent: pull the latest messages and task status.
     pub async fn refresh(&self) {
-        let ChatState { project_id, session_id, .. } = self.state();
-        if session_id.is_empty() {
-            return;
+        let mut request = None;
+        self.update_data(|s, history| {
+            if !s.session_id.is_empty() && !history.refreshing {
+                history.refreshing = true;
+                request = Some((s.project_id.clone(), s.session_id.clone(), history.generation, history.rows.last().cloned()));
+            }
+        });
+        let Some((project_id, session_id, generation, latest)) = request else { return };
+        let mut _load = ChatLoad { model: self, generation, older: false, active: true };
+        let base = format!("/api/projects/{}/sessions/{}", seg(&project_id), seg(&session_id));
+        let mut result: crate::error::Result<SessionDetail> = self.app.get(&base).await;
+        // If polling missed a whole page, drain the forward cursor before
+        // accepting the newest window. Never leave a silent gap in history.
+        if let (Some(latest), Ok(detail)) = (&latest, &mut result) {
+            let disjoint_newer =
+                detail.messages.iter().min_by(|a, b| position(a).cmp(&position(b))).is_some_and(|first| position(first) > position(latest));
+            if disjoint_newer {
+                match self.catch_up(&base, latest).await {
+                    Ok(rows) => detail.messages.extend(rows),
+                    Err(error) => result = Err(error),
+                }
+            }
         }
-        let result: crate::error::Result<SessionDetail> =
-            self.app.get(&format!("/api/projects/{}/sessions/{}", seg(&project_id), seg(&session_id))).await;
         let notifications = crate::notifications::fetch_notifications(&self.app, &project_id, &session_id).await;
         // The session embed lacks startedAt/admissionState. Read the full task
         // only during setup so wake-ups and provider holds use the same gates as web.
@@ -104,10 +170,11 @@ impl ChatViewModel {
         } else {
             None
         };
-        self.update(|s| {
-            if s.project_id != project_id || s.session_id != session_id {
+        self.update_data(|s, history| {
+            if history.generation != generation || s.project_id != project_id || s.session_id != session_id {
                 return;
             }
+            history.refreshing = false;
             s.loading = false;
             match notifications {
                 Ok(items) => {
@@ -119,9 +186,13 @@ impl ChatViewModel {
             match result {
                 Ok(detail) => {
                     s.working = detail.working();
-                    s.has_more = detail.has_more;
+                    if history.rows.is_empty() {
+                        s.has_more = detail.has_more;
+                    }
+                    let fresh_rows = detail.messages.clone();
+                    merge_rows(&mut history.rows, detail.messages);
                     s.requests.clear();
-                    for row in &detail.messages {
+                    for row in &fresh_rows {
                         if let Some(meta) = &row.tool_metadata {
                             crate::notifications::collect_refs(meta, &mut s.requests, 0);
                         }
@@ -129,7 +200,7 @@ impl ChatViewModel {
                             crate::notifications::collect_refs(&serde_json::Value::String(row.content.clone()), &mut s.requests, 0);
                         }
                     }
-                    s.items = timeline::build(detail.messages, s.working);
+                    s.items = timeline::build(history.rows.clone(), s.working);
                     if let Some(provisioning) = provisioning {
                         s.provisioning = provisioning;
                     }
@@ -142,6 +213,56 @@ impl ChatViewModel {
                 Err(e) => s.error = Some(UserError::from(&e)),
             }
         });
+        _load.active = false;
+    }
+
+    /// Intent: prepend the preceding page without losing loaded/live messages.
+    pub async fn load_older(&self) {
+        let mut request = None;
+        self.update_data(|s, history| {
+            if s.has_more && !s.loading_history {
+                if let Some(first) = history.rows.first() {
+                    request = Some((s.project_id.clone(), s.session_id.clone(), history.generation, cursor(first)));
+                    s.loading_history = true;
+                    s.history_error = None;
+                }
+            }
+        });
+        let Some((project, session, generation, before)) = request else { return };
+        let mut _load = ChatLoad { model: self, generation, older: true, active: true };
+        let result: crate::error::Result<SessionDetail> =
+            self.app.get(&format!("/api/projects/{}/sessions/{}?before={}", seg(&project), seg(&session), seg(&before))).await;
+        self.update_data(|s, history| {
+            if history.generation != generation || s.project_id != project || s.session_id != session {
+                return;
+            }
+            s.loading_history = false;
+            match result {
+                Ok(page) => {
+                    let advanced = page
+                        .messages
+                        .iter()
+                        .any(|row| cursor(row) != before && history.rows.first().is_some_and(|first| position(row) < position(first)));
+                    if page.has_more && !advanced {
+                        s.history_error = Some(UserError::Unexpected { detail: "History page did not advance. Please retry.".into() });
+                        return;
+                    }
+                    merge_rows(&mut history.rows, page.messages);
+                    s.has_more = page.has_more;
+                    let items = timeline::build(history.rows.clone(), s.working);
+                    // Earlier identical user messages are not delivery receipts
+                    // for a pending prompt sent after those messages.
+                    for outgoing in &mut s.outbox {
+                        let before = user_count(&s.items, &outgoing.text, &outgoing.attachments);
+                        let after = user_count(&items, &outgoing.text, &outgoing.attachments);
+                        outgoing.baseline += after.saturating_sub(before);
+                    }
+                    s.items = items;
+                }
+                Err(error) => s.history_error = Some(UserError::from(&error)),
+            }
+        });
+        _load.active = false;
     }
 
     /// Intent: send a follow-up to the agent, with the attached files. It shows
@@ -171,7 +292,8 @@ impl ChatViewModel {
             s.sending = true;
             s.error = None;
             let attachments = attached.iter().filter_map(crate::documents::from_attachment).collect::<Vec<_>>();
-            let display_content = if !attachments.is_empty() && content == attachments::DEFAULT_ATTACHMENT_MESSAGE { String::new() } else { content.clone() };
+            let display_content =
+                if !attachments.is_empty() && content == attachments::DEFAULT_ATTACHMENT_MESSAGE { String::new() } else { content.clone() };
             let baseline = user_count(&s.items, &display_content, &attachments);
             s.outbox.push(OutgoingMessage { id: local_id.clone(), text: display_content, accepted: false, baseline, attachments });
         });
@@ -228,7 +350,9 @@ impl ChatViewModel {
             ChatContent::User { attachments, .. } => attachments.iter().any(|d| d.file_id == file_id && !d.unavailable),
             _ => false,
         }) || state.outbox.iter().any(|m| m.attachments.iter().any(|d| d.file_id == file_id));
-        if !allowed || file_id.is_empty() { return None }
+        if !allowed || file_id.is_empty() {
+            return None;
+        }
         if let Some((upload, filename)) = file_id.strip_prefix("attachment:").and_then(|s| s.split_once('/')) {
             return self.app.attachment_bytes(&state.project_id, upload, filename).await.ok();
         }
@@ -292,5 +416,24 @@ impl ChatViewModel {
             WebChatTool::Report => "report",
         };
         format!("{}?tool={name}", self.web_url())
+    }
+}
+
+impl ChatViewModel {
+    async fn catch_up(&self, base: &str, latest: &timeline::Row) -> crate::error::Result<Vec<timeline::Row>> {
+        let mut after = cursor(latest);
+        let mut rows = Vec::new();
+        loop {
+            let page: SessionDetail = self.app.get(&format!("{base}?after={}", seg(&after))).await?;
+            let next = page.messages.iter().max_by(|a, b| position(a).cmp(&position(b))).map(cursor);
+            rows.extend(page.messages);
+            if !page.has_more {
+                return Ok(rows);
+            }
+            match next {
+                Some(next) if next != after => after = next,
+                _ => return Err(crate::error::CoreError::Unexpected("History page did not advance".into())),
+            }
+        }
     }
 }

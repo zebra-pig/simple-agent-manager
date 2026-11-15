@@ -48,7 +48,7 @@ class ChatRenderTest {
             TableRow(listOf(listOf(span("Action")), listOf(span("Shortcut")), listOf(span("Accessibility")))),
             listOf(TableRow(listOf(listOf(span("Open command menu")), listOf(span("⌘K", true)), listOf(span("Focus moves to search"))))),
         ))))) else emptyList()
-        val state = ChatState("project", "session", ChatSession(workspaceId = null, agentSessionId = null, viewerAccess = "owner", isMine = true, id = "session", topic = "Keyboard shortcuts", status = SessionStatus.ACTIVE, messageCount = 4u, startedAt = 0, lastMessageAt = null, taskId = null, isIdle = true, task = null), if (empty) emptyList() else if (setup) items.take(1) else historyItems + items + tableItems, emptyList(), false, false, emptyList(), emptyList(), null, emptyList(), if (setup) ProvisioningState(1u, ProvisioningStep.WORKSPACE_CREATION, 0) else null, false, false, false, null)
+        val state = ChatState("project", "session", ChatSession(workspaceId = null, agentSessionId = null, viewerAccess = "owner", isMine = true, id = "session", topic = "Keyboard shortcuts", status = SessionStatus.ACTIVE, messageCount = 4u, startedAt = 0, lastMessageAt = null, taskId = null, isIdle = true, task = null), if (empty) emptyList() else if (setup) items.take(1) else historyItems + items + tableItems, emptyList(), false, false, emptyList(), emptyList(), null, emptyList(), if (setup) ProvisioningState(1u, ProvisioningStep.WORKSPACE_CREATION, 0) else null, false, false, false, null, false, null)
         compose.setContent { MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, if (largeText) 1.5f else density.fontScale)) {
@@ -80,7 +80,7 @@ class ChatRenderTest {
             outbox = emptyList(), working = false, hasMore = false,
             requests = listOf(RequestRef("question", null, false, false)),
             notifications = emptyList(), notificationsError = null, attachments = emptyList(),
-            provisioning = null, reportEnabled = false, loading = false, sending = false, error = null,
+            provisioning = null, reportEnabled = false, loading = false, sending = false, error = null, loadingHistory = false, historyError = null,
         )
         compose.setContent {
             MaterialTheme {
