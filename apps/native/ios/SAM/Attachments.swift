@@ -319,11 +319,11 @@ struct AttachmentChip: View {
 /// Files dropped anywhere on the composer are attached; text keeps going to
 /// the text field.
 struct AttachmentDrop: DropDelegate {
-    let files: ComposerFiles
+    let files: ComposerFiles?
     @Binding var targeted: Bool
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.itemProviders(for: [.item]).contains(where: AttachmentIntake.isFile)
+        files != nil && info.itemProviders(for: [.item]).contains(where: AttachmentIntake.isFile)
     }
 
     func dropEntered(info: DropInfo) { targeted = validateDrop(info: info) }
@@ -332,6 +332,7 @@ struct AttachmentDrop: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         targeted = false
+        guard let files else { return false }
         AttachmentIntake.add(providers: info.itemProviders(for: [.item]), to: files)
         return true
     }

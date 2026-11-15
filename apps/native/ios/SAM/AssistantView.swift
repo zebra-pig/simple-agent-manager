@@ -49,6 +49,8 @@ struct AssistantView: View {
     let app: App
     @State private var model: AssistantModel
     @State private var draft = ""
+    @State private var followsLatest = true
+    @State private var scrollControl = ChatScrollControl()
     @State private var voice = AssistantVoice()
     @State private var earlierOpen = false
     @State private var linkedChat: SessionRef?
@@ -94,16 +96,23 @@ struct AssistantView: View {
                         }
                         ForEach(model.state.turns, id: \.id) { turn in turnCard(turn) }
                         Color.clear.frame(height: 1).id("bottom")
+                            .onAppear { followsLatest = true }
+                            .onDisappear { followsLatest = false }
                     }.padding().frame(maxWidth: 760).frame(maxWidth: .infinity)
+                    .background(ChatScrollProbe(control: scrollControl))
                 }
                 .interactiveKeyboardDismiss()
                 .refreshable { await model.core.refresh() }
-                .overlay(alignment: .bottomTrailing) {
-                    Button { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } label: { Image(systemName: "arrow.down").padding(12) }
-                        .accessibilityLabel("Jump to latest message").glass(in: Circle(), interactive: true).padding()
+                .defaultScrollAnchor(.bottom)
+                .overlay(alignment: .bottom) {
+                    if !followsLatest {
+                        ChatJumpButton {
+                            scrollControl.jump(using: proxy, to: "bottom")
+                        }
+                    }
                 }
                 .onChange(of: model.state.turns.count) { old, new in
-                    if old == 0 || new == old + 1 { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                    if old == 0 || (followsLatest && new == old + 1) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 }
                 .safeAreaInset(edge: .bottom) { composer }
             }
@@ -130,38 +139,58 @@ struct AssistantView: View {
             }
             if let pending = model.state.pending { Text(pending.message).font(.footnote).lineLimit(4) }
             if let error = voice.error { Text(error).foregroundStyle(.red).font(.footnote) }
-            HStack(alignment: .bottom) {
-                Button {
-                    if voice.hasRecording {
-                        if let data = voice.finish() {
-                            Task {
-                                if let text = await model.core.transcribe(audio: data), !text.isEmpty {
-                                    draft += (draft.isEmpty ? "" : " ") + text
-                                }
-                            }
-                        }
-                    } else { Task { await voice.start() } }
-                } label: { Image(systemName: voice.hasRecording ? "stop.circle" : "mic") }
-                    .accessibilityLabel(voice.hasRecording ? "Transcribe recording" : "Record voice message")
-                    .disabled(model.state.busy || model.state.pending != nil || active)
-                if voice.hasRecording { Button("Cancel") { voice.cancel() } }
-                TextField("Ask SAM…", text: $draft, axis: .vertical).lineLimit(1...6)
-                    .disabled(model.state.pending != nil || model.state.busy)
-                if active {
-                    Button("Stop", systemImage: "stop.fill") { Task { await model.core.stop() } }.disabled(model.state.busy)
-                } else {
-                    Button(model.state.pending == nil ? "Send" : "Retry", systemImage: "arrow.up") {
-                        let message = model.state.pending?.message ?? draft
-                        Task {
-                            let accepted = await model.core.send(message: message, requestKey: UUID().uuidString)
-                            draft = accepted ? "" : message
-                        }
-                    }.disabled(model.state.busy || voice.hasRecording || !model.state.loaded || !model.state.enabled || (model.state.error != nil && model.state.pending == nil) || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.state.pending == nil))
+            assistantComposer
+            if voice.hasRecording {
+                HStack {
+                    Text("Recording… Tap stop when you’re done.").font(.caption)
+                    Button("Cancel") { voice.cancel() }
+                }.padding(.horizontal, 16)
+            }
+            if active { Text("Stopping SAM won’t cancel project work it already started.").font(.caption).foregroundStyle(.secondary) }
+        }.padding(.top, 8)
+    }
+    private var assistantComposer: some View {
+        var composer = Composer(placeholder: "Ask SAM…", text: $draft, busy: model.state.busy, files: nil) {
+            if active {
+                Task { await model.core.stop() }
+            } else {
+                let message = model.state.pending?.message ?? draft
+                Task {
+                    let accepted = await model.core.send(message: message, requestKey: UUID().uuidString)
+                    if accepted && draft == message { draft = "" }
                 }
             }
-            if voice.recording { Text("Recording… Tap stop when you’re done.").font(.caption) }
-            if active { Text("Stopping SAM won’t cancel project work it already started.").font(.caption).foregroundStyle(.secondary) }
-        }.padding(16).glass(in: RoundedRectangle(cornerRadius: 24), interactive: true).padding(.horizontal).padding(.bottom, 8)
+        }
+        composer.inputEnabled = model.state.pending == nil && !model.state.busy
+        composer.sendEnabled = active || (!voice.hasRecording && model.state.loaded && model.state.enabled
+            && (model.state.error == nil || model.state.pending != nil))
+        // A pending receipt retries its original message, even with an empty editor.
+        composer.allowsEmpty = active || model.state.pending != nil
+        composer.sendLabel = active ? "Stop" : model.state.pending == nil ? "Send" : "Retry"
+        composer.sendIcon = active ? "stop.fill" : "arrow.up"
+        composer.leadingControl = AnyView(voiceControl)
+        return composer
+    }
+
+    private var voiceControl: some View {
+        HStack {
+            Button {
+                if voice.hasRecording {
+                    if let data = voice.finish() {
+                        Task {
+                            if let text = await model.core.transcribe(audio: data), !text.isEmpty {
+                                draft += (draft.isEmpty ? "" : " ") + text
+                            }
+                        }
+                    }
+                } else { Task { await voice.start() } }
+            } label: { Image(systemName: voice.hasRecording ? "stop.circle" : "mic") }
+                .glassButton()
+                .tint(.primary)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel(voice.hasRecording ? "Transcribe recording" : "Record voice message")
+                .disabled(model.state.busy || model.state.pending != nil || active)
+        }
     }
     private func turnCard(_ turn: AssistantTurn) -> some View {
         VStack(alignment: .leading, spacing: 12) {

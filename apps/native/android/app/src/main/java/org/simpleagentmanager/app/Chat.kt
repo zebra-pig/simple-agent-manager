@@ -104,7 +104,7 @@ fun ChatContent(
         topBar = { BackBar(session?.topic ?: stringResource(R.string.session), onBack) { session?.let { StatusDot(it); Spacer(Modifier.width(16.dp)) }; toolsMenu() } },
         bottomBar = {
             if (session != null && (session.viewerAccess in listOf("owner", "grantee") || (session.viewerAccess == null && session.isMine)) && session.status in listOf(SessionStatus.ACTIVE, SessionStatus.SLEEPING))
-                Composer(stringResource(R.string.reply_to_agent), draft, onDraft, state.sending, state.attachments, onAttach, onRemove, onSend)
+                Composer(stringResource(R.string.reply_to_agent), draft, onDraft, state.sending, state.attachments, onAttach, onRemove, onSend = onSend)
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {

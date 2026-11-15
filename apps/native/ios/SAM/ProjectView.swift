@@ -111,14 +111,20 @@ struct Composer<Accessory: View>: View {
     let placeholder: LocalizedStringKey
     @Binding var text: String
     let busy: Bool
-    let files: ComposerFiles
+    let files: ComposerFiles?
+    var inputEnabled = true
+    var sendEnabled = true
+    var allowsEmpty = false
+    var sendLabel: LocalizedStringKey = "Send"
+    var sendIcon = "arrow.up"
+    var leadingControl: AnyView?
     let send: () -> Void
     let accessory: Accessory
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
     @State private var dropTargeted = false
     @FocusState private var focused: Bool
 
-    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles,
+    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles?,
          send: @escaping () -> Void, @ViewBuilder accessory: () -> Accessory) {
         self.placeholder = placeholder
         _text = text
@@ -130,18 +136,18 @@ struct Composer<Accessory: View>: View {
 
     private var empty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// Text or files to send, and every file uploaded.
-    private var canSend: Bool { (!empty || !files.items.isEmpty) && files.ready }
+    private var canSend: Bool { sendEnabled && (allowsEmpty || !empty || !(files?.items.isEmpty ?? true)) && (files?.ready ?? true) }
 
     var body: some View {
         GlassGroup {
             VStack(alignment: .leading, spacing: 0) {
-                if !files.items.isEmpty {
+                if let files, !files.items.isEmpty {
                     AttachmentStrip(files: files)
                 }
                 if Accessory.self == EmptyView.self {
                     ComposerInputLayout(lineHeight: lineHeight) {
                         composerInput
-                        AttachButton(files: files).frame(width: 44, height: 44)
+                        attachmentControl.frame(width: 44, height: 44)
                         sendControl.frame(width: 44, height: 44)
                     }
                 } else {
@@ -150,7 +156,7 @@ struct Composer<Accessory: View>: View {
                         .padding(.top, 16)
                         .padding(.bottom, 8)
                     HStack(alignment: .bottom, spacing: 8) {
-                        AttachButton(files: files).frame(width: 44, height: 44)
+                        attachmentControl.frame(width: 44, height: 44)
                         accessory.padding(.vertical, 4)
                         Spacer(minLength: 0)
                         sendControl.frame(width: 44, height: 44)
@@ -179,15 +185,21 @@ struct Composer<Accessory: View>: View {
             ProgressView().frame(width: 36, height: 36)
         } else {
             Button(action: send) {
-                Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 22, height: 22)
+                Image(systemName: sendIcon).font(.body.weight(.semibold)).frame(width: 22, height: 22)
             }
             .glassButton()
             .tint(.primary)
             .buttonBorderShape(.circle)
             .disabled(!canSend)
             .keyboardShortcut(.return, modifiers: .command)
-            .accessibilityLabel(Text("Send"))
+            .accessibilityLabel(Text(sendLabel))
         }
+    }
+
+    @ViewBuilder
+    private var attachmentControl: some View {
+        if let leadingControl { leadingControl }
+        else if let files { AttachButton(files: files) }
     }
 
     @ViewBuilder
@@ -195,6 +207,7 @@ struct Composer<Accessory: View>: View {
         #if os(iOS)
         ComposerTextInput(text: $text, focused: Binding(get: { focused }, set: { focused = $0 }),
                           files: files)
+            .disabled(!inputEnabled)
             .accessibilityLabel(Text(placeholder))
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
@@ -204,11 +217,12 @@ struct Composer<Accessory: View>: View {
         #else
         TextField(placeholder, text: $text, axis: .vertical)
             .lineLimit(1...6)
+            .disabled(!inputEnabled)
             .textFieldStyle(.plain)
             .submitLabel(.send)
             .focused($focused)
             .onPasteCommand(of: [.fileURL, .image, .pdf, .archive, .audiovisualContent]) { providers in
-                AttachmentIntake.add(providers: providers, to: files)
+                if let files { AttachmentIntake.add(providers: providers, to: files) }
             }
         #endif
     }
@@ -241,7 +255,7 @@ private struct ComposerInputLayout: Layout {
 }
 
 extension Composer where Accessory == EmptyView {
-    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles,
+    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles?,
          send: @escaping () -> Void) {
         self.init(placeholder: placeholder, text: text, busy: busy, files: files, send: send) { EmptyView() }
     }

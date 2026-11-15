@@ -96,3 +96,19 @@ private struct Probe: UIViewRepresentable {
     }
 }
 #endif
+
+/// Shared floating control for agent chats and the private SAM conversation.
+struct ChatJumpButton: View {
+    let jump: () -> Void
+    var body: some View {
+        Button(action: jump) {
+            Image(systemName: "arrow.down").font(.body.weight(.medium))
+                .frame(width: 28, height: 28)
+        }
+        .glassButton()
+        .buttonBorderShape(.circle)
+        .tint(.primary)
+        .accessibilityLabel(Text("Jump to latest"))
+        .padding()
+    }
+}

@@ -5,6 +5,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -122,24 +123,26 @@ internal fun AssistantContent(
             IconButton(onClick = { open("/settings") }) { Icon(Icons.Default.Settings, stringResource(R.string.assistant_settings)) }
         })
     }, bottomBar = {
-        Surface(tonalElevation = 3.dp) {
-            Column(Modifier.fillMaxWidth().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.error?.let { error ->
-                    Text(error.message(), color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onRefresh, enabled = !state.loading) { Text(stringResource(R.string.refresh_request)) }
-                }
-                state.pending?.let { Text(it.message, style = MaterialTheme.typography.bodySmall, maxLines = 4) }
-                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    voice()
-                    OutlinedTextField(value = draft, onValueChange = onDraft, placeholder = { Text(stringResource(R.string.ask_sam)) },
-                        modifier = Modifier.weight(1f), maxLines = 6, enabled = state.pending == null && !state.busy)
-                    if (active) OutlinedButton(onClick = onStop, enabled = !state.busy) { Text(stringResource(R.string.stop_sam)) }
-                    else Button(onClick = onSend, enabled = !state.busy && !voiceBusy && state.enabled && state.loaded && (state.error == null || state.pending != null) && (draft.isNotBlank() || state.pending != null)) {
-                        Text(stringResource(if (state.pending != null) R.string.retry else R.string.send))
-                    }
-                }
-                if (active) Text(stringResource(R.string.stop_sam_hint), style = MaterialTheme.typography.bodySmall)
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            state.error?.let { error ->
+                Text(error.message(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
+                TextButton(onClick = onRefresh, enabled = !state.loading) { Text(stringResource(R.string.refresh_request)) }
             }
+            state.pending?.let { Text(it.message, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, maxLines = 4) }
+            if (active) Text(stringResource(R.string.stop_sam_hint), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+            Composer(
+                placeholder = stringResource(R.string.ask_sam), text = draft, onChange = onDraft,
+                busy = state.busy, attachments = emptyList(), onAttach = {}, onRemove = {}, onSend = onSend,
+                inputEnabled = state.pending == null && !state.busy,
+                sendEnabled = !voiceBusy && state.enabled && state.loaded && (state.error == null || state.pending != null),
+                allowsEmpty = state.pending != null, leadingControl = voice,
+                sendDescription = stringResource(if (state.pending != null) R.string.retry else R.string.send),
+                actionControl = if (active) ({
+                    IconButton(onClick = onStop, enabled = !state.busy) {
+                        Icon(AssistantIcons.Stop, stringResource(R.string.stop_sam))
+                    }
+                }) else null,
+            )
         }
     }) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
@@ -207,10 +210,14 @@ internal fun AssistantContent(
                 }
                 item { Spacer(Modifier.height(48.dp)) }
             }
-            FilledTonalIconButton(onClick = { scope.launch { list.animateScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
-                Icon(AssistantIcons.Down, stringResource(R.string.jump_latest))
-            }
+            if (list.canScrollForward) LatestArrow(
+                onClick = { scope.launch {
+                    list.scroll(MutatePriority.PreventUserInput) {
+                        list.requestScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                    }
+                } },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+            )
         }
     }
 }
