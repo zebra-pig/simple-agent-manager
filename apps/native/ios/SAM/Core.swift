@@ -124,12 +124,21 @@ enum Brand {
 }
 
 @MainActor @Observable final class ChatToolsModel {
+    private let app: App
     let core: ChatToolsViewModel
     private(set) var state: ChatToolsState
     init(app: App) {
+        self.app = app
         core = ChatToolsViewModel(app: app)
         state = core.state()
         core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+    /// Each navigation destination owns its requests and retains its parent’s results.
+    func navigationModel() -> ChatToolsModel {
+        let model = ChatToolsModel(app: app)
+        let session = core.state()
+        model.core.load(projectId: session.projectId, sessionId: session.sessionId)
+        return model
     }
 }
 extension Relay: ChatToolsObserver where State == ChatToolsState {
