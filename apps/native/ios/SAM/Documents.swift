@@ -51,7 +51,9 @@ struct DocumentCard: View {
         .disabled(document.unavailable || document.fileId.isEmpty || loading)
         .accessibilityHint(Text(document.isImage ? "Open gallery" : "Open file"))
         .task(id: document.fileId) {
-            if document.isImage && !document.unavailable, let bytes = await core.documentBytes(fileId: document.fileId) { image = platformImage(bytes, maxPixelSize: 440) }
+            if document.isImage && !document.unavailable, let bytes = await core.documentBytes(fileId: document.fileId) { let decoded = await decodeImage(bytes, maxPixelSize: 440)
+                guard !Task.isCancelled else { return }
+                image = decoded.map { Image(decorative: $0, scale: 1) } }
         }
         .sheet(isPresented: $gallery) { DocumentGallery(documents: documents.filter { $0.isImage && !$0.unavailable && !$0.fileId.isEmpty }, initial: document.fileId, core: core) }
         .quickLookPreview($preview)
@@ -80,65 +82,190 @@ struct DocumentGallery: View {
     let initial: String
     let core: ChatViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var index = 0
-    @State private var image: Image?
-    @State private var failed = false
-    @State private var scale: CGFloat = 1
+    @State private var index: Int
+
+    init(documents: [ChatDocument], initial: String, core: ChatViewModel) {
+        self.documents = documents; self.initial = initial; self.core = core
+        _index = State(initialValue: documents.firstIndex { $0.fileId == initial } ?? 0)
+    }
 
     var body: some View {
         NavigationStack {
-            if !documents.isEmpty {
-                let selected = min(index, documents.count - 1)
-                let document = documents[selected]
-                VStack(spacing: 12) {
-                    GeometryReader { geometry in
-                        ScrollView([.horizontal, .vertical]) {
-                            Group {
-                                if let image {
-                                    image.resizable().scaledToFit()
-                                        .frame(width: geometry.size.width * scale, height: geometry.size.height * scale)
-                                        .gesture(MagnificationGesture().onChanged { scale = min(max($0, 1), 4) })
-                                        .onTapGesture(count: 2) { scale = scale == 1 ? 2 : 1 }
-                                } else if failed {
-                                    Button("Retry") { Task { await load(document) } }
-                                } else { ProgressView() }
-                            }.frame(minWidth: geometry.size.width, minHeight: geometry.size.height)
+            VStack(spacing: 16) {
+                if !documents.isEmpty {
+                    #if os(iOS)
+                    TabView(selection: $index) {
+                        ForEach(Array(documents.enumerated()), id: \.element.fileId) { offset, document in
+                            GalleryPage(document: document, core: core, active: abs(offset - index) <= 1)
+                                .tag(offset)
                         }
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if !document.caption.isEmpty { Text(verbatim: document.caption).font(.caption) }
-                    HStack {
-                        Button("Previous", systemImage: "chevron.left") { index = selected - 1 }.disabled(selected == 0)
-                        Spacer()
-                        Text("\(selected + 1) of \(documents.count)").font(.caption)
-                        Spacer()
-                        Button("Next", systemImage: "chevron.right") { index = selected + 1 }.disabled(selected + 1 == documents.count)
-                    }.padding()
-                }
-                .navigationTitle(document.label)
-                .toolbar { Button("Done") { dismiss() } }
-                .task(id: document.fileId) { await load(document) }
-            } else {
-                Text("File no longer available")
-                    .toolbar { Button("Done") { dismiss() } }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    #else
+                    GalleryPage(document: documents[index], core: core, active: true)
+                        .id(documents[index].fileId)
+                    #endif
+                    if documents.count > 1 {
+                        HStack(spacing: 16) {
+                            Button { withAnimation { index -= 1 } } label: { Image(systemName: "chevron.left") }
+                                .disabled(index == 0).accessibilityLabel("Previous")
+                            Text("\(index + 1) of \(documents.count)")
+                                .font(.subheadline.monospacedDigit()).accessibilityAddTraits(.updatesFrequently)
+                            Button { withAnimation { index += 1 } } label: { Image(systemName: "chevron.right") }
+                                .disabled(index == documents.count - 1).accessibilityLabel("Next")
+                        }
+                        .buttonStyle(.plain).padding(.horizontal, 18).padding(.vertical, 12)
+                        .background(.thinMaterial, in: Capsule()).padding(.bottom, 12)
+                    }
+                } else { ContentUnavailableView("File no longer available", systemImage: "photo") }
             }
-        }.onAppear { index = documents.firstIndex { $0.fileId == initial } ?? 0 }
-    }
-    @MainActor private func load(_ document: ChatDocument) async {
-        image = nil; failed = false; scale = 1
-        let bytes = await core.documentBytes(fileId: document.fileId)
-        guard !Task.isCancelled else { return }
-        image = bytes.flatMap { platformImage($0) }; failed = image == nil
+            .navigationTitle(documents.indices.contains(index) ? documents[index].label : String(localized: "Images"))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar { Button("Done") { dismiss() } }
+        }
     }
 }
 
+private struct GalleryPage: View {
+    let document: ChatDocument
+    let core: ChatViewModel
+    let active: Bool
+    @State private var image: CGImage?
+    @State private var failed = false
+    @State private var retry = 0
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Group {
+                if let image {
+                    #if os(iOS)
+                    GalleryZoomImage(image: image)
+                    #else
+                    GalleryMacZoomImage(image: image)
+                    #endif
+                } else if failed {
+                    ContentUnavailableView {
+                        Label("Image unavailable", systemImage: "photo")
+                    } actions: { Button("Retry") { retry += 1 } }
+                } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if !document.caption.isEmpty {
+                Text(verbatim: document.caption).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(3).padding(.horizontal)
+            }
+        }
+        .task(id: "\(active)-\(retry)") {
+            guard active else { image = nil; return }
+            guard image == nil else { return }
+            failed = false
+            let bytes = await core.documentBytes(fileId: document.fileId)
+            let decoded: CGImage?
+            if let bytes { decoded = await decodeImage(bytes) } else { decoded = nil }
+            guard !Task.isCancelled else { return }
+            image = decoded; failed = decoded == nil
+        }
+    }
+}
+
+#if os(iOS)
+/// UIKit owns zoom/pan without relaying every gesture frame through SwiftUI layout.
+private struct GalleryZoomImage: UIViewRepresentable {
+    let image: CGImage
+    func makeUIView(context: Context) -> GalleryImageScrollView { GalleryImageScrollView() }
+    func updateUIView(_ view: GalleryImageScrollView, context: Context) {
+        if view.imageView.image?.cgImage !== image {
+            view.setZoomScale(1, animated: false)
+            view.imageView.image = UIImage(cgImage: image)
+        }
+    }
+}
+
+private final class GalleryImageScrollView: UIScrollView, UIScrollViewDelegate {
+    let imageView = UIImageView()
+    private var viewport = CGSize.zero
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        delegate = self; minimumZoomScale = 1; maximumZoomScale = 4
+        showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
+        contentInsetAdjustmentBehavior = .never
+        imageView.contentMode = .scaleAspectFit
+        addSubview(imageView)
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(toggleZoom(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        addGestureRecognizer(doubleTap)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if viewport != bounds.size {
+            viewport = bounds.size
+            setZoomScale(1, animated: false)
+            imageView.frame = CGRect(origin: .zero, size: viewport)
+            contentSize = viewport
+        }
+    }
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+    @objc private func toggleZoom(_ gesture: UITapGestureRecognizer) {
+        if zoomScale > 1 { setZoomScale(1, animated: true) }
+        else {
+            let point = gesture.location(in: imageView)
+            let size = CGSize(width: bounds.width / 2, height: bounds.height / 2)
+            zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2,
+                            width: size.width, height: size.height), animated: true)
+        }
+    }
+}
+#endif
+
+#if os(macOS)
+private struct GalleryMacZoomImage: NSViewRepresentable {
+    let image: CGImage
+    func makeNSView(context: Context) -> GalleryMacScrollView { GalleryMacScrollView() }
+    func updateNSView(_ view: GalleryMacScrollView, context: Context) {
+        view.imageView.image = NSImage(cgImage: image, size: .zero)
+    }
+}
+
+private final class GalleryMacScrollView: NSScrollView {
+    let imageView = NSImageView()
+    private var viewport = CGSize.zero
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        drawsBackground = false
+        allowsMagnification = true; minMagnification = 1; maxMagnification = 4
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        documentView = imageView
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layout() {
+        super.layout()
+        if viewport != bounds.size {
+            viewport = bounds.size; magnification = 1
+            imageView.frame = CGRect(origin: .zero, size: viewport)
+        }
+    }
+}
+#endif
+
+// Force decoding away from the UI thread, including the first rendered frame.
+private func decodeImage(_ data: Data, maxPixelSize: Int = 2048) async -> CGImage? {
+    await Task.detached(priority: .userInitiated) { decodedCGImage(data, maxPixelSize: maxPixelSize) }.value
+}
+
+private func decodedCGImage(_ data: Data, maxPixelSize: Int) -> CGImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+    ] as CFDictionary)
+}
+
 func platformImage(_ data: Data, maxPixelSize: Int = 2048) -> Image? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-          let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
-          ] as CFDictionary) else { return nil }
-    return Image(decorative: cgImage, scale: 1)
+    decodedCGImage(data, maxPixelSize: maxPixelSize).map { Image(decorative: $0, scale: 1) }
 }
 
 /// A fixed footprint while loading, after decoding and on failure.
