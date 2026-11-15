@@ -346,7 +346,8 @@ describe('a node provisioned for a task admits that task', () => {
     const contenderId = 'task-booting-contender-b';
     await seedProvisionedCx23(nodeId, ownerId, { memoryPercent: 14 });
     await env.DATABASE.prepare("UPDATE nodes SET status = 'creating' WHERE id = ?")
-      .bind(nodeId).run();
+      .bind(nodeId)
+      .run();
     await seedTask(contenderId, PROJECT_ID, USER_ID, { status: 'queued', taskMode: 'task' });
     await startAtWorkspaceCreation(ownerId, nodeId, DOCUMENTED_CAP_MEMORY_MB);
     await runInDurableObject(taskRunner(contenderId), async (instance) => {
@@ -359,7 +360,8 @@ describe('a node provisioned for a task admits that task', () => {
     });
     // N becomes ready before B selects capacity, as in the production incident.
     await env.DATABASE.prepare("UPDATE nodes SET status = 'running' WHERE id = ?")
-      .bind(nodeId).run();
+      .bind(nodeId)
+      .run();
     const contender = (await fireAlarm(contenderId)).state;
     expect(contender.stepResults.nodeId).not.toBe(nodeId);
     expect(contender.currentStep).toBe('node_provisioning');
@@ -370,45 +372,54 @@ describe('a node provisioned for a task admits that task', () => {
     expect(await activeWorkspacesOn(nodeId)).toBe(1);
   });
 
-  it.each([false, true])('falls back from a full provisioned node (resuming interrupted fallback: %s)', async (resuming) => {
-    const nodeId = `node-full-owned-${resuming}`;
-    const taskId = `task-full-owned-${resuming}`;
-    const alternativeId = `node-idle-alternative-${resuming}`;
-    await seedProvisionedCx23(nodeId, taskId, { memoryPercent: 14 });
-    await seedWorkspace(`ws-full-owned-sibling-${resuming}`, nodeId, USER_ID, {
-      projectId: PROJECT_ID,
-      status: 'running',
-      resolvedReservationJson: JSON.stringify({ ...SIBLING_RESERVATION, memoryMb: 2048 }),
-    });
-    await startAtWorkspaceCreation(taskId, nodeId, DOCUMENTED_CAP_MEMORY_MB, {
-      priorRejections: DEFAULT_WORKSPACE_PLACEMENT_MAX_REJECTIONS - 1,
-    });
-    if (resuming) {
-      await runInDurableObject(taskRunner(taskId), async (instance) => {
-        const state = await instance.ctx.storage.get<TaskRunnerState>('state');
-        if (!state) throw new Error('Missing state');
-        state.rejectedAutoProvisionedNodeId = nodeId;
-        await instance.ctx.storage.put('state', state);
+  it.each([false, true])(
+    'falls back from a full provisioned node (resuming interrupted fallback: %s)',
+    async (resuming) => {
+      const nodeId = `node-full-owned-${resuming}`;
+      const taskId = `task-full-owned-${resuming}`;
+      const alternativeId = `node-idle-alternative-${resuming}`;
+      await seedProvisionedCx23(nodeId, taskId, { memoryPercent: 14 });
+      await seedWorkspace(`ws-full-owned-sibling-${resuming}`, nodeId, USER_ID, {
+        projectId: PROJECT_ID,
+        status: 'running',
+        resolvedReservationJson: JSON.stringify({ ...SIBLING_RESERVATION, memoryMb: 2048 }),
       });
+      await startAtWorkspaceCreation(taskId, nodeId, DOCUMENTED_CAP_MEMORY_MB, {
+        priorRejections: DEFAULT_WORKSPACE_PLACEMENT_MAX_REJECTIONS - 1,
+      });
+      if (resuming) {
+        await runInDurableObject(taskRunner(taskId), async (instance) => {
+          const state = await instance.ctx.storage.get<TaskRunnerState>('state');
+          if (!state) throw new Error('Missing state');
+          state.rejectedAutoProvisionedNodeId = nodeId;
+          await instance.ctx.storage.put('state', state);
+        });
+      }
+      await seedProvisionedCx23(alternativeId, `task-alternative-finished-${resuming}`, {
+        memoryPercent: 14,
+      });
+      await env.DATABASE.prepare("UPDATE tasks SET status = 'failed' WHERE id = ?")
+        .bind(`task-alternative-finished-${resuming}`)
+        .run();
+      let state: TaskRunnerState | undefined;
+      for (let i = 0; i < 40; i++) {
+        state = (await fireAlarm(taskId)).state;
+        if (state.completed || state.currentStep === 'workspace_dispatch') break;
+      }
+      expect(state?.completed).toBe(false);
+      expect(state?.currentStep).toBe('workspace_dispatch');
+      expect(state?.stepResults.nodeId).toBe(alternativeId);
+      expect((await taskRow(taskId))?.status).toBe('delegated');
+      expect(await activeWorkspacesOn(nodeId)).toBe(1);
+      expect(await activeWorkspacesOn(alternativeId)).toBe(1);
+      const owner = await env.DATABASE.prepare(
+        'SELECT auto_provisioned_node_id AS nodeId FROM tasks WHERE id = ?'
+      )
+        .bind(taskId)
+        .first<{ nodeId: string | null }>();
+      expect(owner?.nodeId).toBeNull();
     }
-    await seedProvisionedCx23(alternativeId, `task-alternative-finished-${resuming}`, { memoryPercent: 14 });
-    await env.DATABASE.prepare("UPDATE tasks SET status = 'failed' WHERE id = ?")
-      .bind(`task-alternative-finished-${resuming}`).run();
-    let state: TaskRunnerState | undefined;
-    for (let i = 0; i < 40; i++) {
-      state = (await fireAlarm(taskId)).state;
-      if (state.completed || state.currentStep === 'workspace_dispatch') break;
-    }
-    expect(state?.completed).toBe(false);
-    expect(state?.currentStep).toBe('workspace_dispatch');
-    expect(state?.stepResults.nodeId).toBe(alternativeId);
-    expect((await taskRow(taskId))?.status).toBe('delegated');
-    expect(await activeWorkspacesOn(nodeId)).toBe(1);
-    expect(await activeWorkspacesOn(alternativeId)).toBe(1);
-    const owner = await env.DATABASE.prepare('SELECT auto_provisioned_node_id AS nodeId FROM tasks WHERE id = ?')
-      .bind(taskId).first<{ nodeId: string | null }>();
-    expect(owner?.nodeId).toBeNull();
-  });
+  );
 
   it('fails a specified node on its first refusal and leaves that node alone', async () => {
     const nodeId = 'node-specified-overrun';
@@ -439,7 +450,9 @@ describe('a node provisioned for a task admits that task', () => {
     // 60% = 2458 MB that no workspace observation explains (a leak or an orphaned container).
     // Declared accounting fits (1024 + 3072 = 4096); only the measured overrun refuses it.
     await seedProvisionedCx23(nodeId, taskId, { memoryPercent: 60 });
-    await startAtWorkspaceCreation(taskId, nodeId, DOCUMENTED_CAP_MEMORY_MB, { priorFallback: true });
+    await startAtWorkspaceCreation(taskId, nodeId, DOCUMENTED_CAP_MEMORY_MB, {
+      priorFallback: true,
+    });
 
     const ran: string[] = [];
     let state: TaskRunnerState | null = null;
@@ -600,7 +613,9 @@ describe('a node provisioned for a task admits that task', () => {
     const taskId = `task-provisioned-limit-${limit}`;
     await seedProvisionedCx23(nodeId, taskId, { memoryPercent: 60 });
     await setMaxRejections(limit);
-    await startAtWorkspaceCreation(taskId, nodeId, DOCUMENTED_CAP_MEMORY_MB, { priorFallback: true });
+    await startAtWorkspaceCreation(taskId, nodeId, DOCUMENTED_CAP_MEMORY_MB, {
+      priorFallback: true,
+    });
 
     const { ran, state } = await runToCompletion(taskId);
 

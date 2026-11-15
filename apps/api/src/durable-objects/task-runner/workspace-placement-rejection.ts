@@ -29,12 +29,8 @@ import {
   LIFETIME_ADMISSION_CUTOFF_REASON,
 } from '../../services/node-lifetime-admission';
 import { releaseVmProvisioningLease } from '../../services/vm-admission-control';
-import {
-  trustedWorkspaceNodeCapacityColumnsSql,
-} from '../../services/workspace-admission-sql';
-import {
-  loadActiveWorkspaceReservationUsage,
-} from '../../services/workspace-reservation-usage';
+import { trustedWorkspaceNodeCapacityColumnsSql } from '../../services/workspace-admission-sql';
+import { loadActiveWorkspaceReservationUsage } from '../../services/workspace-reservation-usage';
 import { getTaskReservation } from './node-selection-shared';
 import { persistPlacementDiagnostics } from './placement-diagnostics';
 import type { TaskRunnerContext, TaskRunnerState } from './types';
@@ -162,7 +158,9 @@ export async function handleWorkspacePlacementRefused(
     await rc.env.DATABASE.prepare(
       `UPDATE tasks SET auto_provisioned_node_id = NULL, updated_at = ?
        WHERE id = ? AND auto_provisioned_node_id = ?`
-    ).bind(new Date().toISOString(), state.taskId, nodeId).run();
+    )
+      .bind(new Date().toISOString(), state.taskId, nodeId)
+      .run();
     await handOffEmptyWorkspaceNode(rc.env, {
       nodeId,
       expectedUserId: state.userId,

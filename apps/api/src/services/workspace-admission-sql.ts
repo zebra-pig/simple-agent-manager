@@ -3,13 +3,14 @@
  * the node scope, the requested and active reservations, and the eligibility predicate.
  * Split out of `workspace-placement.ts` (`.claude/rules/18-file-size-limits.md`).
  */
-import {
-  type WorkspaceAdmissionPolicy,
-} from '@simple-agent-manager/scheduler-core';
+import { type WorkspaceAdmissionPolicy } from '@simple-agent-manager/scheduler-core';
 import { resolveResourceReservation } from '@simple-agent-manager/shared';
 
 import { lifetimeAdmissionCutoffSql } from './node-lifetime-admission';
-import { buildPlacementAuthoritySqlPredicate, buildProvisionedNodeHoldSqlPredicate } from './placement-authority';
+import {
+  buildPlacementAuthoritySqlPredicate,
+  buildProvisionedNodeHoldSqlPredicate,
+} from './placement-authority';
 import type { WorkspacePlacementInput } from './workspace-placement';
 import {
   ACTIVE_WORKSPACE_RESERVATION_STATUS_SQL,

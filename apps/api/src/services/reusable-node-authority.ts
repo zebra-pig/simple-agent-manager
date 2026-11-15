@@ -1,7 +1,10 @@
 import type { CapacityPlacementSnapshot } from '@simple-agent-manager/shared';
 
 import { D1_MAX_BOUND_PARAMETERS } from '../lib/d1-limits';
-import { buildPlacementAuthoritySqlPredicate, buildProvisionedNodeHoldSqlPredicate } from './placement-authority';
+import {
+  buildPlacementAuthoritySqlPredicate,
+  buildProvisionedNodeHoldSqlPredicate,
+} from './placement-authority';
 
 export interface ReusableNodeAuthoritySelection {
   nodeId: string;
