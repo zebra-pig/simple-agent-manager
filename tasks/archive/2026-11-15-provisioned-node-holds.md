@@ -13,7 +13,7 @@ A second task could consume the node booting for its owner. Shared placement aut
 - [x] Restore and verify bounded TaskRunner fallback and crash recovery marker.
 - [x] Restore SQLite controls and Worker vertical slices; targeted final checks green.
 - [x] Local specialist and task completion review.
-- [ ] PR with preflight and cost bounds; no merge/deployment.
+- [x] PR with preflight and cost bounds; no merge/deployment.
 
 ## Regression evidence before workspace eviction
 
@@ -33,10 +33,10 @@ Skip staging and CodeRabbit by explicit human instruction: self-hosted fork has 
 - 14/14 real workerd TaskRunner tests passed, including A/B selection, full-node alternative placement, crash replay, and bounded exhaustion.
 - Lint passed 22 packages; typecheck passed 36 tasks; Agent Preflight checker passed.
 - Local test-engineer, constitution, Cloudflare, doc-sync and task-completion reviews passed with no code findings.
-- Full monorepo tests/build still in progress; infrastructure import timeouts passed with a 60-second hook limit. Two unchanged UI tests timed out at 5 seconds and will be rerun.
+- Full monorepo validation completed below; initial infrastructure/UI timeout cases passed on rerun with longer deadlines.
 
 ## Final validation
 
 All API files covered across partitions: 97 previously passed files plus 905 remaining (902 pass, 3 skipped). Combined API tests: 15008 passed, 4 skipped. All other monorepo test packages passed, with UI rerun 137/137 after two 5-second timeouts. Infrastructure rerun 75/75 with 60-second import-hook limit. Full web suite: 406 files, 5,173 tests. Build: 18 tasks passed.
 
-Branch includes latest main iOS-only commit 73e650e via merge; affected runtime diff unchanged. No staging, CodeRabbit, merge, or deployment performed. PR will be opened for human review.
+Branch includes latest main iOS-only commit 73e650e via merge; affected runtime diff unchanged. No staging, CodeRabbit, merge, or deployment performed. PR opened for human review: https://github.com/zebra-pig/simple-agent-manager/pull/28.
