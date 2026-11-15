@@ -111,12 +111,13 @@ async fn file_refresh_preserves_text_but_new_navigation_clears_it() {
     use std::sync::Mutex;
     struct Snapshots(Arc<Mutex<Vec<ChatToolsState>>>);
     impl ChatToolsObserver for Snapshots {
-        fn on_state_changed(&self, state: ChatToolsState) { self.0.lock().unwrap().push(state); }
+        fn on_state_changed(&self, state: ChatToolsState) {
+            self.0.lock().unwrap().push(state);
+        }
     }
-    let server = serve(Arc::new(|r| {
-        if r.path.contains("missing") { (500, "{}".into()) }
-        else { (200, json!({"content":"one\ntwo"}).to_string()) }
-    })).await;
+    let server =
+        serve(Arc::new(|r| if r.path.contains("missing") { (500, "{}".into()) } else { (200, json!({"content":"one\ntwo"}).to_string()) }))
+            .await;
     let store = MemoryStore::default();
     store.0.lock().unwrap().replace(Credentials { server_url: server, session_cookie: "session=abc".into() });
     let tools = ChatToolsViewModel::new(App::new(Box::new(store), None));

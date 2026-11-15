@@ -158,88 +158,88 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
     Column(Modifier.fillMaxWidth().fillMaxHeight(.92f).padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(stringResource(tool.title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 10.dp))
-            TextButton(onClick = { scope.launch { refresh() } }, enabled = tool == ChatTool.Progress || !state.loading) { LoadingLabel(stringResource(R.string.tool_refresh), if (tool == ChatTool.Progress) chat.loading else state.loading) }
+            TextButton(onClick = { scope.launch { refresh() } }, enabled = if (tool == ChatTool.Progress) !chat.loading else !state.loading) { LoadingLabel(stringResource(R.string.tool_refresh), if (tool == ChatTool.Progress) chat.loading else state.loading) }
             TextButton(onClick = onClose) { Text(stringResource(R.string.done)) }
         }
         key(tool, file, diff, staged, folder) {
-        InitialLoading(tool != ChatTool.Progress && state.loading) {
-        Column {
-        if (tool != ChatTool.Progress) state.error?.let { error -> Text(error.message(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
-        if (file != null) {
-            Row {
-                TextButton(onClick = { file = null; scope.launch { refresh() } }) { Text(stringResource(R.string.tool_back)) }
-                if (diff) TextButton(onClick = { diff = false; scope.launch { vm.openFile(file!!, false, false) } }) { Text(stringResource(R.string.view_file)) }
-            }
-            SelectionContainer { Text(file!!, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall) }
-            CodeContent(state.lines, diff)
-        } else {
-            if (tool == ChatTool.Files || tool == ChatTool.Git) OutlinedTextField(
-                value = filter, onValueChange = { filter = it }, label = { Text(stringResource(R.string.filter_files)) }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), singleLine = true,
-            )
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 32.dp), modifier = Modifier.fillMaxWidth()) {
-                when (tool) {
-                    ChatTool.Files -> {
-                        item {
-                            Text(state.path, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
-                            if (state.path != "." && state.path.isNotEmpty()) TextButton(onClick = {
-                                folder = state.path.substringBeforeLast('/', ".").ifEmpty { "." }; scope.launch { vm.browse(folder) }
-                            }) { Text(stringResource(R.string.parent_folder)) }
-                            if (state.entries.isEmpty() && !state.loading) Text(stringResource(R.string.empty_folder))
+            InitialLoading(tool != ChatTool.Progress && state.loading) {
+                Column {
+                    if (tool != ChatTool.Progress) state.error?.let { error -> Text(error.message(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
+                    if (file != null) {
+                        Row {
+                            TextButton(onClick = { file = null; scope.launch { refresh() } }) { Text(stringResource(R.string.tool_back)) }
+                            if (diff) TextButton(onClick = { diff = false; scope.launch { vm.openFile(file!!, false, false) } }) { Text(stringResource(R.string.view_file)) }
                         }
-                        items(state.entries.filter { it.name.contains(filter, ignoreCase = true) }, key = { it.name }) { entry ->
-                            ToolGlass {
-                                TextButton(onClick = {
-                                    val path = if (state.path == ".") entry.name else "${state.path}/${entry.name}"
-                                    if (entry.kind == "dir") { folder = path; scope.launch { vm.browse(path) } } else open(path)
-                                }) {
-                                    Text(stringResource(if (entry.kind == "dir") R.string.folder_entry else R.string.file_entry, entry.name), modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurface)
-                                }
-                            }
-                        }
-                    }
-                    ChatTool.Git -> {
-                        if (state.changes.isEmpty() && !state.loading) item { Text(stringResource(R.string.no_changes)) }
-                        for (group in 0..2) {
-                            val entries = state.changes.filter { if (group == 0) it.staged else if (group == 1) !it.staged && !it.untracked else it.untracked }
-                            if (entries.isNotEmpty()) item { Text(stringResource(if (group == 0) R.string.git_staged else if (group == 1) R.string.git_changes else R.string.git_untracked), style = MaterialTheme.typography.titleSmall) }
-                            items(entries.filter { it.path.contains(filter, ignoreCase = true) }, key = { "$group:${it.path}" }) { entry ->
-                                ToolGlass {
-                                    TextButton(onClick = { open(entry.path, !entry.untracked, entry.staged) }) {
-                                        Text("${entry.status}  ${entry.path}", fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.fillMaxWidth())
+                        SelectionContainer { Text(file!!, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall) }
+                        CodeContent(state.lines, diff)
+                    } else {
+                        if (tool == ChatTool.Files || tool == ChatTool.Git) OutlinedTextField(
+                            value = filter, onValueChange = { filter = it }, label = { Text(stringResource(R.string.filter_files)) }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), singleLine = true,
+                        )
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 32.dp), modifier = Modifier.fillMaxWidth()) {
+                            when (tool) {
+                                ChatTool.Files -> {
+                                    item {
+                                        Text(state.path, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
+                                        if (state.path != "." && state.path.isNotEmpty()) TextButton(onClick = {
+                                            folder = state.path.substringBeforeLast('/', ".").ifEmpty { "." }; scope.launch { vm.browse(folder) }
+                                        }) { Text(stringResource(R.string.parent_folder)) }
+                                        if (state.entries.isEmpty() && !state.loading) Text(stringResource(R.string.empty_folder))
                                     }
-                                    entry.oldPath?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                                    items(state.entries.filter { it.name.contains(filter, ignoreCase = true) }, key = { it.name }) { entry ->
+                                        ToolGlass {
+                                            TextButton(onClick = {
+                                                val path = if (state.path == ".") entry.name else "${state.path}/${entry.name}"
+                                                if (entry.kind == "dir") { folder = path; scope.launch { vm.browse(path) } } else open(path)
+                                            }) {
+                                                Text(stringResource(if (entry.kind == "dir") R.string.folder_entry else R.string.file_entry, entry.name), modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurface)
+                                            }
+                                        }
+                                    }
+                                }
+                                ChatTool.Git -> {
+                                    if (state.changes.isEmpty() && !state.loading) item { Text(stringResource(R.string.no_changes)) }
+                                    for (group in 0..2) {
+                                        val entries = state.changes.filter { if (group == 0) it.staged else if (group == 1) !it.staged && !it.untracked else it.untracked }
+                                        if (entries.isNotEmpty()) item { Text(stringResource(if (group == 0) R.string.git_staged else if (group == 1) R.string.git_changes else R.string.git_untracked), style = MaterialTheme.typography.titleSmall) }
+                                        items(entries.filter { it.path.contains(filter, ignoreCase = true) }, key = { "$group:${it.path}" }) { entry ->
+                                            ToolGlass {
+                                                TextButton(onClick = { open(entry.path, !entry.untracked, entry.staged) }) {
+                                                    Text("${entry.status}  ${entry.path}", fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.fillMaxWidth())
+                                                }
+                                                entry.oldPath?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                                            }
+                                        }
+                                    }
+                                }
+                                ChatTool.Resources -> {
+                                    item { Text(stringResource(R.string.resource_caption), style = MaterialTheme.typography.bodySmall) }
+                                    if (state.points.isEmpty() && !state.loading) item { Text(stringResource(if (state.collection == "pending") R.string.resource_pending else R.string.resource_unavailable)) }
+                                    if (state.omittedChunks > 0u) item { Text(stringResource(R.string.resource_omitted)) }
+                                    item { ResourceGraph(stringResource(R.string.chart_cpu), state.points, 1.0) { it.cpuCores } }
+                                    item { ResourceGraph(stringResource(R.string.chart_memory), state.points, 1048576.0) { it.memoryBytes } }
+                                    item { ResourceGraph(stringResource(R.string.chart_read), state.points, 1048576.0) { it.readBytes } }
+                                    item { ResourceGraph(stringResource(R.string.chart_write), state.points, 1048576.0) { it.writeBytes } }
+                                }
+                                ChatTool.Details -> {
+                                    item { SessionDetails(chat, state) }
+                                }
+                                ChatTool.Progress -> { item { ChatProgressContent(chat, openUrl, serverUrl) } }
+                                ChatTool.Timeline -> {
+                                    items(chat.items, key = { it.id }) { message -> ToolGlass {
+                                        Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(message.createdAt)), style = MaterialTheme.typography.labelSmall)
+                                        val document = (message.content as? org.simpleagentmanager.core.ChatContent.Document)?.document
+                                        if (document != null) DocumentCard(document, chat.items.mapNotNull { (it.content as? org.simpleagentmanager.core.ChatContent.Document)?.document }, chatVm)
+                                        else TimelineItem(message, openUrl)
+                                    } }
                                 }
                             }
                         }
-                    }
-                    ChatTool.Resources -> {
-                        item { Text(stringResource(R.string.resource_caption), style = MaterialTheme.typography.bodySmall) }
-                        if (state.points.isEmpty() && !state.loading) item { Text(stringResource(if (state.collection == "pending") R.string.resource_pending else R.string.resource_unavailable)) }
-                        if (state.omittedChunks > 0u) item { Text(stringResource(R.string.resource_omitted)) }
-                        item { ResourceGraph(stringResource(R.string.chart_cpu), state.points, 1.0) { it.cpuCores } }
-                        item { ResourceGraph(stringResource(R.string.chart_memory), state.points, 1048576.0) { it.memoryBytes } }
-                        item { ResourceGraph(stringResource(R.string.chart_read), state.points, 1048576.0) { it.readBytes } }
-                        item { ResourceGraph(stringResource(R.string.chart_write), state.points, 1048576.0) { it.writeBytes } }
-                    }
-                    ChatTool.Details -> {
-                        item { SessionDetails(chat, state) }
-                    }
-                    ChatTool.Progress -> { item { ChatProgressContent(chat, openUrl, serverUrl) } }
-                    ChatTool.Timeline -> {
-                        items(chat.items, key = { it.id }) { message -> ToolGlass {
-                            Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(message.createdAt)), style = MaterialTheme.typography.labelSmall)
-                            val document = (message.content as? org.simpleagentmanager.core.ChatContent.Document)?.document
-                            if (document != null) DocumentCard(document, chat.items.mapNotNull { (it.content as? org.simpleagentmanager.core.ChatContent.Document)?.document }, chatVm)
-                            else TimelineItem(message, openUrl)
-                        } }
                     }
                 }
             }
         }
     }
-}
-        }
-        }
 }
 
 @Composable

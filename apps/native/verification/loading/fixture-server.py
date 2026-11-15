@@ -1,5 +1,6 @@
 """Loopback-only delayed SAM responses for native loading verification."""
 import json
+import os
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,7 +10,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        time.sleep(3)
+        time.sleep(float(os.environ.get("SAM_FIXTURE_DELAY", "3")))
         if self.path == '/api/github/installations':
             body = [{'id': 'fixture', 'accountName': 'Example account'}]
         elif self.path == '/api/config/artifacts-enabled':

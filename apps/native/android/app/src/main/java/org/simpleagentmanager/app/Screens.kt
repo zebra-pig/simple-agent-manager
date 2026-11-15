@@ -354,14 +354,16 @@ internal fun TaskCard(task: TaskSummary, openUrl: (String) -> Unit) {
 @Composable
 private fun AccountScreen(app: AppState, onBack: () -> Unit, onSignOut: () -> Unit) {
     Scaffold(topBar = { BackBar(stringResource(R.string.account), onBack) }) { padding ->
-        Column(Modifier.padding(padding)) {
-            app.viewer?.let { viewer ->
-                ListItem(headlineContent = { Text(viewer.name) }, supportingContent = { Text(viewer.email) })
-            } ?: Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            ListItem(headlineContent = { Text(stringResource(R.string.server)) }, supportingContent = { Text(app.serverUrl) })
-            app.error?.let { ErrorRow(it.message()) }
-            TextButton(onClick = onSignOut, modifier = Modifier.padding(horizontal = 8.dp)) {
-                Text(stringResource(R.string.sign_out), color = MaterialTheme.colorScheme.error)
+        InitialLoading(app.viewer == null && app.error == null, Modifier.padding(padding)) {
+            Column {
+                app.viewer?.let { viewer ->
+                    ListItem(headlineContent = { Text(viewer.name) }, supportingContent = { Text(viewer.email) })
+                }
+                ListItem(headlineContent = { Text(stringResource(R.string.server)) }, supportingContent = { Text(app.serverUrl) })
+                app.error?.let { ErrorRow(it.message()) }
+                TextButton(onClick = onSignOut, modifier = Modifier.padding(horizontal = 8.dp)) {
+                    Text(stringResource(R.string.sign_out), color = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }

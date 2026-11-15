@@ -159,7 +159,9 @@ async fn repository_refresh_retains_results_and_changed_account_clears_them() {
     use sam_core::{ProjectManagementObserver, ProjectManagementState};
     struct Snapshots(Arc<Mutex<Vec<ProjectManagementState>>>);
     impl ProjectManagementObserver for Snapshots {
-        fn on_state_changed(&self, state: ProjectManagementState) { self.0.lock().unwrap().push(state); }
+        fn on_state_changed(&self, state: ProjectManagementState) {
+            self.0.lock().unwrap().push(state);
+        }
     }
     let vm = setup(Log::default()).await;
     vm.load(None).await;

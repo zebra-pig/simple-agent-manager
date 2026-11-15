@@ -7,8 +7,8 @@ struct LoadingLabel: View {
     let loading: Bool
 
     var body: some View {
-        Group {
-            if let systemImage { Label(title, systemImage: systemImage) }
+        HStack(spacing: 0) {
+            if let systemImage { Image(systemName: systemImage) }
             else { Text(title) }
         }
         .opacity(loading ? 0 : 1)

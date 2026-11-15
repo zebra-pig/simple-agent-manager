@@ -14,6 +14,7 @@ final class LoadingFixtureStore: CredentialStore, @unchecked Sendable {
 struct LoadingFixture: View {
     let app: App
     @State private var chat: ChatModel
+    @State private var completedLoads = 0
     init(app: App) {
         self.app = app
         let chat = ChatModel(app: app)
@@ -26,6 +27,11 @@ struct LoadingFixture: View {
                 ProjectSettings(app: app) { _ in }
             } else {
                 ChatToolView(tool: .resources, chat: chat, serverUrl: app.state().serverUrl)
+                    .onChange(of: chat.tools.state.loading) { _, loading in
+                        if !loading { completedLoads += 1 }
+                        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                        try? "\(loading ? "loading" : "loaded")-\(completedLoads)".write(to: directory.appendingPathComponent("stage"), atomically: true, encoding: .utf8)
+                    }
                     .task {
                         // The production view performs its first load. Start a second
                         // request after the loaded screen has been captured.

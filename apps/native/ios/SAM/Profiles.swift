@@ -153,15 +153,13 @@ struct ProfileEditor: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    if saving {
-                        ProgressView()
-                    } else {
-                        Button("Save") {
-                            let draft = draft
-                            Task { if await model.core.saveProfile(profileId: profile?.id, draft: draft) { dismiss() } }
-                        }
-                        .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button {
+                        let draft = draft
+                        Task { if await model.core.saveProfile(profileId: profile?.id, draft: draft) { dismiss() } }
+                    } label: {
+                        LoadingLabel(title: "Save", loading: saving)
                     }
+                    .disabled(saving || draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .onChange(of: draft.runtime) {
