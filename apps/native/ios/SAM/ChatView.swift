@@ -215,9 +215,19 @@ struct TimelineItemView: View {
                         ThinkingView(text: text)
                     case let .tool(call):
                         VStack(alignment: .leading, spacing: 6) {
-                            Label { Text(verbatim: call.title ?? toolLabel(call.kind)) }
+                            Label { Text(verbatim: toolLabel(call.kind)) }
                                 icon: { Image(systemName: call.status == .failed ? "exclamationmark.circle" : "terminal") }
                                 .font(.callout).foregroundStyle(call.status == .failed ? Color.red : Color.secondary)
+                            if let title = call.title {
+                                if call.kind == .execute {
+                                    CodeView(code: title, language: nil)
+                                } else {
+                                    Text(verbatim: title)
+                                        .font(.callout)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
                             ForEach(call.locations, id: \.self) { Text(verbatim: $0).font(.caption.monospaced()) }
                             if let output = call.output {
                                 DisclosureGroup("Output") { CodeView(code: output, language: nil) }
@@ -227,11 +237,24 @@ struct TimelineItemView: View {
                 }
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Activity · \(summary.toolCount) tools").font(.callout)
+                    if summary.toolCount == 1 {
+                        Text("Activity · 1 tool").font(.callout)
+                    } else {
+                        Text("Activity · \(summary.toolCount) tools").font(.callout)
+                    }
                     if summary.failedCount > 0 { Text("\(summary.failedCount) failed").font(.caption).foregroundStyle(.red) }
-                    if summary.live, let title = summary.liveTitle { Text(verbatim: title).font(.caption).foregroundStyle(Color.accentColor) }
+                    if summary.live, let title = summary.liveTitle {
+                        Text(verbatim: title)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
                 }
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .tint(.primary)
         case let .plan(entries):
             VStack(alignment: .leading, spacing: 8) {
                 Text("Plan").font(.headline)
