@@ -83,27 +83,27 @@ internal fun ChatToolsMenuItems(chat: ChatState, ending: Boolean, onTool: (ChatT
         "draft", "ready", "queued", "delegated" -> R.string.tool_cancel
         else -> null
     } else null
-            Text(stringResource(R.string.workspace_history), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall)
-            if (drives && session?.workspaceId != null && session.status == SessionStatus.ACTIVE) {
-                ToolMenuItem(ChatTool.Files) { onTool(it) }
-                ToolMenuItem(ChatTool.Git) { onTool(it) }
-            }
-            ToolMenuItem(ChatTool.Timeline) { onTool(it) }
-            WebToolMenuItem(R.string.tool_related) { onWeb(WebChatTool.RELATED) }
-            ToolMenuItem(ChatTool.Resources) { onTool(it) }
-            WebToolMenuItem(R.string.tool_automation) { onWeb(WebChatTool.AUTOMATION) }
-            WebToolMenuItem(R.string.tool_comments) { onWeb(WebChatTool.COMMENTS) }
-            HorizontalDivider(Modifier.padding(vertical = 6.dp))
-            if (session?.viewerAccess != null) WebToolMenuItem(R.string.tool_share) { onWeb(WebChatTool.SHARE) }
-            val task = session?.task
-            if (task != null) {
-                if (!(task.status == "cancelled" && task.terminalReason == "snapshot_expired")) WebToolMenuItem(R.string.tool_retry) { onWeb(WebChatTool.RETRY) }
-                WebToolMenuItem(R.string.tool_fork) { onWeb(WebChatTool.FORK) }
-            }
-            HorizontalDivider(Modifier.padding(vertical = 6.dp))
-            if (chat.reportEnabled) WebToolMenuItem(R.string.tool_report) { onWeb(WebChatTool.REPORT) }
-            if (end != null) DropdownMenuItem(text = { Text(stringResource(end)) }, enabled = !ending, onClick = { onEnd() })
-            ToolMenuItem(ChatTool.Details) { onTool(it) }
+    Text(stringResource(R.string.workspace_history), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall)
+    if (drives && session?.workspaceId != null && session.status == SessionStatus.ACTIVE) {
+        ToolMenuItem(ChatTool.Files) { onTool(it) }
+        ToolMenuItem(ChatTool.Git) { onTool(it) }
+    }
+    ToolMenuItem(ChatTool.Timeline) { onTool(it) }
+    WebToolMenuItem(R.string.tool_related) { onWeb(WebChatTool.RELATED) }
+    ToolMenuItem(ChatTool.Resources) { onTool(it) }
+    WebToolMenuItem(R.string.tool_automation) { onWeb(WebChatTool.AUTOMATION) }
+    WebToolMenuItem(R.string.tool_comments) { onWeb(WebChatTool.COMMENTS) }
+    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+    if (session?.viewerAccess != null) WebToolMenuItem(R.string.tool_share) { onWeb(WebChatTool.SHARE) }
+    val task = session?.task
+    if (task != null) {
+        if (!(task.status == "cancelled" && task.terminalReason == "snapshot_expired")) WebToolMenuItem(R.string.tool_retry) { onWeb(WebChatTool.RETRY) }
+        WebToolMenuItem(R.string.tool_fork) { onWeb(WebChatTool.FORK) }
+    }
+    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+    if (chat.reportEnabled) WebToolMenuItem(R.string.tool_report) { onWeb(WebChatTool.REPORT) }
+    if (end != null) DropdownMenuItem(text = { Text(stringResource(end)) }, enabled = !ending, onClick = { onEnd() })
+    ToolMenuItem(ChatTool.Details) { onTool(it) }
 }
 
 @Composable
