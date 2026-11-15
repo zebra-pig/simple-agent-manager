@@ -34,9 +34,9 @@ vi.mock('../../../src/services/attachment-upload', () => ({
 import { Hono } from 'hono';
 
 import type { Env } from '../../../src/env';
-import { uploadRoutes } from '../../../src/routes/tasks/upload';
-import { requireProjectAccess } from '../../../src/middleware/project-auth';
 import { errors } from '../../../src/middleware/error';
+import { requireProjectAccess } from '../../../src/middleware/project-auth';
+import { uploadRoutes } from '../../../src/routes/tasks/upload';
 
 const BASE_URL = 'https://api.test.example.com';
 
