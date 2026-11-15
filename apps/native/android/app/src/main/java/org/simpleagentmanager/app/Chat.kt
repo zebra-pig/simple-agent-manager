@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -24,7 +25,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.simpleagentmanager.core.*
 import org.simpleagentmanager.core.ChatContent as Content
 
@@ -60,10 +60,10 @@ fun ChatContent(
     state: ChatState, draft: String, onDraft: (String) -> Unit,
     onBack: () -> Unit, openUrl: (String) -> Unit,
     onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit,
+    listState: LazyListState = rememberLazyListState(),
     toolsMenu: @Composable () -> Unit = {}, documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
-    val list = rememberLazyListState()
-    val scope = rememberCoroutineScope()
+    val list = listState
     val atBottom by remember { derivedStateOf { !list.canScrollForward } }
     var followsLatest by remember { mutableStateOf(true) }
     LaunchedEffect(list) {
@@ -116,7 +116,10 @@ fun ChatContent(
             }
             if (state.loading && state.items.isEmpty()) CircularProgressIndicator(Modifier.align(Alignment.Center))
             if (!atBottom) LatestArrow(
-                onClick = { scope.launch { list.animateScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } },
+                onClick = {
+                    followsLatest = true
+                    list.requestScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
             )
         }
