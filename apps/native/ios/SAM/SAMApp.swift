@@ -17,7 +17,10 @@ struct RootView: View {
     var body: some View {
         Group {
             if app.state.status == .signedIn {
-                ProjectsView(app: app.core)
+                TabView {
+                    ProjectsView(app: app.core).tabItem { Label("Projects", systemImage: "folder") }
+                    NotificationsView(app: app.core).tabItem { Label("Notifications", systemImage: "bell") }
+                }
             } else {
                 SignInView()
             }

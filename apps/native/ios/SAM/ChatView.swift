@@ -3,12 +3,14 @@ import SwiftUI
 /// One chat session: the conversation, the task it runs, and follow-ups.
 /// Polls while on screen; there is no push channel yet.
 struct ChatView: View {
+    let app: App
     let ref: SessionRef
     @State private var chat: ChatModel
     @State private var draft = ""
     @Environment(\.openURL) private var openURL
 
     init(app: App, ref: SessionRef) {
+        self.app = app
         self.ref = ref
         _chat = State(initialValue: ChatModel(app: app))
     }
@@ -21,8 +23,29 @@ struct ChatView: View {
                         TaskCard(task: task) { openURL($0) }
                     }
                     ForEach(chat.state.messages, id: \.id) { message in
-                        MessageView(message: message).id(message.id)
+                        VStack(alignment: .leading, spacing: 12) {
+                            if message.requests.isEmpty { MessageView(message: message) }
+                            ForEach(message.requests, id: \.id) { request in
+                                RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval)
+                                    .padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                            }
+                        }.id(message.id)
                     }
+                    ForEach(chat.state.notifications.filter { item in
+                        guard let id = item.requestId else { return true }
+                        return !chat.state.messages.contains { $0.requests.contains { $0.id == id } }
+                    }, id: \.id) { item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(item.title).font(.headline)
+                            if let id = item.requestId {
+                                RequestCard(app: app, project: ref.projectId, session: ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval")
+                            } else if let body = item.body { Text(body) }
+                            if let action = item.actionUrl, let url = notificationUrl(serverUrl: app.state().serverUrl, actionUrl: action).flatMap(URL.init(string:)) {
+                                Button("Open on web") { openURL(url) }
+                            }
+                        }.padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                    }
+                    if let error = chat.state.notificationsError { Text(error.message).foregroundStyle(.red) }
                     if let provisioning = chat.state.provisioning {
                         ProvisioningView(state: provisioning).id("provisioning")
                     }

@@ -36,6 +36,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -122,18 +125,39 @@ fun Root(
     }
 
     BackHandler(enabled = session.stack.size > 1, onBack = session::pop)
-    when (val route = session.stack.last()) {
-        Route.Projects -> ProjectsScreen(projects, onOpen = { session.push(Route.Project(it.id, it.name)) }, onAccount = { session.push(Route.Account) })
-        Route.Account -> AccountScreen(app, onBack = session::pop, onSignOut = { session.signOut() })
-        is Route.Project -> ProjectScreen(
-            route,
-            project,
-            onBack = session::pop,
-            onOpen = { session.push(Route.Chat(route.id, it)) },
-            onEditProfile = { session.push(Route.ProfileEditor(route.id, it)) },
-        )
-        is Route.Chat -> ChatScreen(route, chat, onBack = session::pop, openUrl = openUrl)
-        is Route.ProfileEditor -> ProfileEditorScreen(route, project, onBack = session::pop)
+    val rootRoute = session.stack.last()
+    Scaffold(bottomBar = {
+        if (rootRoute == Route.Projects || rootRoute == Route.Notifications) {
+            MainTabs(rootRoute == Route.Notifications,
+                onProjects = { session.stack.clear(); session.stack.add(Route.Projects) },
+                onNotifications = { session.stack.clear(); session.stack.add(Route.Notifications) },
+            )
+        }
+    }) { tabPadding ->
+        Box(Modifier.padding(tabPadding)) {
+            when (val route = rootRoute) {
+                Route.Notifications -> NotificationsScreen(session.app, openUrl) { p, s -> session.push(Route.Chat(p, s)) }
+                Route.Projects -> ProjectsScreen(projects, onOpen = { session.push(Route.Project(it.id, it.name)) }, onAccount = { session.push(Route.Account) })
+                Route.Account -> AccountScreen(app, onBack = session::pop, onSignOut = { session.signOut() })
+                is Route.Project -> ProjectScreen(
+                    route, project, onBack = session::pop,
+                    onOpen = { session.push(Route.Chat(route.id, it)) },
+                    onEditProfile = { session.push(Route.ProfileEditor(route.id, it)) },
+                )
+                is Route.Chat -> ChatScreen(route, chat, onBack = session::pop, openUrl = openUrl)
+                is Route.ProfileEditor -> ProfileEditorScreen(route, project, onBack = session::pop)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun MainTabs(notifications: Boolean, onProjects: () -> Unit, onNotifications: () -> Unit) {
+    androidx.compose.material3.NavigationBar {
+        NavigationBarItem(selected = !notifications, onClick = onProjects,
+            icon = { Icon(Icons.AutoMirrored.Filled.List, null) }, label = { Text(stringResource(R.string.projects)) })
+        NavigationBarItem(selected = notifications, onClick = onNotifications,
+            icon = { Icon(Icons.Default.Notifications, null) }, label = { Text(stringResource(R.string.notifications)) })
     }
 }
 
@@ -326,7 +350,25 @@ private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, 
         Box(Modifier.padding(padding).fillMaxSize()) {
             LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (provisioning == null) session?.task?.let { task -> item { TaskCard(task, openUrl) } }
-                items(messages, key = { it.id }) { MessageRow(it) }
+                items(messages, key = { it.id }) { message ->
+                    if (message.requests.isEmpty()) MessageRow(message)
+                    message.requests.forEach { request ->
+                        RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval)
+                    }
+                }
+                items(state.notifications.filter { n -> n.requestId == null || messages.none { m -> m.requests.any { it.id == n.requestId } } }, key = { "notification-${it.id}" }) { n ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(n.title, style = MaterialTheme.typography.titleSmall)
+                            n.requestId?.let { RequestCard(model.app, route.projectId, route.sessionId, it, n.kind == "secret_request", n.kind == "operations_approval") }
+                                ?: n.body?.let { Text(it) }
+                            n.actionUrl?.let { action -> org.simpleagentmanager.core.notificationUrl(model.app.state().serverUrl, action)?.let { url ->
+                                TextButton(onClick = { openUrl(url) }) { Text(stringResource(R.string.open_on_web)) }
+                            } }
+                        }
+                    }
+                }
+                state.notificationsError?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
                 provisioning?.let { item(key = "provisioning") { ProvisioningCard(it) } }
                 if (current) state.error?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
             }

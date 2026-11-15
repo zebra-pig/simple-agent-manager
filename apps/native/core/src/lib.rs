@@ -13,6 +13,8 @@ mod api;
 #[macro_use]
 mod attachments;
 mod chat;
+mod notifications;
+pub use notifications::*;
 mod error;
 mod project;
 mod projects;

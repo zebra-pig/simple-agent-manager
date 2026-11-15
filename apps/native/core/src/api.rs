@@ -133,6 +133,8 @@ pub enum MessageRole {
 pub struct ChatMessage {
     pub id: String,
     pub role: MessageRole,
+    #[serde(default, rename = "toolMetadata", deserialize_with = "crate::notifications::parse_refs")]
+    pub requests: Vec<crate::notifications::RequestRef>,
     #[serde(default)]
     pub content: String,
     /// Unix milliseconds.
