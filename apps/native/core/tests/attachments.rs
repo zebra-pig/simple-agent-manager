@@ -146,3 +146,29 @@ async fn switching_session_drops_its_files() {
     chat.load("p1".into(), "s2".into()).await;
     assert!(chat.state().attachments.is_empty());
 }
+
+struct PreviewBytes { preview: Vec<u8> }
+impl AttachmentSource for PreviewBytes {
+    fn read(&self) -> Option<Vec<u8>> { Some(b"original image".to_vec()) }
+    fn thumbnail(&self) -> Option<Vec<u8>> { Some(self.preview.clone()) }
+}
+
+#[tokio::test]
+async fn thumbnails_are_local_bounded_and_do_not_replace_uploads() {
+    let log = Log::default();
+    let (app, _) = api(log.clone()).await;
+    let project = ProjectViewModel::new(app);
+    project.load("p1".into()).await;
+    project.add_attachment("photo.png".into(), "image/png".into(), 14,
+        Box::new(PreviewBytes { preview: b"small preview".to_vec() })).await;
+    assert_eq!(project.state().attachments[0].thumbnail.as_deref(), Some(b"small preview".as_slice()));
+    let requests = log.lock().unwrap().clone();
+    let put = requests.iter().find(|r| r.0 == "PUT").unwrap();
+    assert_eq!(put.4, b"original image");
+    assert!(!requests.iter().any(|r| r.4.windows(13).any(|s| s == b"small preview")));
+    project.add_attachment("large.png".into(), "image/png".into(), 14,
+        Box::new(PreviewBytes { preview: vec![0; 1024 * 1024 + 1] })).await;
+    let state = project.state();
+    assert_eq!(state.attachments[1].thumbnail, None);
+    assert_eq!(state.attachments[1].status, AttachmentStatus::Ready);
+}

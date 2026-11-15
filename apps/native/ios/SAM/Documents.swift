@@ -25,8 +25,8 @@ struct DocumentCard: View {
             else { Task { await openFile() } }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                if document.isImage, let image {
-                    image.resizable().scaledToFit().frame(maxWidth: 220, maxHeight: 140).clipShape(RoundedRectangle(cornerRadius: 10))
+                if document.isImage {
+                    ImageTile(image: image, side: 160)
                 }
                 HStack {
                     if loading { ProgressView().controlSize(.small) }
@@ -126,7 +126,7 @@ struct DocumentGallery: View {
     }
 }
 
-private func platformImage(_ data: Data, maxPixelSize: Int = 2048) -> Image? {
+func platformImage(_ data: Data, maxPixelSize: Int = 2048) -> Image? {
     guard let source = CGImageSourceCreateWithData(data as CFData, nil),
           let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -134,4 +134,33 @@ private func platformImage(_ data: Data, maxPixelSize: Int = 2048) -> Image? {
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
           ] as CFDictionary) else { return nil }
     return Image(decorative: cgImage, scale: 1)
+}
+
+/// A fixed footprint while loading, after decoding and on failure.
+struct ImageTile: View {
+    let image: Image?
+    let side: CGFloat
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.12)
+            if let image { image.resizable().scaledToFill() }
+            else { Image(systemName: "photo").foregroundStyle(.secondary) }
+        }
+        .frame(width: side, height: side)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+func attachmentThumbnail(_ source: CGImageSource?) -> Data? {
+    guard let source,
+          let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 320
+          ] as CFDictionary) else { return nil }
+    let data = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(destination, image, nil)
+    return CGImageDestinationFinalize(destination) ? data as Data : nil
 }

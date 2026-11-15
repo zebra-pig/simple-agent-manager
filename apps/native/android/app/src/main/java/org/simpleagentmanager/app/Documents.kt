@@ -4,6 +4,12 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -235,14 +241,7 @@ internal fun DocumentCardContent(
   val context = LocalContext.current
   val label = document.filename.ifEmpty { stringResource(R.string.document_file) }
   Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    thumbnail?.let {
-      Image(
-        it,
-        label,
-        Modifier.sizeIn(maxWidth = 220.dp, maxHeight = 140.dp),
-        contentScale = ContentScale.Fit,
-      )
-    }
+    if (document.image) SquareImageTile(thumbnail, label, 160.dp)
     Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
     if (document.caption.isNotEmpty())
       Text(document.caption, style = MaterialTheme.typography.bodySmall)
@@ -267,5 +266,16 @@ internal fun DocumentCardContent(
         stringResource(if (document.image) R.string.open_gallery else R.string.open_file),
         style = MaterialTheme.typography.labelSmall,
       )
+  }
+}
+
+@Composable
+internal fun SquareImageTile(thumbnail: ImageBitmap?, label: String, side: Dp) {
+  Box(
+    Modifier.size(side).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).semantics { contentDescription = label },
+    contentAlignment = Alignment.Center,
+  ) {
+    if (thumbnail != null) Image(thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    else Text("▧", color = MaterialTheme.colorScheme.onSurfaceVariant)
   }
 }
