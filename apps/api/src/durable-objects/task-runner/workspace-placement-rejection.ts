@@ -7,8 +7,8 @@
  * node can never admit this request. Before the cap, a freshly provisioned node
  * that its own task could not fit was re-adopted from `tasks.auto_provisioned_node_id`
  * every ~6 s until the 15-minute provisioning timeout (2026-11-05 staging). The cap
- * fails the task fast instead, with the refusal reasons, and keeps the node on the
- * run so failure cleanup hands a node this task provisioned to the warm pool.
+ * detaches that node once and returns to ordinary placement. A second exhausted
+ * refusal budget fails permanently, keeping the node for normal failure cleanup.
  *
  * One refusal is not a capacity verdict at all: a startup-backlog conflict, where the node's
  * startup queue grew after this run ranked it above another admitted node
@@ -27,13 +27,10 @@ import {
   isNodePastLifetimeAdmissionCutoff,
   LIFETIME_ADMISSION_CUTOFF_REASON,
 } from '../../services/node-lifetime-admission';
+import { handOffEmptyWorkspaceNode } from '../../services/node-warm-handoff';
 import { releaseVmProvisioningLease } from '../../services/vm-admission-control';
-import {
-  trustedWorkspaceNodeCapacityColumnsSql,
-} from '../../services/workspace-admission-sql';
-import {
-  loadActiveWorkspaceReservationUsage,
-} from '../../services/workspace-reservation-usage';
+import { trustedWorkspaceNodeCapacityColumnsSql } from '../../services/workspace-admission-sql';
+import { loadActiveWorkspaceReservationUsage } from '../../services/workspace-reservation-usage';
 import { getTaskReservation } from './node-selection-shared';
 import { persistPlacementDiagnostics } from './placement-diagnostics';
 import type { TaskRunnerContext, TaskRunnerState } from './types';
@@ -149,7 +146,31 @@ export async function handleWorkspacePlacementRefused(
     );
   }
 
-  if (rejections >= maxRejections) {
+  const canFallbackFromProvisionedNode =
+    state.stepResults.autoProvisioned &&
+    (!state.rejectedAutoProvisionedNodeId || state.rejectedAutoProvisionedNodeId === nodeId);
+  if (rejections >= maxRejections && canFallbackFromProvisionedNode) {
+    // One fallback for this execution. Persist the rejected node before releasing its D1
+    // ownership so a crash cannot adopt it again. A replacement gets the ordinary bounded
+    // refusal budget, but cannot buy another fallback by provisioning yet another node.
+    state.rejectedAutoProvisionedNodeId = nodeId;
+    await rc.ctx.storage.put('state', state);
+    await rc.env.DATABASE.prepare(
+      `UPDATE tasks SET auto_provisioned_node_id = NULL, updated_at = ?
+       WHERE id = ? AND auto_provisioned_node_id = ?`
+    )
+      .bind(new Date().toISOString(), state.taskId, nodeId)
+      .run();
+    await handOffEmptyWorkspaceNode(rc.env, {
+      nodeId,
+      expectedUserId: state.userId,
+      sourceProjectId: state.projectId,
+      reason: 'provisioned_node_placement_fallback',
+    });
+    state.workspacePlacementRejections = 0;
+    state.provisioningStartedAt = null;
+    state.agentReadyStartedAt = null;
+  } else if (rejections >= maxRejections) {
     // Keep stepResults.nodeId/autoProvisioned: cleanupOnFailure warm-hands-off a node this
     // task provisioned and leaves a reused node alone.
     throw Object.assign(

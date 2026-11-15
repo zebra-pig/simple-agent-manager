@@ -12,14 +12,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import * as schema from '../../../src/db/schema';
 import { isNodePastLifetimeAdmissionCutoff } from '../../../src/services/node-lifetime-admission';
+import { filterReusableNodesByCurrentAuthority } from '../../../src/services/reusable-node-authority';
 import {
   attachPrecreatedWorkspacePlacement,
   reserveWorkspacePlacement,
   reserveWorkspaceRestart,
 } from '../../../src/services/workspace-placement';
-import {
-  loadActiveWorkspaceReservationUsage,
-} from '../../../src/services/workspace-reservation-usage';
+import { loadActiveWorkspaceReservationUsage } from '../../../src/services/workspace-reservation-usage';
 import {
   createAllSchemaTables,
   createSqliteD1,
@@ -1857,6 +1856,153 @@ describe('lifetime admission cutoff at every new-placement atomic admission (pol
           expectedEvictionGeneration: null,
         },
         policy()
+      )
+    ).toBe(true);
+  });
+});
+
+describe('auto-provisioned node owner hold', () => {
+  function seedOwner(status = 'queued', workspaceId: string | null = null) {
+    sqlite
+      ?.prepare(
+        `INSERT INTO tasks
+      (id, project_id, user_id, title, status, auto_provisioned_node_id, workspace_id, created_at, updated_at)
+      VALUES ('owner', 'project-1', 'user-1', 'Owner', ?, 'node-1', ?, ?, ?)`
+      )
+      .run(status, workspaceId, AUTHORITY_TIMESTAMP, AUTHORITY_TIMESTAMP);
+  }
+
+  function select(database: ReturnType<typeof createDb>, requestingTaskId?: string) {
+    return filterReusableNodesByCurrentAuthority(database, {
+      userId: 'user-1',
+      projectId: 'project-1',
+      requestingTaskId,
+      selections: [{ nodeId: 'node-1', capacityPlacementSnapshot: capacitySnapshot() }],
+    });
+  }
+
+  it.each(['queued', 'delegated', 'in_progress'])(
+    'holds an unplaced %s owner node in selection and atomic admission',
+    async (status) => {
+      const database = createDb();
+      seedNode();
+      seedOwner(status);
+      expect(await select(database)).toEqual(new Set());
+      expect(
+        await reserveWorkspacePlacement(
+          database,
+          reserveInput(capacitySnapshot()),
+          admissionPolicy()
+        )
+      ).toBe(false);
+      expect(sqlite?.prepare('SELECT id FROM workspaces').all()).toEqual([]);
+    }
+  );
+
+  it('admits the owner onto its held node', async () => {
+    const database = createDb();
+    seedNode();
+    seedOwner();
+    expect(await select(database, 'owner')).toEqual(new Set(['node-1']));
+    expect(
+      await reserveWorkspacePlacement(
+        database,
+        {
+          ...reserveInput(capacitySnapshot()),
+          taskLifecycleGuard: {
+            taskId: 'owner',
+            projectId: 'project-1',
+            userId: 'user-1',
+            chatSessionId: null,
+          },
+        },
+        admissionPolicy()
+      )
+    ).toBe(true);
+  });
+
+  it.each(['failed', 'cancelled', 'completed', 'placed', 'unowned'])(
+    'reuses a node after its owner is %s',
+    async (state) => {
+      const database = createDb();
+      seedNode();
+      if (state !== 'unowned')
+        seedOwner(
+          state === 'placed' ? 'in_progress' : state,
+          state === 'placed' ? 'owner-workspace' : null
+        );
+      expect(await select(database)).toEqual(new Set(['node-1']));
+      expect(
+        await reserveWorkspacePlacement(
+          database,
+          reserveInput(capacitySnapshot()),
+          admissionPolicy()
+        )
+      ).toBe(true);
+    }
+  );
+
+  it.each(['insert', 'attach'] as const)(
+    'rechecks a hold acquired after %s selection at the final atomic mutation',
+    async (path) => {
+      const database = createDb();
+      seedNode();
+      expect(await select(database)).toEqual(new Set(['node-1']));
+      if (path === 'attach') seedPlaceholderWorkspace('workspace-1');
+      seedOwner();
+      const admitted =
+        path === 'insert'
+          ? await reserveWorkspacePlacement(
+              database,
+              reserveInput(capacitySnapshot()),
+              admissionPolicy()
+            )
+          : await attachPrecreatedWorkspacePlacement(
+              database,
+              reserveInput(capacitySnapshot()),
+              admissionPolicy()
+            );
+      expect(admitted).toBe(false);
+      expect(sqlite?.prepare("SELECT id FROM workspaces WHERE node_id = 'node-1'").all()).toEqual(
+        []
+      );
+    }
+  );
+
+  it('keeps owner admission and large reusable selection within the D1 bind limit', async () => {
+    createDb();
+    if (!sqlite) throw new Error('SQLite fixture was not initialized');
+    const database = createSqliteD1WithBindLimit(sqlite, 100);
+    seedNode({ created_at: new Date().toISOString() });
+    seedOwner();
+    const selections = Array.from({ length: 125 }, (_, i) => {
+      const nodeId = `extra-${i}`;
+      insertNodeRow({ id: nodeId });
+      return { nodeId, capacityPlacementSnapshot: capacitySnapshot() };
+    });
+    expect(
+      (
+        await filterReusableNodesByCurrentAuthority(database, {
+          userId: 'user-1',
+          projectId: 'project-1',
+          requestingTaskId: 'owner',
+          selections,
+        })
+      ).size
+    ).toBe(125);
+    expect(
+      await reserveWorkspacePlacement(
+        database,
+        {
+          ...reserveInput(capacitySnapshot()),
+          taskLifecycleGuard: {
+            taskId: 'owner',
+            projectId: 'project-1',
+            userId: 'user-1',
+            chatSessionId: null,
+          },
+        },
+        admissionPolicy({ lifetimeAdmissionCutoffAgeMs: 0.9 * 24 * 60 * 60 * 1000 })
       )
     ).toBe(true);
   });
