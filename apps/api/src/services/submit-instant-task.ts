@@ -17,6 +17,7 @@ import { scheduleInstantSessionLaunch } from './instant-launch-schedule';
 import { acceptInstantSession, type LaunchInstantSessionInput } from './instant-session';
 import { enrichMessageWithMentions } from './mention-enrichment';
 import { resolveProjectAgentDefault } from './project-agent-defaults';
+import { validateRunAgentConfiguration } from './run-agent-configuration';
 import type { SamDispatchReservation } from './sam-dispatch-reservation';
 import type { resolveSkillProfile } from './skills';
 import { transitionTaskToTerminal } from './task-terminal-transition';
@@ -47,6 +48,8 @@ export async function submitInstantTask(input: {
   agentType?: string;
   /** One-chat model/effort; null/absent inherits from the skill/profile/project. */
   agentOverrides?: Readonly<{ model?: string | null; effort?: AgentEffort | null }>;
+  /** The caller's own account chosen for this run; validated here against the agent. */
+  agentConfigurationId?: string | null;
   attachments: TaskAttachment[];
   credentialAttributionUserId: string;
   credentialAttributionProjectId: string | null;
@@ -70,6 +73,12 @@ export async function submitInstantTask(input: {
   const agentRun = resolveTaskAgentOverrides(agentType, input.agentOverrides ?? {}, {
     model: profile?.model ?? defaults.model,
     effort: profile?.effort,
+  });
+  // Before any task effect: an account that is not the caller's, paused, or for another agent.
+  const agentConfigurationId = await validateRunAgentConfiguration(db, {
+    userId,
+    configurationId: input.agentConfigurationId,
+    agentType,
   });
   const { enrichedMessage } = await enrichMessageWithMentions(message, db, project.id, userId, env);
   const agentPrompt = input.historicalContext
@@ -95,6 +104,7 @@ export async function submitInstantTask(input: {
     agentProfileHint: profile?.profileId ?? null,
     skillId: profile?.skillId ?? null,
     skillHint: profile?.skillId ?? null,
+    agentConfigurationId,
     taskMode,
     outputBranch: input.branchName,
     credentialAttributionUserId: input.credentialAttributionUserId,

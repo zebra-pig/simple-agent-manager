@@ -10,7 +10,7 @@ on:
 env:
   DEVCONTAINERS_CLI_VERSION: 0.80.2
   GITLEAKS_VERSION: 8.30.1
-  GO_VERSION: '1.26.10'
+  GO_VERSION: '1.26.11'
 
 permissions:
   contents: read
@@ -428,7 +428,11 @@ jobs:
         run: pnpm build
 
       - name: Run tests with coverage
-        run: pnpm test:coverage
+        # Bound both package scheduling and each Vitest pool. On the measured
+        # four-CPU runner this allows two pools of at most three workers.
+        run: |
+          node -e "console.log('Available test CPUs:', require('node:os').availableParallelism())"
+          pnpm test:coverage --concurrency=2 -- --maxWorkers=75%
 
   build:
     name: Build
@@ -457,7 +461,9 @@ jobs:
     needs: [changes]
     if: (github.event_name == 'pull_request' || github.repository == 'raphaeltm/simple-agent-manager') && (needs.changes.outputs.repo-quality == 'true' || needs.changes.outputs.browser-install == 'true')
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    # Pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest since 2026-11-14).
+    # Unpin with tasks/backlog/2026-11-15-vm-agent-reproducible-build-across-runners.md follow-ups.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -510,7 +516,9 @@ jobs:
     if: (github.event_name == 'pull_request' || github.repository == 'raphaeltm/simple-agent-manager') && (needs.changes.outputs.marketing-site == 'true' || needs.changes.outputs.browser-install == 'true')
     # Setup/build takes ~11 minutes; leave time for the browser suite.
     timeout-minutes: 25
-    runs-on: ubuntu-latest
+    # Pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest since 2026-11-14).
+    # Unpin with tasks/backlog/2026-11-15-vm-agent-reproducible-build-across-runners.md follow-ups.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -556,7 +564,9 @@ jobs:
     # Restrict to pull requests so they never run on push to main.
     if: github.event_name == 'pull_request' && (needs.changes.outputs.web-ui == 'true' || needs.changes.outputs.browser-install == 'true')
     timeout-minutes: 45
-    runs-on: ubuntu-latest
+    # Pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest since 2026-11-14).
+    # Unpin with tasks/backlog/2026-11-15-vm-agent-reproducible-build-across-runners.md follow-ups.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -739,7 +749,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Assert Go version
-        run: go version | grep -E '^go version go1\.26\.10 '
+        run: go version | grep -E '^go version go1\.26\.11 '
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
@@ -862,7 +872,11 @@ jobs:
           cache-dependency-path: packages/vm-agent/go.sum
 
       - name: Assert Go version
-        run: go version | grep -E '^go version go1\.26\.10 '
+        run: go version | grep -E '^go version go1\.26\.11 '
+
+      # The real Instant collect route resolves its canonical /workspaces mount.
+      - name: Prepare Instant workspace mountpoint
+        run: sudo install -d -o "$(id -u)" -g "$(id -g)" /workspaces
 
       - name: Run VM Agent tests
         working-directory: packages/vm-agent
@@ -883,7 +897,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Assert Go version
-        run: go version | grep -E '^go version go1\.26\.10 '
+        run: go version | grep -E '^go version go1\.26\.11 '
 
       - name: Run CLI tests
         working-directory: packages/cli
@@ -948,7 +962,7 @@ jobs:
           cache-dependency-path: packages/vm-agent/go.sum
 
       - name: Assert Go version
-        run: go version | grep -E '^go version go1\.26\.10 '
+        run: go version | grep -E '^go version go1\.26\.11 '
 
       - name: Install devcontainers CLI
         run: npm install -g --ignore-scripts "@devcontainers/cli@${DEVCONTAINERS_CLI_VERSION}"
@@ -979,7 +993,7 @@ jobs:
           cache-dependency-path: packages/vm-agent/go.sum
 
       - name: Assert Go version
-        run: go version | grep -E '^go version go1\.26\.10 '
+        run: go version | grep -E '^go version go1\.26\.11 '
 
       - name: Install devcontainers CLI
         run: npm install -g --ignore-scripts "@devcontainers/cli@${DEVCONTAINERS_CLI_VERSION}"
