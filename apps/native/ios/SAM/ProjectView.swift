@@ -142,7 +142,7 @@ struct Composer<Accessory: View>: View {
                 } else {
                     composerInput
                         .padding(.horizontal, 16)
-                        .padding(.top, 14)
+                        .padding(.top, 16)
                         .padding(.bottom, 8)
                     HStack(alignment: .bottom, spacing: 8) {
                         AttachButton(files: files).frame(width: 44, height: 44)
@@ -150,6 +150,8 @@ struct Composer<Accessory: View>: View {
                         Spacer(minLength: 0)
                         sendControl.frame(width: 44, height: 44)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
                 }
             }
             .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), interactive: true)
