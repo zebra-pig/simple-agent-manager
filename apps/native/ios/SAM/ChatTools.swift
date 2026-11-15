@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 
 enum ChatTool: String, Identifiable {
     case files, git, timeline, resources, details, progress
@@ -168,48 +167,8 @@ struct ChatToolView: View {
     }
 
     private var resources: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Session resource history").font(.headline)
-            Text("Minute averages for CPU and memory; I/O totals per minute.").font(.caption).foregroundStyle(.secondary)
-            if state.points.isEmpty && !state.loading {
-                Text(state.collection == "pending" ? String(localized: "Resource history is still being collected.") : String(localized: "Resource history is unavailable for this session."))
-            }
-            if state.omittedChunks > 0 { Text("Some older resource history was omitted.").font(.caption) }
-            resourceChart("CPU · cores", unit: 1, value: { $0.cpuCores })
-            resourceChart("Memory · MiB", unit: 1_048_576, value: { $0.memoryBytes })
-            resourceChart("Read · MiB/min", unit: 1_048_576, value: { $0.readBytes })
-            resourceChart("Write · MiB/min", unit: 1_048_576, value: { $0.writeBytes })
-        }
-    }
-    private func resourceChart(_ title: LocalizedStringKey, unit: Double, value: @escaping (ResourcePoint) -> Double?) -> some View {
-        VStack(alignment: .leading) {
-            Text(title).font(.subheadline)
-            Chart(chartSamples(value: value)) { sample in
-                LineMark(x: .value("Time", Date(timeIntervalSince1970: Double(sample.time) / 1000)), y: .value("Value", sample.value / unit), series: .value("Run", sample.segment))
-                    .foregroundStyle(Color.secondary)
-                PointMark(x: .value("Time", Date(timeIntervalSince1970: Double(sample.time) / 1000)), y: .value("Value", sample.value / unit))
-                    .foregroundStyle(Color.secondary)
-            }.frame(height: 150).chartYScale(domain: .automatic(includesZero: true))
-        }.padding(14).glass(in: RoundedRectangle(cornerRadius: 20))
-    }
-
-    private struct ChartSample: Identifiable {
-        let id: Int
-        let time: Int64
-        let value: Double
-        let segment: Int
-    }
-    private func chartSamples(value: (ResourcePoint) -> Double?) -> [ChartSample] {
-        var result: [ChartSample] = []
-        var segment = 0
-        var previous: ResourcePoint?
-        for (index, point) in state.points.enumerated() {
-            guard let y = value(point) else { segment += 1; previous = nil; continue }
-            if let last = previous, last.runId != point.runId || point.time - last.time > 60_000 { segment += 1 }
-            result.append(ChartSample(id: index, time: point.time, value: y, segment: segment))
-            previous = point
-        }
-        return result
+        ResourceHistoryView(points: state.points, collection: state.collection,
+                            omittedChunks: state.omittedChunks, loading: state.loading)
     }
 
     private var details: some View {
