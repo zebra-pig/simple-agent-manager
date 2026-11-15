@@ -23,11 +23,11 @@ import {
 
 import { log } from '../../lib/logger';
 import { resolveAdminSetting } from '../../services/admin-settings-resolution';
-import { handOffEmptyWorkspaceNode } from '../../services/node-warm-handoff';
 import {
   isNodePastLifetimeAdmissionCutoff,
   LIFETIME_ADMISSION_CUTOFF_REASON,
 } from '../../services/node-lifetime-admission';
+import { handOffEmptyWorkspaceNode } from '../../services/node-warm-handoff';
 import { releaseVmProvisioningLease } from '../../services/vm-admission-control';
 import { trustedWorkspaceNodeCapacityColumnsSql } from '../../services/workspace-admission-sql';
 import { loadActiveWorkspaceReservationUsage } from '../../services/workspace-reservation-usage';

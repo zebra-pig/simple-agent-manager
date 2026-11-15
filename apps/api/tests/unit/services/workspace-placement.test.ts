@@ -11,8 +11,8 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import * as schema from '../../../src/db/schema';
-import { filterReusableNodesByCurrentAuthority } from '../../../src/services/reusable-node-authority';
 import { isNodePastLifetimeAdmissionCutoff } from '../../../src/services/node-lifetime-admission';
+import { filterReusableNodesByCurrentAuthority } from '../../../src/services/reusable-node-authority';
 import {
   attachPrecreatedWorkspacePlacement,
   reserveWorkspacePlacement,
