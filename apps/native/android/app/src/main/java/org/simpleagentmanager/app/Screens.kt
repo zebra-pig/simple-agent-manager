@@ -31,6 +31,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -337,28 +344,57 @@ internal fun Composer(
 ) {
     var dropHover by remember { mutableStateOf(false) }
     val ready = attachments.all { it.status is AttachmentStatus.Ready }
-    Surface(
-        tonalElevation = 3.dp,
-        modifier = Modifier.fileDropTarget(onHover = { dropHover = it }, onDrop = onAttach),
-        border = if (dropHover) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-    ) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(vertical = 8.dp)) {
-            if (attachments.isNotEmpty()) AttachmentStrip(attachments, onRemove)
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
-                Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) { AttachButton(onAttach) }
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = onChange,
-                    placeholder = { Text(placeholder) },
-                    maxLines = 6,
-                    modifier = Modifier.weight(1f),
-                )
-                Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                    if (busy) {
-                        CircularProgressIndicator(Modifier.size(24.dp))
-                    } else {
-                        IconButton(onClick = onSend, enabled = (text.isNotBlank() || attachments.isNotEmpty()) && ready) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
+    val colors = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+        Surface(
+            modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth()
+                .fileDropTarget(onHover = { dropHover = it }, onDrop = onAttach),
+            shape = RoundedCornerShape(28.dp),
+            color = colors.surfaceContainer.copy(alpha = 0.94f),
+            contentColor = colors.onSurface,
+            shadowElevation = 6.dp,
+            border = BorderStroke(if (dropHover) 2.dp else 1.dp, colors.outlineVariant.copy(alpha = if (dropHover) 1f else 0.5f)),
+        ) {
+            Column {
+                if (attachments.isNotEmpty()) AttachmentStrip(attachments, onRemove)
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val density = LocalDensity.current
+                    val measurer = rememberTextMeasurer()
+                    val style = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface)
+                    val collapsedWidth = with(density) { (maxWidth - 112.dp).roundToPx().coerceAtLeast(1) }
+                    val expanded = measurer.measure(text.ifEmpty { placeholder }, style, constraints = Constraints(maxWidth = collapsedWidth)).lineCount > 1
+                    Layout(content = {
+                        BasicTextField(
+                            value = text, onValueChange = onChange, textStyle = style,
+                            cursorBrush = SolidColor(colors.onSurface), maxLines = 6,
+                            decorationBox = { field ->
+                                Box {
+                                    if (text.isEmpty()) Text(placeholder, style = style, color = colors.onSurfaceVariant)
+                                    field()
+                                }
+                            },
+                        )
+                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { AttachButton(onAttach) }
+                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                            if (busy) CircularProgressIndicator(Modifier.size(24.dp), color = colors.onSurfaceVariant)
+                            else IconButton(onClick = onSend, enabled = (text.isNotBlank() || attachments.isNotEmpty()) && ready) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
+                            }
+                        }
+                    }) { children, constraints ->
+                        val width = constraints.maxWidth
+                        val edge = 8.dp.roundToPx()
+                        val inset = 16.dp.roundToPx()
+                        val control = 48.dp.roundToPx()
+                        val fieldWidth = (width - if (expanded) inset * 2 else (control + edge) * 2).coerceAtLeast(1)
+                        val field = children[0].measure(Constraints(maxWidth = fieldWidth, minWidth = fieldWidth))
+                        val attach = children[1].measure(Constraints.fixed(control, control))
+                        val send = children[2].measure(Constraints.fixed(control, control))
+                        val height = if (expanded) inset + field.height + edge + control + edge else maxOf(56.dp.roundToPx(), field.height + edge * 2)
+                        layout(width, height) {
+                            field.placeRelative(if (expanded) inset else edge + control, if (expanded) inset else (height - field.height) / 2)
+                            attach.placeRelative(edge, height - control - if (expanded) edge else (height - control) / 2)
+                            send.placeRelative(width - edge - control, height - control - if (expanded) edge else (height - control) / 2)
                         }
                     }
                 }
