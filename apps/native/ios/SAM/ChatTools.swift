@@ -266,10 +266,12 @@ struct ChatToolView: View {
     }
     private var timeline: some View {
         LazyVStack(alignment: .leading, spacing: 12) {
-            ForEach(chat.state.messages, id: \.id) { message in
+            ForEach(chat.state.items, id: \.id) { message in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(Date(timeIntervalSince1970: Double(message.createdAt) / 1000), style: .time).font(.caption).foregroundStyle(.secondary)
-                    Text(verbatim: message.content).lineLimit(5).textSelection(.enabled)
+                    if case let .document(document) = message.content {
+                        DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
+                    } else { TimelineItemView(item: message) }
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading).glass(in: RoundedRectangle(cornerRadius: 16))
             }
         }

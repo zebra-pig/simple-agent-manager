@@ -137,7 +137,7 @@ private fun UserBubble(text: String) {
 }
 
 @Composable
-private fun TimelineItem(item: ChatItem, openUrl: (String) -> Unit) {
+internal fun TimelineItem(item: ChatItem, openUrl: (String) -> Unit) {
     when (val content = item.content) {
         is Content.Document -> Unit
         is Content.User -> UserBubble(content.text)

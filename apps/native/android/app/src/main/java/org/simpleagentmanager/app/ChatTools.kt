@@ -69,7 +69,7 @@ fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit) 
     tool?.let { selected ->
         val state by model.toolsState.collectAsStateWithLifecycle()
         ModalBottomSheet(onDismissRequest = { tool = null }, containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .97f)) {
-            ChatToolContent(selected, chat, state, model.tools, onClose = { tool = null })
+            ChatToolContent(selected, chat, state, model.tools, model.vm, openUrl, onClose = { tool = null })
         }
     }
 }
@@ -95,8 +95,9 @@ internal fun ChatToolsMenuItems(chat: ChatState, ending: Boolean, onTool: (ChatT
             WebToolMenuItem(R.string.tool_comments) { onWeb(WebChatTool.COMMENTS) }
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
             if (session?.viewerAccess != null) WebToolMenuItem(R.string.tool_share) { onWeb(WebChatTool.SHARE) }
-            if (session?.task != null) {
-                if (!(session.task.status == "cancelled" && session.task.terminalReason == "snapshot_expired")) WebToolMenuItem(R.string.tool_retry) { onWeb(WebChatTool.RETRY) }
+            val task = session?.task
+            if (task != null) {
+                if (!(task.status == "cancelled" && task.terminalReason == "snapshot_expired")) WebToolMenuItem(R.string.tool_retry) { onWeb(WebChatTool.RETRY) }
                 WebToolMenuItem(R.string.tool_fork) { onWeb(WebChatTool.FORK) }
             }
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
@@ -125,7 +126,7 @@ private fun ToolGlass(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsState, vm: ChatToolsViewModel, onClose: () -> Unit) {
+private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsState, vm: ChatToolsViewModel, chatVm: ChatViewModel, openUrl: (String) -> Unit, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var file by remember(tool, chat.sessionId) { mutableStateOf<String?>(null) }
     var diff by remember(tool) { mutableStateOf(false) }
@@ -219,9 +220,11 @@ private fun ChatToolContent(tool: ChatTool, chat: ChatState, state: ChatToolsSta
                         item { SessionDetails(chat, state) }
                     }
                     ChatTool.Timeline -> {
-                        items(chat.messages, key = { it.id }) { message -> ToolGlass {
+                        items(chat.items, key = { it.id }) { message -> ToolGlass {
                             Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(message.createdAt)), style = MaterialTheme.typography.labelSmall)
-                            SelectionContainer { Text(message.content, maxLines = 5) }
+                            val document = (message.content as? org.simpleagentmanager.core.ChatContent.Document)?.document
+                            if (document != null) DocumentCard(document, chat.items.mapNotNull { (it.content as? org.simpleagentmanager.core.ChatContent.Document)?.document }, chatVm)
+                            else TimelineItem(message, openUrl)
                         } }
                     }
                 }

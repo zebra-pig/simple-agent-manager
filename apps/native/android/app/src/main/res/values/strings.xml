@@ -219,7 +219,6 @@
     <string name="sam_suggest_running">What is running across my projects?</string>
     <string name="sam_suggest_ideas">Show my recent ideas</string>
     <string name="sam_thinking">Thinking</string>
-    <string name="jump_latest">Jump to latest message</string>
     <string name="sam_unavailable_action">No longer available</string>
     <string name="sam_confirm_stop_hint">This cancels the running work and shuts down its workspace.</string>
     <string name="sam_confirm_answer_hint">This sends your answer to the agent waiting in that chat.</string>
