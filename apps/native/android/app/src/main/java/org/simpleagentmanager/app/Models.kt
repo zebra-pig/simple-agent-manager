@@ -29,6 +29,7 @@ import org.simpleagentmanager.core.ProjectViewModel
 
 /** One entry of the back stack. */
 sealed interface Route {
+    data object Assistant : Route
     data object Notifications : Route
     data object Projects : Route
     data object Account : Route
