@@ -62,7 +62,10 @@ and `admissionState` so waking sessions and provider-limit holds do not show fir
 ## Attachments
 
 The composer takes files from its attach button (Files and Photos on Apple platforms, files and
-the photo picker on Android) and from drag and drop onto the input bar (Finder, the Files app,
+the photo picker on Android). On iOS and macOS, files and images can also be pasted into
+the input (`ios/SAM/ComposerTextInput.swift:AttachmentTextView.paste` and
+`ios/SAM/ProjectView.swift:Composer.composerInput`). Ordinary text paste stays in the draft.
+The composer also accepts drag and drop onto the input bar (Finder, the Files app,
 iPad and Android split screen). Each file uploads as soon as it is added, the way the web app does
 it (`apps/web/src/pages/project-chat/useAttachments.ts`), so the core needs no new server routes:
 
