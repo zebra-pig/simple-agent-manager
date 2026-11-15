@@ -10,9 +10,9 @@ A second task could consume the node booting for its owner. Shared placement aut
 
 - [x] Shared exclusion at selection and atomic INSERT/ATTACH/restart admission.
 - [x] Owner identity propagated through ranked, pinned and warm selection.
-- [ ] Restore and verify bounded TaskRunner fallback and crash recovery marker.
-- [ ] Restore SQLite controls and Worker vertical slices; run final green checks.
-- [ ] Local specialist and task completion review.
+- [x] Restore and verify bounded TaskRunner fallback and crash recovery marker.
+- [x] Restore SQLite controls and Worker vertical slices; targeted final checks green.
+- [x] Local specialist and task completion review.
 - [ ] PR with preflight and cost bounds; no merge/deployment.
 
 ## Regression evidence before workspace eviction
@@ -26,3 +26,11 @@ A's booting node is unavailable to B, then admits A. Idle unowned, failed/cancel
 ## Constraints
 
 Skip staging and CodeRabbit by explicit human instruction: self-hosted fork has neither. Open PR and STOP for review. Do not merge/deploy. Branch sam/note-earlier-attempt-task-dm848c.
+
+## Restored verification
+
+- 132/132 SQLite admission and authority tests passed.
+- 14/14 real workerd TaskRunner tests passed, including A/B selection, full-node alternative placement, crash replay, and bounded exhaustion.
+- Lint passed 22 packages; typecheck passed 36 tasks; Agent Preflight checker passed.
+- Local test-engineer, constitution, Cloudflare, doc-sync and task-completion reviews passed with no code findings.
+- Full monorepo tests/build still in progress; infrastructure import timeouts passed with a 60-second hook limit. Two unchanged UI tests timed out at 5 seconds and will be rerun.
