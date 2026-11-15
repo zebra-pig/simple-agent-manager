@@ -57,6 +57,7 @@ pub struct DeviceSignIn {
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct AppState {
+    pub assistant_enabled: bool,
     pub status: AuthStatus,
     /// The server signed in to, or the one the sign-in screen suggests.
     pub server_url: String,
@@ -164,7 +165,7 @@ impl App {
             credentials: Mutex::new(credentials),
             sign_in_generation: AtomicU64::new(0),
             pending: Mutex::new(None),
-            state: Mutex::new(AppState { status, server_url, viewer: None, sign_in: None, error: None }),
+            state: Mutex::new(AppState { assistant_enabled: false, status, server_url, viewer: None, sign_in: None, error: None }),
             observer: Mutex::new(None),
             push_token: Mutex::new(None),
         })
@@ -304,12 +305,31 @@ impl App {
         }
     }
 
+    /// Account preference and installation availability must both permit the main SAM tab.
+    pub async fn refresh_assistant_settings(&self) {
+        #[derive(Deserialize)]
+        struct Settings {
+            enabled: bool,
+            available: bool,
+        }
+        let Ok(credentials) = self.credentials() else { return };
+        let enabled = self
+            .send_scoped::<Settings>(credentials.clone(), |http, base| http.get(format!("{base}/api/sam/settings")))
+            .await
+            .map(|s| s.enabled && s.available)
+            .unwrap_or(false);
+        if self.credentials().ok().as_ref() == Some(&credentials) {
+            self.update(|s| s.assistant_enabled = enabled && s.status == AuthStatus::SignedIn);
+        }
+    }
+
     pub async fn sign_out(&self) {
         let credentials = self.credentials.lock().unwrap().take();
         self.store.clear();
         self.update(|s| {
             s.status = AuthStatus::SignedOut;
             s.viewer = None;
+            s.assistant_enabled = false;
             s.error = None;
         });
         if let Some(c) = credentials {
@@ -396,16 +416,28 @@ impl App {
         self.update(|s| {
             s.status = AuthStatus::SignedOut;
             s.viewer = None;
+            s.assistant_enabled = false;
             s.error = Some(UserError::SessionEnded);
         });
     }
 
-    fn credentials(&self) -> Result<Credentials> {
+    pub(crate) fn credentials(&self) -> Result<Credentials> {
         self.credentials.lock().unwrap().clone().ok_or(CoreError::Unauthenticated)
     }
 
     async fn send<T: DeserializeOwned>(&self, req: impl FnOnce(&reqwest::Client, &str) -> reqwest::RequestBuilder) -> Result<T> {
-        let c = self.credentials()?;
+        self.send_scoped(self.credentials()?, req).await
+    }
+
+    /// Bind a private conversation request to the login that created its view model.
+    pub(crate) async fn send_scoped<T: DeserializeOwned>(
+        &self,
+        c: Credentials,
+        req: impl FnOnce(&reqwest::Client, &str) -> reqwest::RequestBuilder,
+    ) -> Result<T> {
+        if self.credentials()? != c {
+            return Err(CoreError::Unauthenticated);
+        }
         let res = req(&self.http, &c.server_url)
             .header(reqwest::header::COOKIE, &c.session_cookie)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -418,7 +450,11 @@ impl App {
             }
             return Err(CoreError::Unauthenticated);
         }
-        read_json(res).await
+        let result = read_json(res).await;
+        if self.credentials()? != c {
+            return Err(CoreError::Unauthenticated);
+        }
+        result
     }
 
     /// GET `path` (from `/api/...`) as the signed-in user.

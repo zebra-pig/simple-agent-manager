@@ -124,11 +124,24 @@ fun Root(
         return SignInScreen(app, onSignIn = { session.signIn(it, openUrl) }, onOpen = openUrl, onCancel = session::cancelSignIn)
     }
 
+    val rootLifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(app.status, rootLifecycle) {
+        rootLifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) { session.app.refreshAssistantSettings(); delay(30_000) }
+        }
+    }
+    LaunchedEffect(app.assistantEnabled) {
+        if (!app.assistantEnabled && session.stack.last() == Route.Assistant) {
+            session.stack.clear(); session.stack.add(Route.Projects)
+        }
+    }
     BackHandler(enabled = session.stack.size > 1, onBack = session::pop)
     val rootRoute = session.stack.last()
     Scaffold(bottomBar = {
-        if (rootRoute == Route.Projects || rootRoute == Route.Notifications) {
+        if (rootRoute == Route.Projects || rootRoute == Route.Notifications || rootRoute == Route.Assistant) {
             MainTabs(rootRoute == Route.Notifications,
+                assistant = rootRoute == Route.Assistant, assistantEnabled = app.assistantEnabled,
+                onAssistant = { session.stack.clear(); session.stack.add(Route.Assistant) },
                 onProjects = { session.stack.clear(); session.stack.add(Route.Projects) },
                 onNotifications = { session.stack.clear(); session.stack.add(Route.Notifications) },
             )
@@ -136,6 +149,7 @@ fun Root(
     }) { tabPadding ->
         Box(Modifier.padding(tabPadding)) {
             when (val route = rootRoute) {
+                Route.Assistant -> AssistantScreen(session.app, openUrl) { p, s -> session.push(Route.Chat(p, s)) }
                 Route.Notifications -> NotificationsScreen(session.app, openUrl) { p, s -> session.push(Route.Chat(p, s)) }
                 Route.Projects -> ProjectsScreen(projects, onOpen = { session.push(Route.Project(it.id, it.name)) }, onAccount = { session.push(Route.Account) })
                 Route.Account -> AccountScreen(app, onBack = session::pop, onSignOut = { session.signOut() })
@@ -152,10 +166,12 @@ fun Root(
 }
 
 @Composable
-internal fun MainTabs(notifications: Boolean, onProjects: () -> Unit, onNotifications: () -> Unit) {
+internal fun MainTabs(notifications: Boolean, onProjects: () -> Unit, onNotifications: () -> Unit, assistant: Boolean = false, assistantEnabled: Boolean = false, onAssistant: () -> Unit = {}) {
     androidx.compose.material3.NavigationBar {
-        NavigationBarItem(selected = !notifications, onClick = onProjects,
+        NavigationBarItem(selected = !notifications && !assistant, onClick = onProjects,
             icon = { Icon(Icons.AutoMirrored.Filled.List, null) }, label = { Text(stringResource(R.string.projects)) })
+        if (assistantEnabled) NavigationBarItem(selected = assistant, onClick = onAssistant,
+            icon = { Icon(AssistantIcons.Sparkles, null) }, label = { Text("SAM") })
         NavigationBarItem(selected = notifications, onClick = onNotifications,
             icon = { Icon(Icons.Default.Notifications, null) }, label = { Text(stringResource(R.string.notifications)) })
     }
