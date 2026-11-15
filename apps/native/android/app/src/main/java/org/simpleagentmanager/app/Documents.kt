@@ -13,7 +13,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -136,102 +144,117 @@ private fun DocumentGallery(
   close: () -> Unit,
 ) {
   if (documents.isEmpty()) return
-  var index by remember {
-    mutableIntStateOf(documents.indexOfFirst { it.fileId == initial }.coerceAtLeast(0))
-  }
-  var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-  var failed by remember { mutableStateOf(false) }
-  var retry by remember { mutableIntStateOf(0) }
-  val selected = index.coerceAtMost(documents.lastIndex)
-  val document = documents[selected]
-  LaunchedEffect(document.fileId, retry) {
-    bitmap = null
-    failed = false
-    val bytes = core.documentBytes(document.fileId)
-    bitmap = bytes?.let { decode(it, 2048) }
-    failed = bitmap == null
-  }
   Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-    DocumentGalleryContent(
-      document,
-      selected,
-      documents.size,
-      bitmap,
-      failed,
-      { index = selected - 1 },
-      { index = selected + 1 },
-      { retry++ },
-      close,
-    )
+    DocumentGalleryContent(documents, initial, { document ->
+      core.documentBytes(document.fileId)?.let { decode(it, 2048) }
+    }, close)
   }
 }
 
 @Composable
 internal fun DocumentGalleryContent(
-  document: ChatDocument,
-  index: Int,
-  count: Int,
-  bitmap: ImageBitmap?,
-  failed: Boolean,
-  previous: () -> Unit,
-  next: () -> Unit,
-  retry: () -> Unit,
+  documents: List<ChatDocument>,
+  initial: String,
+  load: suspend (ChatDocument) -> ImageBitmap?,
   close: () -> Unit,
 ) {
-  var scale by remember(document.fileId) { mutableFloatStateOf(1f) }
-  var offset by
-    remember(document.fileId) { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+  GalleryLayout(documents, initial, close) { document -> GalleryPage(document, load) }
+}
+
+@Composable
+internal fun GalleryLayout(
+  documents: List<ChatDocument>, initial: String, close: () -> Unit,
+  pageContent: @Composable (ChatDocument) -> Unit,
+) {
+  if (documents.isEmpty()) return
+  val pager = rememberPagerState(
+    initialPage = documents.indexOfFirst { it.fileId == initial }.coerceAtLeast(0),
+    pageCount = { documents.size },
+  )
+  val scope = rememberCoroutineScope()
+  val document = documents[pager.currentPage.coerceAtMost(documents.lastIndex)]
   Surface(Modifier.fillMaxSize()) {
-    Column(Modifier.safeDrawingPadding().padding(16.dp)) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(document.filename, Modifier.weight(1f), maxLines = 2)
+    Column(Modifier.safeDrawingPadding()) {
+      Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(document.filename, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+          style = MaterialTheme.typography.titleSmall)
         TextButton(onClick = close) { Text(stringResource(R.string.document_done)) }
       }
-      Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-        bitmap?.let { image ->
-          Image(
-            image,
-            document.filename,
-            Modifier.fillMaxSize()
-              .pointerInput(document.fileId) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                  scale = (scale * zoom).coerceIn(1f, 4f)
-                  offset =
-                    if (scale == 1f) androidx.compose.ui.geometry.Offset.Zero else offset + pan
-                }
-              }
-              .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                translationX = offset.x
-                translationY = offset.y
-              },
-            contentScale = ContentScale.Fit,
-          )
-        }
-        if (failed)
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(stringResource(R.string.document_unavailable))
-            TextButton(onClick = retry) { Text(stringResource(R.string.document_retry)) }
+      HorizontalPager(
+        pager, Modifier.weight(1f).fillMaxWidth(), key = { documents[it].fileId },
+        beyondViewportPageCount = 1,
+      ) { page -> pageContent(documents[page]) }
+      if (documents.size > 1) {
+        Surface(
+          Modifier.align(Alignment.CenterHorizontally).padding(vertical = 12.dp),
+          shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
+              enabled = pager.currentPage > 0 && !pager.isScrollInProgress) {
+              val label = stringResource(R.string.document_previous)
+              Text("‹", Modifier.semantics { contentDescription = label }, style = MaterialTheme.typography.titleLarge)
+            }
+            Text(stringResource(R.string.document_position, pager.currentPage + 1, documents.size),
+              style = MaterialTheme.typography.labelLarge)
+            IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
+              enabled = pager.currentPage < documents.lastIndex && !pager.isScrollInProgress) {
+              val label = stringResource(R.string.document_next)
+              Text("›", Modifier.semantics { contentDescription = label }, style = MaterialTheme.typography.titleLarge)
+            }
           }
-        else if (bitmap == null) CircularProgressIndicator()
-      }
-      if (document.caption.isNotBlank())
-        Text(document.caption, style = MaterialTheme.typography.bodySmall)
-      Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        TextButton(onClick = previous, enabled = index > 0) {
-          Text(stringResource(R.string.document_previous))
-        }
-        Text(stringResource(R.string.document_position, index + 1, count))
-        TextButton(onClick = next, enabled = index + 1 < count) {
-          Text(stringResource(R.string.document_next))
         }
       }
     }
+  }
+}
+
+@Composable
+private fun GalleryPage(document: ChatDocument, load: suspend (ChatDocument) -> ImageBitmap?) {
+  var bitmap by remember(document.fileId) { mutableStateOf<ImageBitmap?>(null) }
+  var failed by remember(document.fileId) { mutableStateOf(false) }
+  var retry by remember(document.fileId) { mutableIntStateOf(0) }
+  LaunchedEffect(document.fileId, retry) {
+    failed = false
+    bitmap = load(document)
+    failed = bitmap == null
+  }
+  GalleryImageContent(document, bitmap, failed) { retry++ }
+}
+
+@Composable
+internal fun GalleryImageContent(document: ChatDocument, bitmap: ImageBitmap?, failed: Boolean, retry: () -> Unit) {
+  var scale by remember(document.fileId) { mutableFloatStateOf(1f) }
+  var offset by remember(document.fileId) { mutableStateOf(Offset.Zero) }
+  var viewport by remember { mutableStateOf(IntSize.Zero) }
+  val transform = rememberTransformableState { zoom, pan, _ ->
+    scale = (scale * zoom).coerceIn(1f, 4f)
+    offset = if (scale == 1f) Offset.Zero else Offset(
+      (offset.x + pan.x).coerceIn(-viewport.width * (scale - 1) / 2, viewport.width * (scale - 1) / 2),
+      (offset.y + pan.y).coerceIn(-viewport.height * (scale - 1) / 2, viewport.height * (scale - 1) / 2),
+    )
+  }
+  Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().onSizeChanged { viewport = it }, contentAlignment = Alignment.Center) {
+      if (bitmap != null) {
+        Image(bitmap, document.filename,
+          Modifier.fillMaxSize().pointerInput(document.fileId) {
+            detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2f; offset = Offset.Zero })
+          }.transformable(transform, canPan = { scale > 1f })
+            .graphicsLayer {
+              scaleX = scale; scaleY = scale
+              translationX = offset.x; translationY = offset.y
+            }, contentScale = ContentScale.Fit)
+      } else if (failed) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          Text(stringResource(R.string.document_unavailable))
+          TextButton(onClick = retry) { Text(stringResource(R.string.document_retry)) }
+        }
+      } else CircularProgressIndicator()
+    }
+    if (document.caption.isNotBlank()) Text(document.caption,
+      Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+      style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
   }
 }
 
