@@ -206,13 +206,13 @@ struct TimelineItemView: View {
         case let .agent(_, blocks):
             MarkdownView(blocks: blocks)
         case let .thinking(text):
-            DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+            ThinkingView(text: text)
         case let .activity(steps, summary):
             DisclosureGroup {
                 ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                     switch step {
                     case let .thought(text):
-                        DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary) }
+                        ThinkingView(text: text)
                     case let .tool(call):
                         VStack(alignment: .leading, spacing: 6) {
                             Label { Text(verbatim: call.title ?? toolLabel(call.kind)) }
