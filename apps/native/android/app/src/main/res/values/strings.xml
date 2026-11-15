@@ -63,6 +63,29 @@
     <string name="permission_bypass">Bypass permissions</string>
     <string name="work_type_task">Task (opens a pull request)</string>
     <string name="work_type_conversation">Conversation</string>
+    <string name="profile_machine">Machine</string>
+    <string name="profile_runtime">Runtime</string>
+    <string name="runtime_vm">Cloud VM</string>
+    <string name="runtime_instant">Instant container</string>
+    <string name="profile_min_vcpu">Min. vCPUs</string>
+    <string name="profile_min_memory">Min. memory (GB)</string>
+    <string name="profile_min_disk">Min. disk (GB)</string>
+    <string name="profile_dedicated_node">Dedicated node</string>
+    <string name="profile_machine_size">Machine size</string>
+    <string name="profile_workspace">Workspace</string>
+    <string name="workspace_full">Full</string>
+    <string name="workspace_lightweight">Lightweight</string>
+    <string name="profile_devcontainer">Devcontainer</string>
+    <string name="profile_devcontainer_auto">Auto-detect</string>
+    <string name="profile_machine_help">The smallest machine this profile runs on. Empty fields use the project\'s settings.</string>
+    <string name="profile_machine_help_instant">An instant container starts in seconds, in a lightweight workspace without machine settings.</string>
+    <string name="profile_limits">Limits</string>
+    <string name="profile_max_turns">Max turns</string>
+    <string name="profile_timeout">Timeout (minutes)</string>
+    <string name="profile_limits_help">When the agent stops on its own. Empty uses the project\'s settings.</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="clear">Clear</string>
     <plurals name="active_sessions">
         <item quantity="one">%1$d active</item>
         <item quantity="other">%1$d active</item>
@@ -99,5 +122,6 @@
     <string name="error_attachments_too_large">Together the files can be at most %1$s.</string>
     <string name="error_attachments_not_ready">Wait for the files to upload, or remove the ones that failed.</string>
     <string name="error_profile_name_required">Give the profile a name.</string>
+    <string name="error_invalid_profile_number">Enter a valid number for %1$s.</string>
     <string name="error_effort_not_supported">This agent doesn\'t offer that effort level.</string>
 </resources>

@@ -27,6 +27,19 @@ extension UserError {
         case .attachmentsNotReady: String(localized: "Wait for the files to upload, or remove the ones that failed.")
         case .profileNameRequired: String(localized: "Give the profile a name.")
         case .effortNotSupported: String(localized: "This agent doesn't offer that effort level.")
+        case let .invalidProfileNumber(field): String(localized: "Enter a valid number for \(field.label).")
+        }
+    }
+}
+
+extension ProfileNumberField {
+    var label: String {
+        switch self {
+        case .minVcpu: String(localized: "Min. vCPUs")
+        case .minMemoryGb: String(localized: "Min. memory (GB)")
+        case .minDiskGb: String(localized: "Min. disk (GB)")
+        case .maxTurns: String(localized: "Max turns")
+        case .timeoutMinutes: String(localized: "Timeout (minutes)")
         }
     }
 }
