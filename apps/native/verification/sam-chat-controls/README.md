@@ -9,7 +9,7 @@ Verified on 2026-11-15:
 - iOS Simulator and macOS `xcodebuild`, scheme SAM, signing disabled: pass.
 - Android `:app:compileDebugKotlin`: pass.
 - Android Robolectric `AssistantComposerTest` (5), `ChatRenderTest` (11),
-  `ChatJumpTest` (1): 17 tests, zero failures or errors. Checks cover empty send,
+  `ChatJumpTest` (1), `ChatHistoryTest` (3): 20 tests, zero failures or errors. Checks cover empty send,
   sending a draft, retry with a locked empty editor, stopping, and jump to latest.
 - iPhone 17 Pro / iOS 27 simulator: inspected collapsed and expanded production
   composer plus jump control in an isolated fixture (screenshots alongside this file).
@@ -24,7 +24,8 @@ Android test command (requires generated Kotlin core bindings and Android SDK):
 ./gradlew :app:testDebugUnitTest -x buildRustCore \
   --tests org.simpleagentmanager.app.AssistantComposerTest \
   --tests org.simpleagentmanager.app.ChatRenderTest \
-  --tests org.simpleagentmanager.app.ChatJumpTest
+  --tests org.simpleagentmanager.app.ChatJumpTest \
+  --tests org.simpleagentmanager.app.ChatHistoryTest
 ```
 
 The Rust core was unchanged. Validation reused compatible generated core bindings;
