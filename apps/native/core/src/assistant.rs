@@ -214,32 +214,43 @@ impl AssistantViewModel {
         self.finish(result);
     }
     /// The shell supplies a fresh UUID for a new message. An uncertain retry always uses the stored submission.
-    pub async fn send(&self, message: String, request_key: String) {
+    pub async fn send(&self, message: String, request_key: String) -> bool {
         let _guard = self.gate.lock().await;
         let state = self.state();
         if !state.enabled || !state.loaded || state.turns.iter().any(AssistantTurn::active) {
-            return;
+            return false;
         }
-        let Some(scope) = self.scope() else { return };
+        let Some(scope) = self.scope() else { return false };
         let pending = state.pending.unwrap_or(AssistantPending { message, request_key });
         if pending.message.trim().is_empty() || pending.request_key.is_empty() {
-            return;
+            return false;
         }
         // Keep the draft even if the device cannot persist it. Nothing is sent
         // until a later retry successfully stores this exact request.
         self.update(|s| s.pending = Some(pending.clone()));
         if !self.store.save(scope.clone(), pending.clone()) {
             self.finish(Err(crate::error::CoreError::Unexpected("Could not persist the retry receipt".into())));
-            return;
+            return false;
         }
         self.update(|s| {
             s.busy = true;
             s.pending = Some(pending.clone());
             s.error = None;
         });
+        let mut accepted = false;
         let result = async {
             let receipt: Value =
-                self.post("/api/sam/turns", &json!({"requestKey": pending.request_key, "message": pending.message})).await?;
+                match self.post("/api/sam/turns", &json!({"requestKey": pending.request_key, "message": pending.message})).await {
+                    Ok(receipt) => receipt,
+                    Err(error) => {
+                        if matches!(&error, crate::error::CoreError::RejectedBeforeEffects(_)) {
+                            self.store.clear(scope.clone());
+                            self.update(|s| s.pending = None);
+                        }
+                        return Err(error);
+                    }
+                };
+            accepted = true;
             self.store.clear(scope);
             self.update(|s| {
                 s.pending = None;
@@ -253,6 +264,7 @@ impl AssistantViewModel {
         }
         .await;
         self.finish(result);
+        accepted
     }
     pub async fn stop(&self) {
         let _guard = self.gate.lock().await;

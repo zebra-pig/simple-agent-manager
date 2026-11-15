@@ -24,6 +24,9 @@ pub enum CoreError {
     /// A message written by the SAM server (its own copy, shown as is).
     #[error("server: {0}")]
     Server(String),
+    /// Server explicitly guarantees the operation was rejected before effects.
+    #[error("rejected: {0}")]
+    RejectedBeforeEffects(String),
     /// Anything else: a technical detail for logs and bug reports, not copy.
     #[error("unexpected: {0}")]
     Unexpected(String),
@@ -79,7 +82,7 @@ impl From<&CoreError> for UserError {
             CoreError::Unreadable => UserError::FileUnreadable,
             CoreError::FileEmpty => UserError::FileEmpty,
             CoreError::FileTooLarge(max_bytes) => UserError::FileTooLarge { max_bytes: *max_bytes },
-            CoreError::Server(message) => UserError::Server { message: message.clone() },
+            CoreError::Server(message) | CoreError::RejectedBeforeEffects(message) => UserError::Server { message: message.clone() },
             CoreError::Unexpected(detail) => UserError::Unexpected { detail: detail.clone() },
         }
     }

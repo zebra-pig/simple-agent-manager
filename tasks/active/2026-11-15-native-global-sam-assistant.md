@@ -24,7 +24,7 @@ Show SAM in a new main mobile tab when the global assistant is enabled, with the
 - [x] Add bounded voice recording and transcription to the draft, with foreground cleanup.
 - [x] Test the exported view model through an authenticated scripted HTTP server.
 - [x] Run Rust tests and Clippy, build Android, generate and inspect phone/tablet previews.
-- [ ] Verify iOS/macOS compilation with Xcode Cloud build #31.
+- [ ] Verify iOS/macOS compilation with Xcode Cloud (first pass: #31; final revision pending).
 - [ ] Finish completion review and preserve PR/check evidence.
 
 ## Acceptance criteria and evidence
@@ -38,7 +38,7 @@ Show SAM in a new main mobile tab when the global assistant is enabled, with the
 | Account changes do not reuse private state | `signed_out_view_model_cannot_read_or_mutate_a_private_conversation`; scoped transport |
 | Voice entry fills the draft | `voice_upload_uses_authenticated_multipart_and_returns_a_draft`; bounded native recorders |
 | Native layouts remain usable on phone/tablet | Six renders in `apps/native/verification/assistant/` |
-| Builds pass | Rust: 37 tests, Clippy clean; Android assembleDebug passed; Xcode Cloud #31 pending |
+| Builds pass | Rust: 38 tests, Clippy clean; Android assembleDebug passed; Xcode Cloud #31 succeeded; final revision pending |
 
 ## Verification limits
 

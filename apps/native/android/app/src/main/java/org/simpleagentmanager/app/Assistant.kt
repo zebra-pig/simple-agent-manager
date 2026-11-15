@@ -94,7 +94,10 @@ fun AssistantScreen(app: App, openUrl: (String) -> Unit, openChat: (String, Stri
     }
     AssistantContent(state, draft, onDraft = { draft = it }, voiceBusy = voiceBusy, open = ::open, openChat = openChat,
         onRefresh = { scope.launch { vm.refresh() } }, onStop = { scope.launch { vm.stop() } },
-        onSend = { scope.launch { vm.send(draft, UUID.randomUUID().toString()); if (vm.state().pending == null) draft = "" } },
+        onSend = { scope.launch {
+            val message = state.pending?.message ?: draft
+            draft = if (vm.send(message, UUID.randomUUID().toString())) "" else message
+        } },
         onSeen = { scope.launch { vm.markSeen(it) } }, onEarlier = { scope.launch { vm.loadEarlier() } },
         onOlder = { scope.launch { vm.loadOlder() } }, onConfirm = { id, approved -> scope.launch { vm.confirm(id, approved) } },
         onReconcile = { scope.launch { vm.reconcile(it) } },

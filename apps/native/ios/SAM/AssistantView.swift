@@ -151,10 +151,10 @@ struct AssistantView: View {
                     Button("Stop", systemImage: "stop.fill") { Task { await model.core.stop() } }.disabled(model.state.busy)
                 } else {
                     Button(model.state.pending == nil ? "Send" : "Retry", systemImage: "arrow.up") {
-                        let message = draft
+                        let message = model.state.pending?.message ?? draft
                         Task {
-                            await model.core.send(message: message, requestKey: UUID().uuidString)
-                            if model.core.state().pending == nil { draft = "" }
+                            let accepted = await model.core.send(message: message, requestKey: UUID().uuidString)
+                            draft = accepted ? "" : message
                         }
                     }.disabled(model.state.busy || voice.hasRecording || !model.state.loaded || !model.state.enabled || (model.state.error != nil && model.state.pending == nil) || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.state.pending == nil))
                 }

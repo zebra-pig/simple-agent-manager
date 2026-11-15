@@ -207,3 +207,22 @@ async fn device_storage_failure_preserves_the_draft_and_never_sends() {
     assert_eq!(vm.state().pending.unwrap().message, "Keep my draft");
     assert!(vm.state().error.is_some() && !vm.state().busy);
 }
+
+#[tokio::test]
+async fn explicit_rejection_unlocks_the_draft_without_claiming_it_was_sent() {
+    let client = app(Arc::new(|r| match (r.method.as_str(), r.path.as_str()) {
+        ("GET", "/api/sam/settings") => (200, json!({"enabled":true,"available":true}).to_string()),
+        ("GET", "/api/sam/turns") => (200, json!({"conversationId":"private","turns":[]}).to_string()),
+        ("POST", "/api/sam/turns") => {
+            (400, json!({"error":"INVALID_MESSAGE","message":"Message is too long","rejectedBeforeEffects":true}).to_string())
+        }
+        _ => (404, "{}".into()),
+    }))
+    .await;
+    let store = PendingStore::default();
+    let vm = AssistantViewModel::new(client, Box::new(store.clone()));
+    vm.refresh().await;
+    assert!(!vm.send("Please edit me".into(), "key".into()).await);
+    assert!(vm.state().pending.is_none() && store.0.lock().unwrap().is_none());
+    assert_eq!(vm.state().error, Some(UserError::Server { message: "Message is too long".into() }));
+}

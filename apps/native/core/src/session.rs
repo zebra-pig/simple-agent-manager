@@ -120,6 +120,8 @@ struct LoginResponse {
 /// `AppError` body (apps/api/src/middleware/error.ts).
 #[derive(Deserialize, Default)]
 struct ErrorBody {
+    #[serde(default, rename = "rejectedBeforeEffects")]
+    rejected_before_effects: bool,
     #[serde(default)]
     error: String,
     #[serde(default)]
@@ -506,6 +508,9 @@ async fn read_json<T: DeserializeOwned>(res: reqwest::Response) -> Result<T> {
 async fn error_from(res: reqwest::Response) -> CoreError {
     let status = res.status();
     let body: ErrorBody = res.json().await.unwrap_or_default();
+    if body.rejected_before_effects && !body.message.is_empty() {
+        return CoreError::RejectedBeforeEffects(body.message);
+    }
     match (body.message.is_empty(), body.error.is_empty()) {
         (false, _) => CoreError::Server(body.message),
         (true, false) => CoreError::Unexpected(format!("HTTP {status} ({})", body.error)),
