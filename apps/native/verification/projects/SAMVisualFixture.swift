@@ -14,7 +14,9 @@ final class VisualFixtureStore: CredentialStore, @unchecked Sendable {
     var body: some Scene {
         WindowGroup {
             Group {
-                if CommandLine.arguments.contains("--project") {
+                if CommandLine.arguments.contains("--chat") {
+                    NavigationStack { ChatView(app: app, ref: SessionRef(projectId: "p1", sessionId: "s1")) }
+                } else if CommandLine.arguments.contains("--project") {
                     NavigationStack {
                         ProjectView(app: app, project: Project(id: "p1", name: "Project One", repository: "example/project-one", activeSessionCount: 1), changed: { _ in }, open: { _ in })
                     }

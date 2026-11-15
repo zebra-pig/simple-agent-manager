@@ -98,7 +98,9 @@ Dismissing a notification removes it from the inbox; it does not answer or decli
 Both the inbox and chat render agent questions (option buttons or a text answer), secret requests
 (masked value, save or decline), and Operations approvals (approve or deny). Cards load current
 question text, permissions and status from the same endpoints as web before enabling actions.
-They refresh every 15 seconds and show resolved, expired and delivery-pending states. Operations
+They refresh every 15 seconds. Resolved or expired request cards disappear from chat,
+including cards recovered from notifications; delivery-pending requests stay visible.
+The Notifications screen retains resolved outcomes for history. Operations
 decisions require server-authorized admin access and the approval's own project; destructive
 actions show a warning.
 

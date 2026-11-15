@@ -51,7 +51,7 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
         ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach,
             toolsMenu = { ChatToolsMenu(model, state, openUrl) }, documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
             attachmentCard = { document -> DocumentCard(document, state.items.flatMap { (it.content as? Content.User)?.attachments ?: emptyList() } + state.outbox.flatMap { it.attachments }, model.vm, compactImage = true) },
-            serverUrl = model.app.state().serverUrl, requestCard = { request -> RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval) }) {
+            serverUrl = model.app.state().serverUrl, requestCard = { request -> RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval, hideResolved = true) }) {
             val sent = draft
             draft = ""
             model.send(sent) { ok -> if (!ok && draft.isEmpty()) draft = sent }
@@ -110,16 +110,7 @@ fun ChatContent(
                 }
                 items(state.requests, key = { "request-${it.id}" }) { requestCard(it) }
                 items(state.notifications.filter { n -> n.requestId != null && state.requests.none { it.id == n.requestId } }, key = { "notification-${it.id}" }) { n ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(n.title, style = MaterialTheme.typography.titleSmall)
-                            n.requestId?.let { requestCard(RequestRef(it, state.sessionId, n.kind == "secret_request", n.kind == "operations_approval")) }
-                                ?: n.body?.let { Text(it) }
-                            n.actionUrl?.let { action -> notificationUrl(serverUrl, action)?.let { url ->
-                                TextButton(onClick = { openUrl(url) }) { Text(stringResource(R.string.open_on_web)) }
-                            } }
-                        }
-                    }
+                    n.requestId?.let { requestCard(RequestRef(it, n.sessionId ?: state.sessionId, n.kind == "secret_request", n.kind == "operations_approval")) }
                 }
                 state.error?.let { item("error") { ErrorRow(it.message()) } }
                 if (state.items.isEmpty() && !state.loading && state.error == null) item("empty") { Text(stringResource(R.string.chat_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }

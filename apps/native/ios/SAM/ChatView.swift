@@ -42,22 +42,15 @@ struct ChatView: View {
                             }.frame(maxWidth: .infinity, alignment: .trailing)
                         }
                         ForEach(chat.state.requests, id: \.id) { request in
-                            RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval)
-                                .padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                            RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval, hideResolved: true)
                         }
                         ForEach(chat.state.notifications.filter { item in
                             guard let id = item.requestId else { return false }
                             return !chat.state.requests.contains { $0.id == id }
                         }, id: \.id) { item in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(item.title).font(.headline)
-                                if let id = item.requestId {
-                                    RequestCard(app: app, project: ref.projectId, session: ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval")
-                                } else if let body = item.body { Text(body) }
-                                if let action = item.actionUrl, let url = notificationUrl(serverUrl: app.state().serverUrl, actionUrl: action).flatMap(URL.init(string:)) {
-                                    Button("Open on web") { openURL(url) }
-                                }
-                            }.padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                            if let id = item.requestId {
+                                RequestCard(app: app, project: ref.projectId, session: item.sessionId ?? ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval", hideResolved: true)
+                            }
                         }
                         if let error = chat.state.error {
                             Text(error.message).foregroundStyle(.red).font(.callout)

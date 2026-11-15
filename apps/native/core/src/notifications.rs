@@ -91,6 +91,12 @@ pub(crate) async fn fetch_notifications(app: &crate::App, project: &str, session
     Ok(items)
 }
 
+/// Terminal request cards disappear from chat; pending delivery stays visible.
+#[uniffi::export]
+pub fn request_is_resolved(status: String) -> bool {
+    matches!(status.as_str(), "answered" | "expired" | "fulfilled" | "declined" | "approved" | "denied" | "executed" | "cancelled")
+}
+
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
 pub struct RequestState {
     pub title: String,
@@ -179,6 +185,7 @@ impl RequestViewModel {
                     } else {
                         String::new()
                     };
+                    s.can_respond &= !request_is_resolved(s.status.clone());
                 }
             }
         });
