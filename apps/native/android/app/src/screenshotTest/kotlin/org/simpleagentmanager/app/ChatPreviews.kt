@@ -1,9 +1,12 @@
 package org.simpleagentmanager.app
 
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.*
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
@@ -60,5 +63,61 @@ fun LatestArrowPreview() {
 fun ExpandedComposerChat() {
     MaterialTheme(colorScheme = lightColorScheme()) {
         ChatContent(previewState(), "Please verify the keyboard shortcuts with a screen reader, then summarize the remaining accessibility improvements.", {}, {}, {}, {}, {}, onSend = {})
+    }
+}
+
+private fun progressPreviewState() = previewState().copy(
+    session = previewState().session?.copy(task = TaskSummary("task", "in_progress", "workspace_creation", null, null, "feature/keyboard-shortcuts", null, "Preparing keyboard shortcut improvements.")),
+    provisioning = ProvisioningState(1u, ProvisioningStep.WORKSPACE_CREATION, 0),
+    working = true,
+    notifications = listOf(Notification("update", "project", "session", "Workspace ready", "The development environment is ready. Progress details remain available here while the conversation stays clear.", "task_started", null, null, null)),
+)
+
+@PreviewTest
+@Preview(name = "Progress phone", widthDp = 375, heightDp = 700)
+@Composable
+fun ProgressPhone() {
+    MaterialTheme(colorScheme = lightColorScheme()) {
+        Surface { Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Progress", style = MaterialTheme.typography.titleLarge)
+            ChatProgressContent(progressPreviewState(), {})
+        } }
+    }
+}
+
+@PreviewTest
+@Preview(name = "Progress narrow dark", widthDp = 320, heightDp = 700)
+@Composable
+fun ProgressNarrowDark() {
+    MaterialTheme(colorScheme = darkColorScheme()) {
+        Surface { Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Progress", style = MaterialTheme.typography.titleLarge)
+            ChatProgressContent(progressPreviewState(), {})
+        } }
+    }
+}
+
+@PreviewTest
+@Preview(name = "Progress tablet", widthDp = 1280, heightDp = 800)
+@Composable
+fun ProgressTablet() {
+    MaterialTheme(colorScheme = lightColorScheme()) {
+        Surface { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Column(Modifier.widthIn(max = 640.dp).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Progress", style = MaterialTheme.typography.titleLarge)
+                ChatProgressContent(progressPreviewState(), {})
+            }
+        } }
+    }
+}
+
+@PreviewTest
+@Preview(name = "Clear conversation", widthDp = 375, heightDp = 700)
+@Composable
+fun ClearConversation() {
+    MaterialTheme(colorScheme = lightColorScheme()) {
+        ChatContent(progressPreviewState(), "", {}, {}, {}, {}, {}, toolsMenu = {
+            IconButton(onClick = {}) { Icon(Icons.Default.MoreVert, contentDescription = "Session tools") }
+        }, onSend = {})
     }
 }

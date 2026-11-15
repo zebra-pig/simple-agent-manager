@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 
 enum ChatTool: String, Identifiable {
-    case files, git, timeline, resources, details
+    case files, git, timeline, resources, details, progress
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -11,6 +11,7 @@ enum ChatTool: String, Identifiable {
         case .timeline: String(localized: "Timeline")
         case .resources: String(localized: "Resources")
         case .details: String(localized: "Details")
+        case .progress: String(localized: "Progress")
         }
     }
 }
@@ -18,6 +19,7 @@ enum ChatTool: String, Identifiable {
 struct ChatToolView: View {
     let tool: ChatTool
     let chat: ChatModel
+    let serverUrl: String
     @Environment(\.dismiss) private var dismiss
     @State private var file: String?
     @State private var staged = false
@@ -30,11 +32,11 @@ struct ChatToolView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if let error = state.error {
+                    if tool != .progress, let error = state.error {
                         Text(error.message).foregroundStyle(.red)
                         Button("Retry") { Task { await refresh() } }.glassButton()
                     }
-                    if state.loading { ProgressView().frame(maxWidth: .infinity) }
+                    if tool != .progress && state.loading { ProgressView().frame(maxWidth: .infinity) }
                     if let file {
                         HStack {
                             Button("Back", systemImage: "chevron.left") { self.file = nil; Task { await refresh() } }
@@ -54,6 +56,7 @@ struct ChatToolView: View {
                         case .resources: resources
                         case .details: details
                         case .timeline: timeline
+                        case .progress: ChatProgressView(state: chat.state, serverUrl: serverUrl)
                         }
                     }
                 }.padding()
@@ -63,7 +66,7 @@ struct ChatToolView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Refresh", systemImage: "arrow.clockwise") { Task { await refresh() } }.disabled(state.loading)
+                    Button("Refresh", systemImage: "arrow.clockwise") { Task { await refresh() } }.disabled(tool != .progress && state.loading)
                 }
             }
             .modifier(ChatFileSearch(enabled: file == nil && (tool == .files || tool == .git), text: $search))
@@ -82,6 +85,7 @@ struct ChatToolView: View {
             let session = chat.state.session
             let owner = session?.viewerAccess == "owner" || (session?.viewerAccess == nil && session?.isMine == true)
             await model.core.details(workspaceId: owner ? session?.workspaceId : nil, agentSessionId: session?.agentSessionId)
+        case .progress: await chat.core.refresh()
         case .timeline: break
         }
     }

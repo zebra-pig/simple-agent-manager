@@ -65,7 +65,7 @@ class ChatRenderTest {
             compose.onNodeWithContentDescription("Jump to latest").assertIsDisplayed()
         }
         compose.onNodeWithContentDescription("Send").assertIsDisplayed()
-        if (setup) compose.onNodeWithText("Cloning repository · 2 of 4").assertIsDisplayed()
+        if (setup) compose.onNodeWithText("Cloning repository · 2 of 4").assertDoesNotExist()
         if (empty) compose.onNodeWithText("The conversation will appear here.").assertIsDisplayed()
         if (history) {
             compose.onNodeWithContentDescription("Jump to latest").performClick()
@@ -111,7 +111,7 @@ class ChatRenderTest {
         org.junit.Assert.assertEquals(current, sent)
         org.junit.Assert.assertTrue(sent.startsWith("Please check"))
     }
-    @Test fun provisioningBelowMessages() = render(setup = true)
+    @Test fun provisioningStaysOutOfConversation() = render(setup = true)
     @Test fun historyArrow() = render(history = true)
     @Test fun markdownTable() = render(table = true)
     @Test fun lightChat() = render()

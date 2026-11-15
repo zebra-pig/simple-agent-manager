@@ -24,9 +24,6 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if chat.state.hasMore { Text("Showing the latest messages").font(.caption).foregroundStyle(.secondary) }
-                    if chat.state.provisioning == nil, let task = chat.state.session?.task {
-                        TaskCard(task: task) { openURL($0) }
-                    }
                     ForEach(chat.state.items, id: \.id) { message in
                         Group {
                             if case let .document(document) = message.content {
@@ -45,7 +42,7 @@ struct ChatView: View {
                             .padding().glass(in: RoundedRectangle(cornerRadius: 20))
                     }
                     ForEach(chat.state.notifications.filter { item in
-                        guard let id = item.requestId else { return true }
+                        guard let id = item.requestId else { return false }
                         return !chat.state.requests.contains { $0.id == id }
                     }, id: \.id) { item in
                         VStack(alignment: .leading, spacing: 8) {
@@ -58,11 +55,6 @@ struct ChatView: View {
                             }
                         }.padding().glass(in: RoundedRectangle(cornerRadius: 20))
                     }
-                    if let error = chat.state.notificationsError { Text(error.message).foregroundStyle(.red) }
-                    if let provisioning = chat.state.provisioning {
-                        ProvisioningView(state: provisioning).id("provisioning")
-                    }
-                    if chat.state.working && chat.state.provisioning == nil { Text("Working").font(.caption).foregroundStyle(Color.accentColor) }
                     if let error = chat.state.error {
                         Text(error.message).foregroundStyle(.red).font(.callout)
                     }
@@ -75,9 +67,6 @@ struct ChatView: View {
             .defaultScrollAnchor(.bottom)
             .interactiveKeyboardDismiss()
             .onChange(of: chat.state.items) {
-                if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
-            }
-            .onChange(of: chat.state.provisioning) {
                 if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
             }
             .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
@@ -120,6 +109,7 @@ struct ChatView: View {
                         webTool("Comments", icon: "text.bubble", action: .comments)
                     }
                     Section("Session") {
+                        Button("Progress", systemImage: "list.bullet.clipboard") { tool = .progress }
                         if let session = chat.state.session {
                             if session.viewerAccess != nil { webTool("Share", icon: "person.2", action: .share) }
                             if session.task != nil {
@@ -143,7 +133,7 @@ struct ChatView: View {
             }
         }
         .sheet(item: $tool) { selected in
-            ChatToolView(tool: selected, chat: chat)
+            ChatToolView(tool: selected, chat: chat, serverUrl: app.state().serverUrl)
         }
         .confirmationDialog(endLabel ?? String(localized: "Complete"), isPresented: $confirmEnd) {
             Button(endLabel ?? String(localized: "Complete"), role: .destructive) { ending = true; Task { await chat.core.endTask(); ending = false } }
