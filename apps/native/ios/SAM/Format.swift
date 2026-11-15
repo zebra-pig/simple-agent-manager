@@ -25,6 +25,8 @@ extension UserError {
         case let .tooManyFiles(max): String(localized: "You can attach up to \(Int(max)) files.")
         case let .attachmentsTooLarge(maxBytes): String(localized: "Together the files can be at most \(fileSize(maxBytes)).")
         case .attachmentsNotReady: String(localized: "Wait for the files to upload, or remove the ones that failed.")
+        case .profileNameRequired: String(localized: "Give the profile a name.")
+        case .effortNotSupported: String(localized: "This agent doesn't offer that effort level.")
         }
     }
 }
