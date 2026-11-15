@@ -12,7 +12,11 @@ mod agent_profiles;
 mod api;
 #[macro_use]
 mod attachments;
+mod assistant;
 mod chat;
+pub use assistant::*;
+mod notifications;
+pub use notifications::*;
 mod error;
 mod markdown;
 mod project;

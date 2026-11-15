@@ -28,22 +28,22 @@ private fun previewState() = ChatState("project", "session", ChatSession("sessio
 @PreviewTest
 @Preview(name = "Phone", widthDp = 411, heightDp = 891)
 @Composable
-fun PhoneChat() { MaterialTheme(colorScheme = lightColorScheme()) { ChatContent(previewState(), "", {}, {}, {}, {}, {}, {}) } }
+fun PhoneChat() { MaterialTheme(colorScheme = lightColorScheme()) { ChatContent(previewState(), "", {}, {}, {}, {}, {}, onSend = {}) } }
 
 @PreviewTest
 @Preview(name = "Dark", widthDp = 411, heightDp = 891)
 @Composable
-fun DarkChat() { MaterialTheme(colorScheme = darkColorScheme()) { ChatContent(previewState(), "", {}, {}, {}, {}, {}, {}) } }
+fun DarkChat() { MaterialTheme(colorScheme = darkColorScheme()) { ChatContent(previewState(), "", {}, {}, {}, {}, {}, onSend = {}) } }
 
 @PreviewTest
 @Preview(name = "Tablet", widthDp = 1280, heightDp = 800)
 @Composable
-fun TabletChat() { MaterialTheme(colorScheme = lightColorScheme()) { ChatContent(previewState(), "", {}, {}, {}, {}, {}, {}) } }
+fun TabletChat() { MaterialTheme(colorScheme = lightColorScheme()) { ChatContent(previewState(), "", {}, {}, {}, {}, {}, onSend = {}) } }
 
 @PreviewTest
 @Preview(name = "Large text", widthDp = 411, heightDp = 891, fontScale = 1.5f)
 @Composable
-fun LargeTextChat() { MaterialTheme(colorScheme = lightColorScheme()) { ChatContent(previewState(), "", {}, {}, {}, {}, {}, {}) } }
+fun LargeTextChat() { MaterialTheme(colorScheme = lightColorScheme()) { ChatContent(previewState(), "", {}, {}, {}, {}, {}, onSend = {}) } }
 
 @PreviewTest
 @Preview(name = "Latest arrow", widthDp = 120, heightDp = 120)
@@ -59,6 +59,6 @@ fun LatestArrowPreview() {
 @Composable
 fun ExpandedComposerChat() {
     MaterialTheme(colorScheme = lightColorScheme()) {
-        ChatContent(previewState(), "Please verify the keyboard shortcuts with a screen reader, then summarize the remaining accessibility improvements.", {}, {}, {}, {}, {}, {})
+        ChatContent(previewState(), "Please verify the keyboard shortcuts with a screen reader, then summarize the remaining accessibility improvements.", {}, {}, {}, {}, {}, onSend = {})
     }
 }

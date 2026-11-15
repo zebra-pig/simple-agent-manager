@@ -59,6 +59,47 @@ refreshes it. It disappears when the agent starts; setup failures use the task c
 The core reads the full task only for queued/delegated active sessions, checking `startedAt`
 and `admissionState` so waking sessions and provider-limit holds do not show first-boot progress.
 
+## Global SAM assistant
+
+The main SAM tab appears when `/api/sam/settings` reports both `enabled` and `available`
+(`App::refresh_assistant_settings`, refreshed while the signed-in shell is active). It uses the
+same private account conversation as web, separate from project-agent chat.
+
+`AssistantViewModel` in `core/src/assistant.rs` reads current and earlier history, polls active-turn
+progress, submits messages, stops SAM, confirms or declines actions, reconciles uncertain task starts,
+and marks project-work updates seen. `ios/SAM/AssistantView.swift` and Android `Assistant.kt` render
+these states and open project chats natively. Other destinations, including Settings, open on web.
+The shells persist uncertain submissions in Keychain or encrypted private preferences before POST;
+retries retain the original request key and message across app restarts. The core binds requests to
+the login that created the view model and clears visible state when that login ends.
+
+Voice entry records at most two minutes and sends audio to the existing `/api/transcribe` endpoint
+(`AssistantViewModel::transcribe`). Transcription fills the draft for review; it never sends a turn.
+Recordings are removed after transcription or cancellation, and when the screen leaves the foreground.
+See [assistant verification](verification/assistant/README.md) for native layout renders and wire tests.
+
+## Notifications and agent requests
+
+The Notifications tab loads the signed-in user's inbox, including read notifications, and follows
+all cursor pages. It refreshes while visible and links items to the conversation or web action.
+Dismissing a notification removes it from the inbox; it does not answer or decline the request.
+
+Both the inbox and chat render agent questions (option buttons or a text answer), secret requests
+(masked value, save or decline), and Operations approvals (approve or deny). Cards load current
+question text, permissions and status from the same endpoints as web before enabling actions.
+They refresh every 15 seconds and show resolved, expired and delivery-pending states. Operations
+decisions require server-authorized admin access and the approval's own project; destructive
+actions show a warning.
+
+Chat reads card references from tool metadata, including compact `rawOutput`, and tool content.
+It also reads session-scoped notifications so requests remain visible when their tool calls are
+outside the current message page. A request shown in the transcript is not repeated from the inbox.
+
+Secret values remain in the form's transient state, go directly to the dedicated secret endpoint,
+and are cleared after success or leaving the form. They never become chat prompts or core state.
+Replacing a project value requires consent tied to the exact existing version; a changed version
+requires fresh consent. A failed save preserves the input for retry. Permissions match web.
+
 ## Attachments
 
 The composer takes files from its attach button (Files and Photos on Apple platforms, files and

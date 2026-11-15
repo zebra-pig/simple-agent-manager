@@ -63,6 +63,14 @@ async function deliver(userId: string, notificationId: string, pushEnv: NativePu
   });
 }
 
+/** Like workerd's fetch: refuses to run as a method of another object ("Illegal invocation"). */
+function strictFetch(impl: (url: string, init?: RequestInit) => Promise<Response>) {
+  return function (this: unknown, url: string, init?: RequestInit) {
+    if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation');
+    return impl(url, init);
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -96,7 +104,7 @@ describe('Notification DO native push', () => {
         ? Response.json({ access_token: 'google-token', expires_in: 3600 })
         : new Response('{}', { status: 200 })
     );
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', strictFetch(fetchMock));
     await deliver(userId, created.id, await nativeEnv());
 
     const byUrl = new Map(fetchMock.mock.calls.map(([url, init]) => [url, init as RequestInit]));

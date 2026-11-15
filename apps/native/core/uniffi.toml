@@ -1,4 +1,6 @@
 [bindings.kotlin]
+# Emit SDK guards and Android SystemCleaner/JNA fallback for the Android shell.
+android = true
 package_name = "org.simpleagentmanager.core"
 
 [bindings.swift]

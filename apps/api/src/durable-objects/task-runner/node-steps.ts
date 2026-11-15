@@ -5,9 +5,7 @@
  * `node_agent_ready` in `./node-agent-ready-step`; both are re-exported here so
  * the DO's step table keeps one import site. See rule 18.
  */
-import {
-  resolveEffectiveNodeHostMemoryReserveMb,
-} from '@simple-agent-manager/scheduler-core';
+import { resolveEffectiveNodeHostMemoryReserveMb } from '@simple-agent-manager/scheduler-core';
 
 import { log } from '../../lib/logger';
 import { isNodeAgentVersionCompatible } from '../../services/node-agent-compatibility';
@@ -18,9 +16,7 @@ import {
   resolveReusableNodeCapacitySnapshot,
 } from '../../services/placement-resolver';
 import { filterReusableNodesByCurrentAuthority } from '../../services/reusable-node-authority';
-import {
-  trustedWorkspaceNodeCapacityColumnsSql,
-} from '../../services/workspace-admission-sql';
+import { trustedWorkspaceNodeCapacityColumnsSql } from '../../services/workspace-admission-sql';
 import { shouldProvisionSpreadNode } from './capacity-pool-node-limit';
 import {
   findNodeWithCapacity,
@@ -156,6 +152,7 @@ export async function handleNodeSelection(
     }
 
     const authoritativeNodes = await filterReusableNodesByCurrentAuthority(rc.env.DATABASE, {
+      requestingTaskId: state.taskId,
       userId: state.userId,
       projectId: state.projectId,
       selections: [{ nodeId: node.id, capacityPlacementSnapshot }],

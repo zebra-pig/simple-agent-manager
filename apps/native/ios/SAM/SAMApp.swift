@@ -17,12 +17,20 @@ struct SAMApp: SwiftUI.App {
 }
 
 struct RootView: View {
+    @State private var selectedTab = 0
+    @State private var push = PushRouter.shared
     @Environment(AppModel.self) private var app
 
     var body: some View {
         Group {
             if app.state.status == .signedIn {
-                ProjectsView(app: app.core)
+                TabView(selection: $selectedTab) {
+                    ProjectsView(app: app.core, onPush: { selectedTab = 0 }).tabItem { Label("Projects", systemImage: "folder") }.tag(0)
+                    if app.state.assistantEnabled {
+                        AssistantView(app: app.core).tabItem { Label("SAM", systemImage: "sparkles") }.tag(2)
+                    }
+                    NotificationsView(app: app.core).tabItem { Label("Notifications", systemImage: "bell") }.tag(1)
+                }
             } else {
                 SignInView()
             }
@@ -30,9 +38,21 @@ struct RootView: View {
         .task {
             if app.state.status == .signedIn { await app.core.refreshViewer() }
         }
+        .onChange(of: app.state.assistantEnabled) { _, enabled in
+            if !enabled && selectedTab == 2 { selectedTab = 0 }
+        }
+        .onChange(of: push.pending, initial: true) { _, ref in
+            if ref != nil { selectedTab = 0 }
+        }
         // Signed in (at launch or just now): ask for notifications and register.
         .task(id: app.state.status) {
-            if app.state.status == .signedIn { await Push.enable() }
+            if app.state.status == .signedIn {
+                await Push.enable()
+                while !Task.isCancelled {
+                    await app.core.refreshAssistantSettings()
+                    try? await Task.sleep(for: .seconds(30))
+                }
+            }
         }
     }
 }

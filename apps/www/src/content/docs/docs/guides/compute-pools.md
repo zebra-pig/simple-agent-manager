@@ -441,6 +441,17 @@ Cancelling queued work revokes its admission authority. A later free slot cannot
 task or provision a machine for it. If cancellation races a new allocation, SAM retires only
 that newly allocated empty machine, preserving occupied hosts and other placement claims.
 
+A machine provisioned for a task is held for that task while it is active and has no workspace.
+Other tasks cannot reuse it during boot; the hold ends when its owner places, fails, or is
+cancelled. Both selection and atomic workspace admission enforce this through
+`buildProvisionedNodeHoldSqlPredicate` in `apps/api/src/services/placement-authority.ts`.
+
+If the held machine can no longer admit its owner, TaskRunner returns once to normal placement
+after the configured refusal budget: reuse another machine, provision within the existing
+limits, or wait under the pool policy. A replacement has the same bounded refusal budget;
+it cannot start an endless chain of replacements
+(`apps/api/src/durable-objects/task-runner/workspace-placement-rejection.ts:handleWorkspacePlacementRefused`).
+
 ## Exhaustion policy: what happens when nothing is available
 
 Providers run out of capacity, regions sell out, and accounts hit server limits. **Exhaustion

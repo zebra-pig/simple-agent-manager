@@ -26,6 +26,9 @@ pub struct ChatState {
     pub working: bool,
     /// The server has older messages than the ones in `items`.
     pub has_more: bool,
+    pub requests: Vec<crate::notifications::RequestRef>,
+    pub notifications: Vec<crate::Notification>,
+    pub notifications_error: Option<UserError>,
     /// Files for the next follow-up.
     pub attachments: Vec<Attachment>,
     /// Visible only during first-boot VM/container setup.
@@ -73,6 +76,7 @@ impl ChatViewModel {
         }
         let result: crate::error::Result<SessionDetail> =
             self.app.get(&format!("/api/projects/{}/sessions/{}", seg(&project_id), seg(&session_id))).await;
+        let notifications = crate::notifications::fetch_notifications(&self.app, &project_id, &session_id).await;
         // The session embed lacks startedAt/admissionState. Read the full task
         // only during setup so wake-ups and provider holds use the same gates as web.
         let provisioning = if let Ok(detail) = &result {
@@ -94,10 +98,26 @@ impl ChatViewModel {
                 return;
             }
             s.loading = false;
+            match notifications {
+                Ok(items) => {
+                    s.notifications = items;
+                    s.notifications_error = None;
+                }
+                Err(e) => s.notifications_error = Some(UserError::from(&e)),
+            }
             match result {
                 Ok(detail) => {
                     s.working = detail.working();
                     s.has_more = detail.has_more;
+                    s.requests.clear();
+                    for row in &detail.messages {
+                        if let Some(meta) = &row.tool_metadata {
+                            crate::notifications::collect_refs(meta, &mut s.requests, 0);
+                        }
+                        if row.role == "tool" {
+                            crate::notifications::collect_refs(&serde_json::Value::String(row.content.clone()), &mut s.requests, 0);
+                        }
+                    }
                     s.items = timeline::build(detail.messages, s.working);
                     if let Some(provisioning) = provisioning {
                         s.provisioning = provisioning;

@@ -43,7 +43,8 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
         }
     }
     if (state.projectId == route.projectId && state.sessionId == route.sessionId) {
-        ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach) {
+        ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach,
+            serverUrl = model.app.state().serverUrl, requestCard = { request -> RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval) }) {
             val sent = draft
             draft = ""
             model.send(sent) { ok -> if (!ok && draft.isEmpty()) draft = sent }
@@ -56,7 +57,8 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
 fun ChatContent(
     state: ChatState, draft: String, onDraft: (String) -> Unit,
     onBack: () -> Unit, openUrl: (String) -> Unit,
-    onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit, onSend: () -> Unit,
+    onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit,
+    serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -92,6 +94,20 @@ fun ChatContent(
                         Text(stringResource(if (it.accepted) R.string.message_queued else R.string.message_sending), style = MaterialTheme.typography.labelSmall)
                     }
                 }
+                items(state.requests, key = { "request-${it.id}" }) { requestCard(it) }
+                items(state.notifications.filter { n -> n.requestId == null || state.requests.none { it.id == n.requestId } }, key = { "notification-${it.id}" }) { n ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(n.title, style = MaterialTheme.typography.titleSmall)
+                            n.requestId?.let { requestCard(RequestRef(it, state.sessionId, n.kind == "secret_request", n.kind == "operations_approval")) }
+                                ?: n.body?.let { Text(it) }
+                            n.actionUrl?.let { action -> notificationUrl(serverUrl, action)?.let { url ->
+                                TextButton(onClick = { openUrl(url) }) { Text(stringResource(R.string.open_on_web)) }
+                            } }
+                        }
+                    }
+                }
+                state.notificationsError?.let { item("notifications-error") { ErrorRow(it.message()) } }
                 state.provisioning?.let { item("provisioning") { ProvisioningCard(it) } }
                 if (state.working && state.provisioning == null) item("working") { Text(stringResource(R.string.status_working), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium) }
                 state.error?.let { item("error") { ErrorRow(it.message()) } }

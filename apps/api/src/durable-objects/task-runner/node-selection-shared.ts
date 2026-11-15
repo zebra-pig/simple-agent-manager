@@ -20,12 +20,8 @@ import {
   resolveReusableNodeCapacitySnapshot,
 } from '../../services/placement-resolver';
 import { filterReusableNodesByCurrentAuthority } from '../../services/reusable-node-authority';
-import {
-  type TrustedWorkspaceNodeCapacityRow,
-} from '../../services/workspace-admission-sql';
-import {
-  loadActiveWorkspaceReservationUsage,
-} from '../../services/workspace-reservation-usage';
+import { type TrustedWorkspaceNodeCapacityRow } from '../../services/workspace-admission-sql';
+import { loadActiveWorkspaceReservationUsage } from '../../services/workspace-reservation-usage';
 import type { TaskRunnerContext, TaskRunnerState } from './types';
 
 export interface ReusableNodeSelection {
@@ -110,6 +106,7 @@ export async function currentReusableNodeIds(
   nodes: readonly NodePlacementFields[]
 ): Promise<Set<string>> {
   return filterReusableNodesByCurrentAuthority(rc.env.DATABASE, {
+    requestingTaskId: state.taskId,
     userId: state.userId,
     projectId: state.projectId,
     selections: nodes.flatMap((node) => {

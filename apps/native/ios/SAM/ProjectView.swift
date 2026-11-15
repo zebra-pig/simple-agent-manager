@@ -39,6 +39,9 @@ struct ProjectView: View {
         }
         .navigationTitle(project.name)
         .inlineTitle()
+        #if os(iOS)
+        .toolbar(.hidden, for: .tabBar)
+        #endif
         .refreshable { await model.core.load(projectId: project.id) }
         .interactiveKeyboardDismiss()
         .task { await model.core.load(projectId: project.id) }
@@ -86,9 +89,8 @@ struct SessionRow: View {
 /// The floating input island: a Liquid Glass container with the attach
 /// button, the text field and a round send button, over the content (which
 /// scrolls beneath it). Attached files show above the text field; files
-/// dropped on the island are attached too. `accessory` (the project screen's
-/// profile selector) sits at the top of the same container, only while the
-/// text field has focus (keyboard open).
+/// dropped on the island are attached too. The project profile selector stays
+/// beside the attachment button, below the input, regardless of keyboard focus.
 struct Composer<Accessory: View>: View {
     let placeholder: LocalizedStringKey
     @Binding var text: String
@@ -99,9 +101,6 @@ struct Composer<Accessory: View>: View {
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
     @State private var dropTargeted = false
     @FocusState private var focused: Bool
-    /// Follows `focused`, but hides a moment later, so tapping the accessory
-    /// (which may briefly take focus) doesn't make it vanish under the finger.
-    @State private var showsAccessory = false
 
     init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles,
          send: @escaping () -> Void, @ViewBuilder accessory: () -> Accessory) {
@@ -120,52 +119,29 @@ struct Composer<Accessory: View>: View {
     var body: some View {
         GlassGroup {
             VStack(alignment: .leading, spacing: 0) {
-                if showsAccessory && Accessory.self != EmptyView.self {
-                    accessory
-                        .padding(.horizontal, 14)
-                        .padding(.top, 10)
-                        .padding(.bottom, 2)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
                 if !files.items.isEmpty {
                     AttachmentStrip(files: files)
                 }
-                ComposerInputLayout(lineHeight: lineHeight) {
-                    composerInput
-                    AttachButton(files: files)
-                        .frame(width: 44, height: 44)
-                    Group {
-                        if busy {
-                            ProgressView().frame(width: 36, height: 36)
-                        } else {
-                            Button(action: send) {
-                                Image(systemName: "arrow.up")
-                                    .font(.body.weight(.semibold))
-                                    .frame(width: 22, height: 22)
-                            }
-                            .glassButton()
-                            .tint(.primary)
-                            .buttonBorderShape(.circle)
-                            .disabled(!canSend)
-                            .keyboardShortcut(.return, modifiers: .command)
-                            .accessibilityLabel(Text("Send"))
-                        }
+                if Accessory.self == EmptyView.self {
+                    ComposerInputLayout(lineHeight: lineHeight) {
+                        composerInput
+                        AttachButton(files: files).frame(width: 44, height: 44)
+                        sendControl.frame(width: 44, height: 44)
                     }
-                    .frame(width: 44, height: 44)
-                }
-            }
-            .animation(.snappy(duration: 0.25), value: showsAccessory)
-            .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), interactive: true)
-            .onChange(of: focused) { _, isFocused in
-                if isFocused {
-                    showsAccessory = true
                 } else {
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        if !focused { showsAccessory = false }
+                    composerInput
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        .padding(.bottom, 8)
+                    HStack(alignment: .bottom, spacing: 8) {
+                        AttachButton(files: files).frame(width: 44, height: 44)
+                        accessory.padding(.vertical, 4)
+                        Spacer(minLength: 0)
+                        sendControl.frame(width: 44, height: 44)
                     }
                 }
             }
+            .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), interactive: true)
             .overlay {
                 if dropTargeted {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -177,6 +153,23 @@ struct Composer<Accessory: View>: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private var sendControl: some View {
+        if busy {
+            ProgressView().frame(width: 36, height: 36)
+        } else {
+            Button(action: send) {
+                Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 22, height: 22)
+            }
+            .glassButton()
+            .tint(.primary)
+            .buttonBorderShape(.circle)
+            .disabled(!canSend)
+            .keyboardShortcut(.return, modifiers: .command)
+            .accessibilityLabel(Text("Send"))
+        }
     }
 
     @ViewBuilder

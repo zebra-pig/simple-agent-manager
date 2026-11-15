@@ -52,7 +52,7 @@ class ChatRenderTest {
         compose.setContent { MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, if (largeText) 1.5f else density.fontScale)) {
-                ChatContent(state, "", {}, {}, {}, {}, {}, {})
+                ChatContent(state, "", {}, {}, {}, {}, {}, onSend = {})
             }
         } }
         if (expanded) {

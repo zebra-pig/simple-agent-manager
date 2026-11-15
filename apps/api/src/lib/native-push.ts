@@ -42,7 +42,7 @@ export interface NativePushMessage {
 export type NativePushResult =
   | { kind: 'success' }
   | { kind: 'gone'; status: number }
-  | { kind: 'failure'; status: number | null };
+  | { kind: 'failure'; status: number | null; error?: string };
 
 interface SendOptions {
   ttlSeconds: number;
@@ -185,7 +185,8 @@ async function sendApns(
   if (!config) throw new Error('APNs is not configured');
   const now = options.now();
   const host = target.sandbox ? APNS_HOSTS.sandbox : APNS_HOSTS.production;
-  const response = await options.fetcher(`https://${host}/3/device/${target.token}`, {
+  const fetcher = options.fetcher;
+  const response = await fetcher(`https://${host}/3/device/${target.token}`, {
     method: 'POST',
     signal,
     headers: {
@@ -224,8 +225,9 @@ async function sendFcm(
   signal: AbortSignal
 ): Promise<NativePushResult> {
   const account = parseServiceAccount(env.FCM_SERVICE_ACCOUNT_JSON ?? '');
-  const accessToken = await googleAccessToken(account, options.fetcher, options.now(), signal);
-  const response = await options.fetcher(
+  const fetcher = options.fetcher;
+  const accessToken = await googleAccessToken(account, fetcher, options.now(), signal);
+  const response = await fetcher(
     `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`,
     {
       method: 'POST',
@@ -256,7 +258,8 @@ export async function sendNativePush(
   options: SendOptions
 ): Promise<NativePushResult> {
   const resolved: Required<SendOptions> = {
-    fetcher: options.fetcher ?? fetch,
+    // A wrapper, so `fetch` is never invoked with another `this` (Workers: Illegal invocation).
+    fetcher: options.fetcher ?? ((input, init) => fetch(input, init)),
     now: options.now ?? Date.now,
     ...options,
   } as Required<SendOptions>;
@@ -266,8 +269,15 @@ export async function sendNativePush(
     return target.platform === 'apns'
       ? await sendApns(target, message, env, resolved, controller.signal)
       : await sendFcm(target, message, env, resolved, controller.signal);
-  } catch {
-    return { kind: 'failure', status: null };
+  } catch (error) {
+    // Name and message only; a JSON SyntaxError quotes its input, which may be the secret.
+    const detail =
+      error instanceof SyntaxError
+        ? 'SyntaxError'
+        : error instanceof Error
+          ? `${error.name}: ${error.message}`.slice(0, 200)
+          : 'unknown error';
+    return { kind: 'failure', status: null, error: detail };
   } finally {
     clearTimeout(timeout);
   }

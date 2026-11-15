@@ -172,6 +172,7 @@ export async function deliverNotificationNativePush(
           log.warn('native_push.delivery_failed', {
             platform: token.platform,
             status: result.status,
+            error: result.error,
             notificationId: notification.id,
           });
           sql.exec(

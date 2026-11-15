@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Which agent profile the next task runs with: a compact row at the top of
-/// the composer (shown while typing) that opens a menu of the project's
+/// Which agent profile the next task runs with: a compact glass button beside
+/// the composer attachment button that opens a menu of the project's
 /// profiles, with "Edit" and "New profile" for the editor.
 struct ProfileMenu: View {
     let model: ProjectModel
@@ -31,14 +31,8 @@ struct ProfileMenu: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "person.crop.circle")
-                    .foregroundStyle(.tint)
                 (selected.map { Text(verbatim: $0.name) } ?? Text("Project defaults"))
                     .font(.subheadline.weight(.semibold))
-                if let selected {
-                    Text(verbatim: profileSummary(selected))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -48,10 +42,13 @@ struct ProfileMenu: View {
         }
         // A button with our own label on every platform (macOS would draw a pop-up button).
         .menuStyle(.button)
-        .buttonStyle(.plain)
+        .glassButton()
+        .buttonBorderShape(.capsule)
+        .tint(.primary)
         .menuIndicator(.hidden)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityLabel(Text("Agent profile"))
+        .accessibilityValue(selected?.name ?? String(localized: "Project defaults"))
     }
 }
 

@@ -3,13 +3,14 @@
  * the node scope, the requested and active reservations, and the eligibility predicate.
  * Split out of `workspace-placement.ts` (`.claude/rules/18-file-size-limits.md`).
  */
-import {
-  type WorkspaceAdmissionPolicy,
-} from '@simple-agent-manager/scheduler-core';
+import { type WorkspaceAdmissionPolicy } from '@simple-agent-manager/scheduler-core';
 import { resolveResourceReservation } from '@simple-agent-manager/shared';
 
 import { lifetimeAdmissionCutoffSql } from './node-lifetime-admission';
-import { buildPlacementAuthoritySqlPredicate } from './placement-authority';
+import {
+  buildPlacementAuthoritySqlPredicate,
+  buildProvisionedNodeHoldSqlPredicate,
+} from './placement-authority';
 import type { WorkspacePlacementInput } from './workspace-placement';
 import {
   ACTIVE_WORKSPACE_RESERVATION_STATUS_SQL,
@@ -26,6 +27,7 @@ export function buildWorkspaceAdmissionSql(
     | 'resolvedReservation'
     | 'capacityPlacementSnapshot'
     | 'authorityNodeClass'
+    | 'taskLifecycleGuard'
   >,
   policy: WorkspaceAdmissionPolicy,
   /**
@@ -51,6 +53,7 @@ export function buildWorkspaceAdmissionSql(
     capacityPlacementSnapshot: input.capacityPlacementSnapshot ?? null,
     requireProjectMembership: true,
   });
+  const hold = buildProvisionedNodeHoldSqlPredicate('n', input.taskLifecycleGuard?.taskId);
   const requestedReservationJson = JSON.stringify(resolvedReservation);
   const admissionAt = new Date();
   const admissionNow = admissionAt.toISOString();
@@ -107,6 +110,7 @@ export function buildWorkspaceAdmissionSql(
            AND n.status = 'running'
            AND n.node_role = 'workspace'
            ${capacityPredicate.sql}
+           ${hold.sql}
            ${lifetimeCutoff.sql}
        ),
        requested_reservation AS (
@@ -162,6 +166,7 @@ export function buildWorkspaceAdmissionSql(
       input.nodeId,
       input.userId,
       ...capacityPredicate.binds,
+      ...hold.binds,
       ...lifetimeCutoff.binds,
       requestedReservationJson,
       resolvedReservation.cpuMillis,
