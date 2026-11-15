@@ -29,6 +29,7 @@ import org.simpleagentmanager.core.ProjectViewModel
 
 /** One entry of the back stack. */
 sealed interface Route {
+    data object Notifications : Route
     data object Projects : Route
     data object Account : Route
     data class Project(val id: String, val name: String) : Route
@@ -144,6 +145,7 @@ class ProjectModel(application: Application) : AndroidViewModel(application) {
 }
 
 class ChatModel(application: Application) : AndroidViewModel(application) {
+    val app = (application as SamApplication).core
     val vm = ChatViewModel((application as SamApplication).core)
     private val _state = MutableStateFlow(vm.state())
     val state: StateFlow<ChatState> = _state

@@ -8,14 +8,16 @@ struct SessionRef: Hashable {
 
 struct ProjectsView: View {
     let app: App
+    let onPush: () -> Void
     @State private var list: ProjectListModel
     @State private var path = NavigationPath()
     @State private var query = ""
     @State private var showingAccount = false
     @State private var push = PushRouter.shared
 
-    init(app: App) {
+    init(app: App, onPush: @escaping () -> Void = {}) {
         self.app = app
+        self.onPush = onPush
         _list = State(initialValue: ProjectListModel(app: app))
     }
 
@@ -64,6 +66,7 @@ struct ProjectsView: View {
             // A tapped notification opens its session on top of the stack.
             .onChange(of: push.pending, initial: true) { _, ref in
                 guard let ref else { return }
+                onPush()
                 push.pending = nil
                 path.append(ref)
             }

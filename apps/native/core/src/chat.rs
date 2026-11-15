@@ -15,6 +15,8 @@ pub struct ChatState {
     pub session: Option<ChatSession>,
     /// Oldest first, streamed chunks merged into whole messages.
     pub messages: Vec<ChatMessage>,
+    pub notifications: Vec<crate::Notification>,
+    pub notifications_error: Option<UserError>,
     /// Files for the next follow-up.
     pub attachments: Vec<Attachment>,
     /// Visible only during first-boot VM/container setup.
@@ -48,6 +50,7 @@ impl ChatViewModel {
         }
         let result: crate::error::Result<SessionDetail> =
             self.app.get(&format!("/api/projects/{}/sessions/{}", seg(&project_id), seg(&session_id))).await;
+        let notifications = crate::notifications::fetch_notifications(&self.app, &project_id, &session_id).await;
         // The session embed lacks startedAt/admissionState. Read the full task
         // only during setup so wake-ups and provider holds use the same gates as web.
         let provisioning = if let Ok(detail) = &result {
@@ -69,6 +72,13 @@ impl ChatViewModel {
                 return;
             }
             s.loading = false;
+            match notifications {
+                Ok(items) => {
+                    s.notifications = items;
+                    s.notifications_error = None;
+                }
+                Err(e) => s.notifications_error = Some(UserError::from(&e)),
+            }
             match result {
                 Ok(detail) => {
                     if let Some(provisioning) = provisioning {
@@ -76,6 +86,11 @@ impl ChatViewModel {
                     }
                     s.session = Some(detail.session);
                     s.messages = merge_messages(detail.messages);
+                    for m in &mut s.messages {
+                        if m.role == crate::MessageRole::Tool {
+                            crate::notifications::collect_refs(&serde_json::Value::String(m.content.clone()), &mut m.requests, 0);
+                        }
+                    }
                     s.error = None;
                 }
                 Err(e) => s.error = Some(UserError::from(&e)),
