@@ -192,13 +192,15 @@ internal fun GalleryLayout(
           Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
               enabled = pager.currentPage > 0 && !pager.isScrollInProgress) {
-              Text("‹", Modifier.semantics { contentDescription = "Previous" }, style = MaterialTheme.typography.titleLarge)
+              val label = stringResource(R.string.document_previous)
+              Text("‹", Modifier.semantics { contentDescription = label }, style = MaterialTheme.typography.titleLarge)
             }
             Text(stringResource(R.string.document_position, pager.currentPage + 1, documents.size),
               style = MaterialTheme.typography.labelLarge)
             IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
               enabled = pager.currentPage < documents.lastIndex && !pager.isScrollInProgress) {
-              Text("›", Modifier.semantics { contentDescription = "Next" }, style = MaterialTheme.typography.titleLarge)
+              val label = stringResource(R.string.document_next)
+              Text("›", Modifier.semantics { contentDescription = label }, style = MaterialTheme.typography.titleLarge)
             }
           }
         }
@@ -235,7 +237,7 @@ internal fun GalleryImageContent(document: ChatDocument, bitmap: ImageBitmap?, f
   Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
     Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().onSizeChanged { viewport = it }, contentAlignment = Alignment.Center) {
       if (bitmap != null) {
-        Image(bitmap!!, document.filename,
+        Image(bitmap, document.filename,
           Modifier.fillMaxSize().pointerInput(document.fileId) {
             detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2f; offset = Offset.Zero })
           }.transformable(transform, canPan = { scale > 1f })
