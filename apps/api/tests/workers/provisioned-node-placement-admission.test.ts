@@ -1,6 +1,6 @@
 /**
  * A node auto-provisioned for a task must admit that task, and a node that cannot must
- * fail the task fast instead of spinning in a replan loop.
+ * get one bounded fallback to normal placement instead of spinning in a replan loop.
  *
  * 2026-11-05 staging: a 3.5 GB task provisioned a cx23 (4096 MB); admission charged the
  * node's measured host use (459 MB) on top of the 512 MB host reserve and refused it. The
@@ -337,6 +337,36 @@ describe('a node provisioned for a task admits that task', () => {
     const task = await taskRow(taskId);
     expect(task).toMatchObject({ status: 'delegated', errorMessage: null });
     expect(task?.workspaceId).toBeTruthy();
+    expect(await activeWorkspacesOn(nodeId)).toBe(1);
+  });
+
+  it('holds A’s booting node when B is submitted, then places A on its own node', async () => {
+    const nodeId = 'node-booting-owner-a';
+    const ownerId = 'task-booting-owner-a';
+    const contenderId = 'task-booting-contender-b';
+    await seedProvisionedCx23(nodeId, ownerId, { memoryPercent: 14 });
+    await env.DATABASE.prepare("UPDATE nodes SET status = 'creating' WHERE id = ?")
+      .bind(nodeId).run();
+    await seedTask(contenderId, PROJECT_ID, USER_ID, { status: 'queued', taskMode: 'task' });
+    await startAtWorkspaceCreation(ownerId, nodeId, DOCUMENTED_CAP_MEMORY_MB);
+    await runInDurableObject(taskRunner(contenderId), async (instance) => {
+      await instance.start(taskRunnerInput(contenderId, DOCUMENTED_CAP_MEMORY_MB));
+      await instance.ctx.storage.deleteAlarm();
+      const state = await instance.ctx.storage.get<TaskRunnerState>('state');
+      if (!state) throw new Error('Missing contender state');
+      state.currentStep = 'node_selection';
+      await instance.ctx.storage.put('state', state);
+    });
+    // N becomes ready before B selects capacity, as in the production incident.
+    await env.DATABASE.prepare("UPDATE nodes SET status = 'running' WHERE id = ?")
+      .bind(nodeId).run();
+    const contender = (await fireAlarm(contenderId)).state;
+    expect(contender.stepResults.nodeId).not.toBe(nodeId);
+    expect(contender.currentStep).toBe('node_provisioning');
+    expect(await activeWorkspacesOn(nodeId)).toBe(0);
+    const owner = (await fireAlarm(ownerId)).state;
+    expect(owner.currentStep).toBe('workspace_dispatch');
+    expect(owner.stepResults.nodeId).toBe(nodeId);
     expect(await activeWorkspacesOn(nodeId)).toBe(1);
   });
 

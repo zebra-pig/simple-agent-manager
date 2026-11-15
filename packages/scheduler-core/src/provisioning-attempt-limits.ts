@@ -13,7 +13,10 @@ export const DEFAULT_PROVISIONING_ATTEMPTS_PER_PROVIDER_TIER = 8;
  * sends the task back through node selection, provisioning recovery and agent readiness, about
  * 6 s per cycle on staging, so 3 bounds a node that can never admit the request to about 18 s
  * (the configurable maximum of 20 to about 2 minutes). Before the cap the loop ran until the
- * 15-minute provisioning timeout. The count resets when a reservation succeeds.
+ * 15-minute provisioning timeout. A task may spend this budget once more after detaching its
+ * own refused provisioned node: at most 2 * cap refusals (about 36 s at the default, or
+ * 4 minutes at cap 20, excluding provisioning/queue waits). The count resets when a
+ * reservation succeeds or at that single fallback.
  */
 export const DEFAULT_WORKSPACE_PLACEMENT_MAX_REJECTIONS = 3;
 
