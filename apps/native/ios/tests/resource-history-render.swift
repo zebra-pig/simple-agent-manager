@@ -60,6 +60,8 @@ struct ResourceHistoryRender {
             ("empty-narrow", 375.0, .cpu, [], "pending", false),
             ("sparse-narrow", 375.0, .cpu, sparse, "complete", false)
         ] {
+            let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
+            NSApplication.shared.appearance = appearance
             let view = ResourceHistoryView(points: data, collection: collection, omittedChunks: data.isEmpty ? 0 : 1,
                                            loading: false, metric: metric)
                 .padding(20).frame(width: width)
@@ -76,7 +78,7 @@ struct ResourceHistoryRender {
             let host = NSHostingView(rootView: view)
             host.frame = NSRect(origin: .zero, size: size)
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            window.appearance = appearance
             window.contentView = host
             window.orderFrontRegardless()
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
@@ -85,7 +87,9 @@ struct ResourceHistoryRender {
             guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
                 fatalError("Native chart bitmap allocation failed: \(name)")
             }
-            host.cacheDisplay(in: host.bounds, to: bitmap)
+            appearance.performAsCurrentDrawingAppearance {
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+            }
             guard let png = bitmap.representation(using: .png, properties: [:]) else {
                 fatalError("Native chart render failed: \(name)")
             }
