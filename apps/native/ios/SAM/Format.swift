@@ -25,6 +25,7 @@ extension UserError {
         case let .tooManyFiles(max): String(localized: "You can attach up to \(Int(max)) files.")
         case let .attachmentsTooLarge(maxBytes): String(localized: "Together the files can be at most \(fileSize(maxBytes)).")
         case .attachmentsNotReady: String(localized: "Wait for the files to upload, or remove the ones that failed.")
+        case .repositoryAccessFailed: String(localized: "Could not load all repositories. Reconnect your GitHub account on the web, then load repositories again.")
         case .profileNameRequired: String(localized: "Give the profile a name.")
         case .effortNotSupported: String(localized: "This agent doesn't offer that effort level.")
         case let .invalidProfileNumber(field): String(localized: "Enter a valid number for \(field.label).")

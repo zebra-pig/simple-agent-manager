@@ -5,7 +5,7 @@ mod common;
 use std::sync::{Arc, Mutex};
 
 use common::{serve, MemoryStore};
-use sam_core::{App, ChatViewModel, Credentials, ProvisioningStep};
+use sam_core::{App, ChatContent, ChatViewModel, Credentials, ProvisioningStep};
 use serde_json::{json, Value};
 
 #[tokio::test]
@@ -41,7 +41,7 @@ async fn setup_restores_progresses_and_disappears_when_the_agent_starts() {
     assert_eq!(setup.stage, 0);
     assert_eq!(setup.step, ProvisioningStep::NodeProvisioning);
     assert_eq!(setup.started_at, 1000);
-    assert_eq!(vm.state().messages[0].content, "Build an app");
+    assert_eq!(vm.state().items[0].content, ChatContent::User { text: "Build an app".into() });
 
     for (step, stage) in
         [("workspace_creation", 1), ("workspace_dispatch", 1), ("workspace_ready", 2), ("attachment_transfer", 2), ("agent_session", 3)]
@@ -85,5 +85,5 @@ async fn setup_restores_progresses_and_disappears_when_the_agent_starts() {
     assert!(vm.state().provisioning.is_none());
     vm.load("p1".into(), "missing".into()).await;
     assert!(vm.state().provisioning.is_none());
-    assert!(vm.state().messages.is_empty());
+    assert!(vm.state().items.is_empty());
 }

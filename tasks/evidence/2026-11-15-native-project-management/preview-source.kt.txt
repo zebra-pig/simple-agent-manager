@@ -1,0 +1,31 @@
+package org.simpleagentmanager.app
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+import com.android.tools.screenshot.PreviewTest
+import org.simpleagentmanager.core.ProjectDetails
+import org.simpleagentmanager.core.ProjectInstallation
+import org.simpleagentmanager.core.ProjectManagementState
+
+private fun state(existing: Boolean) = ProjectManagementState(
+    project = if (existing) ProjectDetails("p1", "Mission control", "Agents and tools for the team.", "team/mission-control", "develop", "github") else null,
+    installations = listOf(ProjectInstallation("i1", "Team")), repositories = emptyList(),
+    artifactsEnabled = true, initialized = true, loading = false, saving = false, error = null,
+)
+@PreviewTest
+@Preview(name = "Create project", widthDp = 375, heightDp = 812, showBackground = true)
+@Composable
+fun CreateProjectPreview() {
+    SamTheme { ProjectSettingsContent(null, state(false), {}, {}, { _, _, _ -> }, {}, {}) }
+}
+@PreviewTest
+@Preview(name = "Project settings", widthDp = 375, heightDp = 1000, showBackground = true)
+@Composable
+fun ProjectSettingsPreview() {
+    SamTheme { ProjectSettingsContent("p1", state(true), {}, {}, { _, _, _ -> }, {}, {}) }
+}
+@PreviewTest
+@Preview(name = "Compact dark settings", widthDp = 320, heightDp = 900, uiMode = 0x20, showBackground = true)
+@Composable
+fun CompactSettingsPreview() {
+    SamTheme { ProjectSettingsContent("p1", state(true), {}, {}, { _, _, _ -> }, {}, {}) }
+}

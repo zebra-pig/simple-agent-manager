@@ -1,6 +1,33 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "File" : {
+      "extractionState" : "manual"
+    },
+    "File unavailable. Tap to retry." : {
+      "extractionState" : "manual"
+    },
+    "Open gallery" : {
+      "extractionState" : "manual"
+    },
+    "Open file" : {
+      "extractionState" : "manual"
+    },
+    "Previous" : {
+      "extractionState" : "manual"
+    },
+    "Next" : {
+      "extractionState" : "manual"
+    },
+    "%lld of %lld" : {
+      "extractionState" : "manual"
+    },
+    "Preparing file…" : {
+      "extractionState" : "manual"
+    },
+    "File no longer available" : {
+      "extractionState" : "manual"
+    },
     "%@ is not a server address." : {
 
     },

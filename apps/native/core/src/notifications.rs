@@ -280,12 +280,6 @@ pub struct RequestRef {
     pub secret: bool,
     pub approval: bool,
 }
-pub(crate) fn parse_refs<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<RequestRef>, D::Error> {
-    let value = serde_json::Value::deserialize(d)?;
-    let mut refs = Vec::new();
-    collect_refs(&value, &mut refs, 0);
-    Ok(refs)
-}
 pub(crate) fn collect_refs(value: &serde_json::Value, refs: &mut Vec<RequestRef>, depth: usize) {
     if depth > 12 {
         return;

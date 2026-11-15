@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::attachments::TaskAttachment;
+use crate::timeline::Row;
 
 /// `GET /api/auth/get-session` -> `user`.
 #[derive(Debug, Clone, PartialEq, Deserialize, uniffi::Record)]
@@ -67,6 +68,8 @@ pub struct TaskSummary {
     #[serde(default)]
     pub execution_step: Option<String>,
     #[serde(default)]
+    pub terminal_reason: Option<String>,
+    #[serde(default)]
     pub error_message: Option<String>,
     #[serde(default)]
     pub output_branch: Option<String>,
@@ -80,6 +83,14 @@ pub struct TaskSummary {
 #[derive(Debug, Clone, PartialEq, Deserialize, uniffi::Record)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSession {
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub agent_session_id: Option<String>,
+    #[serde(default)]
+    pub viewer_access: Option<String>,
+    #[serde(default)]
+    pub is_mine: bool,
     pub id: String,
     #[serde(default)]
     pub topic: Option<String>,
@@ -104,6 +115,9 @@ pub struct ChatSession {
 }
 
 impl ChatSession {
+    pub fn can_drive(&self) -> bool {
+        matches!(self.viewer_access.as_deref(), Some("owner" | "grantee")) || (self.viewer_access.is_none() && self.is_mine)
+    }
     /// The latest activity, for sorting and "5 min ago".
     pub fn last_activity(&self) -> i64 {
         self.last_message_at.unwrap_or(self.started_at)
@@ -115,39 +129,37 @@ pub(crate) struct SessionPage {
     pub sessions: Vec<ChatSession>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, uniffi::Enum)]
-#[serde(rename_all = "lowercase")]
-pub enum MessageRole {
-    User,
-    Assistant,
-    System,
-    Tool,
-    Thinking,
-    Plan,
-    #[serde(other)]
-    Unknown,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, uniffi::Record)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatMessage {
-    pub id: String,
-    pub role: MessageRole,
-    #[serde(default, rename = "toolMetadata", deserialize_with = "crate::notifications::parse_refs")]
-    pub requests: Vec<crate::notifications::RequestRef>,
-    #[serde(default)]
-    pub content: String,
-    /// Unix milliseconds.
-    #[serde(default)]
-    pub created_at: i64,
-}
-
-/// `GET /api/projects/:id/sessions/:sessionId`.
+/// `GET /api/projects/:id/sessions/:sessionId`: the newest page of rows.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SessionDetail {
     pub session: ChatSession,
     #[serde(default)]
-    pub messages: Vec<ChatMessage>,
+    pub messages: Vec<Row>,
+    /// Older rows exist than this page.
+    #[serde(default)]
+    pub has_more: bool,
+    #[serde(default)]
+    pub state: Option<SessionSnapshot>,
+}
+
+/// The session's live state (`SessionStateSnapshot`); only what the chat uses.
+#[derive(Deserialize)]
+pub(crate) struct SessionSnapshot {
+    /// idle, prompting, recovering, error, stopped.
+    #[serde(default)]
+    pub activity: Option<String>,
+}
+
+impl SessionDetail {
+    /// The agent is mid-turn. The snapshot says so when there is one; else an
+    /// active session that isn't idle is.
+    pub fn working(&self) -> bool {
+        match self.state.as_ref().and_then(|s| s.activity.as_deref()) {
+            Some(activity) => matches!(activity, "prompting" | "recovering"),
+            None => self.session.status == SessionStatus::Active && !self.session.is_idle,
+        }
+    }
 }
 
 /// `POST /api/projects/:id/tasks/submit`.
@@ -173,22 +185,6 @@ pub(crate) struct Prompt<'a> {
     pub content: &'a str,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub attachments: &'a [TaskAttachment],
-}
-
-/// The agent stores a reply (and a thought) as one row per streamed chunk; the
-/// chat shows consecutive rows of those roles as one message, as the web app
-/// does (`MERGED_MESSAGE_ROLES` in packages/shared/src/chat-message-merge.ts).
-pub(crate) fn merge_messages(mut rows: Vec<ChatMessage>) -> Vec<ChatMessage> {
-    rows.sort_by_key(|m| m.created_at); // stable: equal timestamps keep server order
-    let mut out: Vec<ChatMessage> = Vec::with_capacity(rows.len());
-    for row in rows {
-        let merges = matches!(row.role, MessageRole::Assistant | MessageRole::Thinking);
-        match out.last_mut() {
-            Some(last) if merges && last.role == row.role => last.content.push_str(&row.content),
-            _ => out.push(row),
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -222,17 +218,16 @@ mod tests {
         assert_eq!(detail.session.task.as_ref().unwrap().status, "in_progress");
         assert_eq!(detail.session.last_activity(), 1700000005000);
 
-        let merged = merge_messages(detail.messages);
-        let summary: Vec<_> = merged.iter().map(|m| (m.id.as_str(), m.role, m.content.as_str())).collect();
-        assert_eq!(
-            summary,
-            vec![
-                ("m1", MessageRole::User, "Hi"),
-                ("m2", MessageRole::Assistant, "Hello"),
-                ("m4", MessageRole::Tool, "ls"),
-                ("m5", MessageRole::Unknown, "?"),
-            ]
-        );
+        assert!(!detail.has_more);
+        assert!(detail.working(), "active, not idle, no snapshot");
+        assert_eq!(detail.messages.len(), 5);
+        assert_eq!(detail.messages[3].tool_metadata, Some(serde_json::json!({})));
+
+        let idle: SessionDetail = serde_json::from_str(
+            r#"{"session": {"id": "s", "status": "active", "isIdle": false}, "state": {"activity": "idle", "activityAt": 1}}"#,
+        )
+        .unwrap();
+        assert!(!idle.working(), "the snapshot wins");
     }
 
     #[test]

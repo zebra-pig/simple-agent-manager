@@ -3,13 +3,18 @@ import SwiftUI
 /// A project's chat sessions, plus the composer that hands a new task (and any
 /// attached files) to an agent, with the agent profile picked in it.
 struct ProjectView: View {
+    let app: App
+    let changed: (Project?) -> Void
     let project: Project
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
     @State private var draft = ""
+    @State private var settings = false
     @State private var editing: ProfileEditing?
 
-    init(app: App, project: Project, open: @escaping (SessionRef) -> Void) {
+    init(app: App, project: Project, changed: @escaping (Project?) -> Void, open: @escaping (SessionRef) -> Void) {
+        self.app = app
+        self.changed = changed
         self.project = project
         self.open = open
         _model = State(initialValue: ProjectModel(app: app))
@@ -58,6 +63,12 @@ struct ProjectView: View {
                 ProfileMenu(model: model) { editing = ProfileEditing(profile: $0) }
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Project settings", systemImage: "gearshape") { settings = true }
+            }
+        }
+        .sheet(isPresented: $settings) { ProjectSettings(app: app, projectId: project.id, saved: changed) }
         .sheet(item: $editing) { ProfileEditor(model: model, profile: $0.profile) }
     }
 }
@@ -98,6 +109,7 @@ struct Composer<Accessory: View>: View {
     let files: ComposerFiles
     let send: () -> Void
     let accessory: Accessory
+    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
     @State private var dropTargeted = false
     @FocusState private var focused: Bool
 
@@ -121,47 +133,30 @@ struct Composer<Accessory: View>: View {
                 if !files.items.isEmpty {
                     AttachmentStrip(files: files)
                 }
-                if Accessory.self != EmptyView.self {
+                if Accessory.self == EmptyView.self {
+                    ComposerInputLayout(lineHeight: lineHeight) {
+                        composerInput
+                        AttachButton(files: files).frame(width: 44, height: 44)
+                        sendControl.frame(width: 44, height: 44)
+                    }
+                } else {
                     composerInput
                         .padding(.horizontal, 16)
                         .padding(.top, 14)
                         .padding(.bottom, 8)
-                }
-                HStack(alignment: .bottom, spacing: 8) {
-                    AttachButton(files: files)
-                        .padding([.leading, .vertical], 4)
-                    if Accessory.self == EmptyView.self {
-                        composerInput
-                            .padding(.vertical, 10)
-                    } else {
-                        accessory
-                            .padding(.vertical, 4)
+                    HStack(alignment: .bottom, spacing: 8) {
+                        AttachButton(files: files).frame(width: 44, height: 44)
+                        accessory.padding(.vertical, 4)
                         Spacer(minLength: 0)
+                        sendControl.frame(width: 44, height: 44)
                     }
-                    Group {
-                        if busy {
-                            ProgressView().frame(width: 36, height: 36)
-                        } else {
-                            Button(action: send) {
-                                Image(systemName: "arrow.up")
-                                    .font(.body.weight(.semibold))
-                                    .frame(width: 22, height: 22)
-                            }
-                            .glassProminentButton()
-                            .buttonBorderShape(.circle)
-                            .disabled(!canSend)
-                            .keyboardShortcut(.return, modifiers: .command)
-                            .accessibilityLabel(Text("Send"))
-                        }
-                    }
-                    .padding(4)
                 }
             }
-            .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)
+            .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), interactive: true)
             .overlay {
                 if dropTargeted {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .strokeBorder(Color.primary, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
                         .allowsHitTesting(false)
                 }
             }
@@ -169,6 +164,23 @@ struct Composer<Accessory: View>: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private var sendControl: some View {
+        if busy {
+            ProgressView().frame(width: 36, height: 36)
+        } else {
+            Button(action: send) {
+                Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 22, height: 22)
+            }
+            .glassButton()
+            .tint(.primary)
+            .buttonBorderShape(.circle)
+            .disabled(!canSend)
+            .keyboardShortcut(.return, modifiers: .command)
+            .accessibilityLabel(Text("Send"))
+        }
     }
 
     @ViewBuilder
@@ -194,6 +206,31 @@ struct Composer<Accessory: View>: View {
         #endif
     }
 
+}
+
+/// Keeps the editor's identity and keyboard focus while its controls move below a wrapped draft.
+private struct ComposerInputLayout: Layout {
+    var lineHeight: CGFloat
+
+    private func metrics(width: CGFloat, subviews: Subviews) -> (expanded: Bool, field: CGSize, height: CGFloat) {
+        let collapsed = subviews[0].sizeThatFits(ProposedViewSize(width: max(1, width - 112), height: nil))
+        let expanded = collapsed.height > lineHeight * 1.5
+        let field = expanded ? subviews[0].sizeThatFits(ProposedViewSize(width: max(1, width - 32), height: nil)) : collapsed
+        return (expanded, field, expanded ? 16 + field.height + 8 + 44 + 8 : max(56, field.height + 16))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 320
+        return CGSize(width: width, height: metrics(width: width, subviews: subviews).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let m = metrics(width: bounds.width, subviews: subviews)
+        subviews[0].place(at: CGPoint(x: bounds.minX + (m.expanded ? 16 : 56), y: bounds.minY + (m.expanded ? 16 : (bounds.height - m.field.height) / 2)), proposal: ProposedViewSize(width: max(1, bounds.width - (m.expanded ? 32 : 112)), height: m.field.height))
+        let y = bounds.minY + (m.expanded ? bounds.height - 52 : (bounds.height - 44) / 2)
+        subviews[1].place(at: CGPoint(x: bounds.minX + 8, y: y), proposal: ProposedViewSize(width: 44, height: 44))
+        subviews[2].place(at: CGPoint(x: bounds.maxX - 52, y: y), proposal: ProposedViewSize(width: 44, height: 44))
+    }
 }
 
 extension Composer where Accessory == EmptyView {

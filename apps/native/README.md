@@ -99,6 +99,37 @@ Secret values remain in the form's transient state, go directly to the dedicated
 and are cleared after success or leaving the form. They never become chat prompts or core state.
 Replacing a project value requires consent tied to the exact existing version; a changed version
 requires fresh consent. A failed save preserves the input for retry. Permissions match web.
+## Chat tools
+
+The top-right **Session tools** menu follows the web tool rail's groups: workspace and
+history, session actions, then task completion and details. Files and Git are offered only
+for an active workspace to its owner or a teammate with shared access. Completing or
+cancelling a task asks for confirmation and uses the web's task-status transition rules.
+
+- **Files** browses directories and opens selectable, line-numbered source. **Git** separates
+  staged, unstaged and untracked files; staged diffs retain the staged flag, renamed files
+  show their old path, and untracked files open as source. `ChatToolsViewModel` uses the
+  same `/sessions/:id/files/*` and `/git/*` proxies as web. `code_lines` parses unified-diff
+  hunk offsets in Rust so the two shells share line numbering and addition/removal markers.
+- **Resources** charts session CPU, memory and read/write I/O from
+  `/sessions/:id/resource-timeline` minute rollups. Missing samples remain gaps; charts do
+  not invent zeroes or connect separate VM runs. Older chunks without rollups are not
+  plotted. Collection failures, pending history and omitted chunks are disclosed.
+- **Details** includes session/task status, workspace and VM status/hardware, and provider
+  usage from `/projects/:id/credential-limits?agentSessionId=...`. Remaining amounts appear
+  only when reported by the provider. These are usage windows, not an assumed credit
+  balance; their observation and reset times are shown. Owner-only infrastructure endpoints
+  are not called for teammates.
+- Related, Automation, Comments, Share, Retry, Fork and Report are marked **(web)**. They
+  hand off to the corresponding web panel or prefilled composer with `?tool=...`.
+  `useRequestedSessionTool` waits for web's authoritative available-action list, consumes
+  the query once, and never accepts Complete/Cancel from a URL. The matching web change
+  must deploy alongside the native app for these direct handoffs.
+
+Apple tool surfaces use Liquid Glass with the existing material fallback. Android uses
+neutral translucent surfaces, a light rim and a subtle gradient. File/diff parsing and API
+logic stay in Rust; the shells use Swift Charts and Compose drawing for the plots, without
+adding a platform-specific viewer dependency.
 
 ## Attachments
 
@@ -120,6 +151,32 @@ the core checks the limits (`ATTACHMENT_DEFAULTS`), makes the name safe (`saniti
 reads the file on a worker thread, and shows progress and errors in `state.attachments`. Send is
 blocked while a file is uploading or failed. A message with files and no text asks the agent to
 read them. Follow-ups with files need durable prompt delivery on the server, as on the web.
+
+## Chat timeline
+
+Both shells render the core's `ChatItem` snapshots. Streamed reply chunks join into one
+Markdown message; tool updates merge by call ID, and runs of tools and thoughts fold into
+expandable activity. Plans show their latest entries. System deliveries and workspace reports
+appear as notices with optional details. Markdown supports headings, inline styles, links,
+lists, task lists, quotes, code and tables; wide code and tables scroll horizontally.
+
+Follow-ups appear immediately in an outbox and remain marked as sending or queued until the
+server transcript contains them. Failed sends restore the draft. Reading older messages pauses
+following; the down-arrow button returns to the latest messages. Older history is still limited
+to the latest page from the server.
+
+Android's `ChatContent` accepts a state snapshot and callbacks. Robolectric tests exercise
+actual Compose views without signing in, including expanded activity, the history arrow,
+and editor focus while a draft wraps.
+The official Compose screenshot plugin renders phone, dark, tablet, large-text, arrow and expanded-composer previews:
+
+```sh
+cd apps/native/android
+./gradlew assembleDebug testDebugUnitTest
+./gradlew updateDebugScreenshotTest       # regenerate preview baselines
+./gradlew validateDebugScreenshotTest     # compare against checked-in baselines
+# app/src/screenshotTestDebug/reference/
+```
 
 ## Agent profiles
 
@@ -290,3 +347,36 @@ There is no GitHub Actions workflow for the native app yet; locally, the command
 - Older messages: the chat shows the latest page only.
 - Translations: the strings are extracted, but only English exists so far.
 - Release signing and store uploads on Android.
+
+### Viewing files in chat
+
+`documents::resolve` in the core recognizes the persisted `display_from_library`,
+`upload_to_library`, and `replace_library_file` tool metadata, including sparse updates
+correlated by `toolCallId`. The native transcript shows library images as small cards;
+tapping one opens the session's image gallery with navigation and zoom. Other library
+files show their name, size and caption and open in Quick Look on Apple platforms or
+an installed Android file viewer. Deleted files retain an unavailable card.
+
+`ChatViewModel::document_bytes` fetches referenced files through the signed-in core,
+using the project-scoped library download route. Preview downloads are limited to
+20 MiB. Cookies and remote URLs never pass to external viewers. Android shares only
+the downloaded file through a temporary read grant; Apple previews use a temporary copy.
+
+## Project management
+
+The Projects toolbar creates projects natively. Choose a connected GitHub account and repository,
+search GitLab projects, or select SAM-hosted when the deployment enables it. Repository selection
+fills the default branch and suggests a project name; the name and optional description are editable.
+Connect new provider accounts on the web before selecting them here.
+
+Project settings (in the project's toolbar) edit its name, description and default branch. Repository
+identity stays fixed, as on the web. Deleting a project requires typing its current name exactly and
+permanently removes associated data. Server authorization errors stay in the editor, preserving the
+draft. Existing agent-profile management remains in the composer. Advanced access, account,
+infrastructure, runtime and deployment settings remain available in the web app.
+
+Both shells use `ProjectManagementViewModel`: GitHub installation/repository discovery, GitLab
+project search, deployment capability discovery, and `POST /api/projects`, `GET/PATCH/DELETE
+/api/projects/:id`. PATCH sends only general settings, so other settings keep their values.
+Concurrent loads and mutations are serialized. Apple sheets and project cards use Liquid Glass
+with material fallbacks on older OS versions.

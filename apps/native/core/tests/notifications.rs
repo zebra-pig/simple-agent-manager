@@ -95,9 +95,9 @@ async fn chat_extracts_compact_tool_cards_and_finds_requests_outside_message_pag
     let vm = ChatViewModel::new(app(server));
     vm.load("p1".into(), "s1".into()).await;
     let state = vm.state();
-    assert_eq!(state.messages[0].requests[0].id, "a1");
-    assert!(state.messages[1].requests[0].secret);
-    assert!(state.messages[2].requests[0].approval);
+    assert_eq!(state.requests[0].id, "a1");
+    assert!(state.requests[1].secret);
+    assert!(state.requests[2].approval);
     assert_eq!(state.notifications[0].request_id.as_deref(), Some("older"));
 }
 #[tokio::test]

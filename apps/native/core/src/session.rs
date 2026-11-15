@@ -469,6 +469,10 @@ impl App {
         self.send(|http, base| http.post(format!("{base}{path}")).json(body)).await
     }
 
+    pub(crate) async fn patch<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
+        self.send(|http, base| http.patch(format!("{base}{path}")).json(body)).await
+    }
+
     /// PUT JSON to `path` as the signed-in user.
     pub(crate) async fn put<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
         self.send(|http, base| http.put(format!("{base}{path}")).json(body)).await
@@ -521,4 +525,41 @@ async fn error_from(res: reqwest::Response) -> CoreError {
 /// Path segment escaping for ids in URLs.
 pub(crate) fn seg(id: &str) -> String {
     url::form_urlencoded::byte_serialize(id.as_bytes()).collect()
+}
+
+impl App {
+    /// Bounded binary transport; never accepts a remote URL from tool output.
+    pub(crate) async fn library_bytes(&self, project: &str, file: &str) -> Result<Vec<u8>> {
+        const MAX: usize = 20 * 1024 * 1024;
+        let c = self.credentials()?;
+        let mut res = self
+            .http
+            .get(format!("{}/api/projects/{}/library/{}/download", c.server_url, seg(project), seg(file)))
+            .header(reqwest::header::COOKIE, &c.session_cookie)
+            .send()
+            .await?;
+        if res.status() == 401 {
+            if self.credentials.lock().unwrap().as_ref() == Some(&c) {
+                self.expire();
+            }
+            return Err(CoreError::Unauthenticated);
+        }
+        if !res.status().is_success() {
+            return Err(error_from(res).await);
+        }
+        if res.content_length().is_some_and(|n| n > MAX as u64) {
+            return Err(CoreError::FileTooLarge(MAX as u64));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = res.chunk().await? {
+            if bytes.len() + chunk.len() > MAX {
+                return Err(CoreError::FileTooLarge(MAX as u64));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if self.credentials.lock().unwrap().as_ref() != Some(&c) {
+            return Err(CoreError::Unauthenticated);
+        }
+        Ok(bytes)
+    }
 }

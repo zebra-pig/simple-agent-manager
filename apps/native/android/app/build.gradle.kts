@@ -1,6 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    id("com.android.compose.screenshot") version "0.0.1-alpha16"
     // AGP 9 has built-in Kotlin support, so no kotlin.android plugin is applied.
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
@@ -23,6 +24,7 @@ val nativeDir = rootProject.layout.projectDirectory.dir("..")
 android {
     namespace = "org.simpleagentmanager.app"
     compileSdk = 36
+    experimentalProperties["android.experimental.enableScreenshotTest"] = true
 
     defaultConfig {
         applicationId = brand("SAM_BUNDLE_ID", "org.simpleagentmanager.app")
@@ -57,6 +59,8 @@ android {
     sourceSets["main"].kotlin.directories += "build/rust/kotlin"
     sourceSets["main"].jniLibs.directories += "build/rust/jniLibs"
 
+    testOptions { unitTests.isIncludeAndroidResources = true }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -75,6 +79,14 @@ val buildRustCore = tasks.register<Exec>("buildRustCore") {
 tasks.named("preBuild") { dependsOn(buildRustCore) }
 
 dependencies {
+    "screenshotTestImplementation"("com.android.tools.screenshot:screenshot-validation-api:0.0.1-alpha16")
+    "screenshotTestImplementation"("androidx.compose.ui:ui-tooling")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)

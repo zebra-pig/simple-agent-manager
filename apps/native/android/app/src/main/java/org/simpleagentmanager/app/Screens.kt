@@ -31,6 +31,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -87,9 +94,7 @@ import org.simpleagentmanager.core.AppState
 import org.simpleagentmanager.core.Attachment
 import org.simpleagentmanager.core.AttachmentStatus
 import org.simpleagentmanager.core.AuthStatus
-import org.simpleagentmanager.core.ChatMessage
 import org.simpleagentmanager.core.ChatSession
-import org.simpleagentmanager.core.MessageRole
 import org.simpleagentmanager.core.Project
 import org.simpleagentmanager.core.SessionStatus
 import org.simpleagentmanager.core.TaskSummary
@@ -151,13 +156,19 @@ fun Root(
             when (val route = rootRoute) {
                 Route.Assistant -> AssistantScreen(session.app, openUrl) { p, s -> session.push(Route.Chat(p, s)) }
                 Route.Notifications -> NotificationsScreen(session.app, openUrl) { p, s -> session.push(Route.Chat(p, s)) }
-                Route.Projects -> ProjectsScreen(projects, onOpen = { session.push(Route.Project(it.id, it.name)) }, onAccount = { session.push(Route.Account) })
+                Route.Projects -> ProjectsScreen(projects, onOpen = { session.push(Route.Project(it.id, it.name)) }, onAccount = { session.push(Route.Account) }, onCreate = { session.push(Route.ProjectSettings(null)) })
                 Route.Account -> AccountScreen(app, onBack = session::pop, onSignOut = { session.signOut() })
                 is Route.Project -> ProjectScreen(
-                    route, project, onBack = session::pop,
+                    route, project, onBack = session::pop, onSettings = { session.push(Route.ProjectSettings(route.id)) },
                     onOpen = { session.push(Route.Chat(route.id, it)) },
                     onEditProfile = { session.push(Route.ProfileEditor(route.id, it)) },
                 )
+                is Route.ProjectSettings -> ProjectSettingsScreen(route.projectId, onBack = session::pop) { updated ->
+                    session.pop()
+                    if (route.projectId != null) session.pop()
+                    projects.load()
+                    if (updated != null) session.push(Route.Project(updated.id, updated.name))
+                }
                 is Route.Chat -> ChatScreen(route, chat, onBack = session::pop, openUrl = openUrl)
                 is Route.ProfileEditor -> ProfileEditorScreen(route, project, onBack = session::pop)
             }
@@ -232,13 +243,13 @@ private fun SignInScreen(app: AppState, onSignIn: (String) -> Unit, onOpen: (Str
 }
 
 @Composable
-private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, onAccount: () -> Unit) {
+private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, onAccount: () -> Unit, onCreate: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.projects)) },
-                actions = { IconButton(onClick = onAccount) { Icon(Icons.Default.AccountCircle, contentDescription = stringResource(R.string.account)) } },
+                actions = { TextButton(onClick = onCreate) { Text(stringResource(R.string.project_new_project)) }; IconButton(onClick = onAccount) { Icon(Icons.Default.AccountCircle, contentDescription = stringResource(R.string.account)) } },
             )
         },
     ) { padding ->
@@ -263,7 +274,7 @@ private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, o
             Empty(
                 loading = state.loading && state.projects.isEmpty(),
                 empty = state.projects.isEmpty() && state.error == null,
-                text = stringResource(R.string.no_projects, stringResource(R.string.app_name)),
+                text = stringResource(R.string.no_projects),
             )
         }
     }
@@ -276,6 +287,7 @@ private fun ProjectScreen(
     onBack: () -> Unit,
     onOpen: (sessionId: String) -> Unit,
     onEditProfile: (profileId: String?) -> Unit,
+    onSettings: () -> Unit,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     var draft by rememberSaveable(route.id) { mutableStateOf("") }
@@ -283,7 +295,9 @@ private fun ProjectScreen(
     // A switch keeps the previous project's rows until the core resets them.
     val sessions = if (state.projectId == route.id) state.sessions else emptyList()
     Scaffold(
-        topBar = { BackBar(route.name, onBack) },
+        topBar = { TopAppBar(title = { Text(route.name) }, navigationIcon = {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
+        }, actions = { TextButton(onClick = onSettings) { Text(stringResource(R.string.project_settings)) } }) },
         bottomBar = {
             val current = state.projectId == route.id
             val attachments = if (current) state.attachments else emptyList()
@@ -320,109 +334,7 @@ private fun ProjectScreen(
 }
 
 @Composable
-private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl: (String) -> Unit) {
-    val state by model.state.collectAsStateWithLifecycle()
-    var draft by rememberSaveable(route.sessionId) { mutableStateOf("") }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    // Poll while on screen and in front; there is no push channel yet.
-    LaunchedEffect(route) {
-        model.vm.load(route.projectId, route.sessionId)
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                val status = model.vm.state().session?.status
-                delay(if (status == SessionStatus.STOPPED || status == SessionStatus.FAILED) 20_000 else 4_000)
-                model.vm.refresh()
-            }
-        }
-    }
-    val current = state.sessionId == route.sessionId
-    val messages = if (current) state.messages else emptyList()
-    val session = state.session.takeIf { current }
-    val provisioning = state.provisioning.takeIf { current }
-    val list = rememberLazyListState()
-    // Follow the conversation: the last message's row, after the optional task card.
-    LaunchedEffect(messages.lastOrNull()?.id, provisioning != null) {
-        val count = messages.size + (if (session?.task != null && provisioning == null) 1 else 0) + (if (provisioning != null) 1 else 0)
-        if (count > 0) list.animateScrollToItem(count - 1)
-    }
-
-    Scaffold(
-        topBar = {
-            BackBar(session?.topic ?: stringResource(R.string.session), onBack) {
-                if (session != null) {
-                    StatusDot(session)
-                    Spacer(Modifier.size(16.dp))
-                }
-            }
-        },
-        bottomBar = {
-            if (session != null && (session.status == SessionStatus.ACTIVE || session.status == SessionStatus.SLEEPING)) {
-                Composer(stringResource(R.string.reply_to_agent), draft, { draft = it }, busy = state.sending, if (current) state.attachments else emptyList(), model::attach, model::detach) {
-                    model.send(draft) { draft = "" }
-                }
-            }
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (provisioning == null) session?.task?.let { task -> item { TaskCard(task, openUrl) } }
-                items(messages, key = { it.id }) { message ->
-                    if (message.requests.isEmpty()) MessageRow(message)
-                    message.requests.forEach { request ->
-                        RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval)
-                    }
-                }
-                items(state.notifications.filter { n -> n.requestId == null || messages.none { m -> m.requests.any { it.id == n.requestId } } }, key = { "notification-${it.id}" }) { n ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(n.title, style = MaterialTheme.typography.titleSmall)
-                            n.requestId?.let { RequestCard(model.app, route.projectId, route.sessionId, it, n.kind == "secret_request", n.kind == "operations_approval") }
-                                ?: n.body?.let { Text(it) }
-                            n.actionUrl?.let { action -> org.simpleagentmanager.core.notificationUrl(model.app.state().serverUrl, action)?.let { url ->
-                                TextButton(onClick = { openUrl(url) }) { Text(stringResource(R.string.open_on_web)) }
-                            } }
-                        }
-                    }
-                }
-                state.notificationsError?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
-                provisioning?.let { item(key = "provisioning") { ProvisioningCard(it) } }
-                if (current) state.error?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
-            }
-            if (messages.isEmpty() && (state.loading || !current)) CircularProgressIndicator(Modifier.align(Alignment.Center))
-        }
-    }
-}
-
-@Composable
-private fun MessageRow(message: ChatMessage) {
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    when (message.role) {
-        MessageRole.USER -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            Text(
-                message.content,
-                Modifier.widthIn(max = 320.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
-                    .padding(10.dp),
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        }
-        MessageRole.ASSISTANT -> Text(message.content)
-        MessageRole.THINKING -> Text(message.content, color = muted, fontStyle = FontStyle.Italic, maxLines = 4, overflow = TextOverflow.Ellipsis)
-        MessageRole.TOOL -> Text(
-            message.content,
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)).padding(8.dp),
-            color = muted,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
-        MessageRole.SYSTEM, MessageRole.PLAN, MessageRole.UNKNOWN -> Text(message.content, color = muted, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun TaskCard(task: TaskSummary, openUrl: (String) -> Unit) {
+internal fun TaskCard(task: TaskSummary, openUrl: (String) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val step = task.executionStep?.takeIf { task.status == "in_progress" || task.status == "queued" }
@@ -469,7 +381,7 @@ internal fun BackBar(title: String, onBack: () -> Unit, actions: @Composable Row
  * files above the field. Files dropped on it are attached too.
  */
 @Composable
-private fun Composer(
+internal fun Composer(
     placeholder: String,
     text: String,
     onChange: (String) -> Unit,
@@ -481,28 +393,57 @@ private fun Composer(
 ) {
     var dropHover by remember { mutableStateOf(false) }
     val ready = attachments.all { it.status is AttachmentStatus.Ready }
-    Surface(
-        tonalElevation = 3.dp,
-        modifier = Modifier.fileDropTarget(onHover = { dropHover = it }, onDrop = onAttach),
-        border = if (dropHover) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-    ) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(vertical = 8.dp)) {
-            if (attachments.isNotEmpty()) AttachmentStrip(attachments, onRemove)
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
-                Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) { AttachButton(onAttach) }
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = onChange,
-                    placeholder = { Text(placeholder) },
-                    maxLines = 6,
-                    modifier = Modifier.weight(1f),
-                )
-                Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                    if (busy) {
-                        CircularProgressIndicator(Modifier.size(24.dp))
-                    } else {
-                        IconButton(onClick = onSend, enabled = (text.isNotBlank() || attachments.isNotEmpty()) && ready) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
+    val colors = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+        Surface(
+            modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth()
+                .fileDropTarget(onHover = { dropHover = it }, onDrop = onAttach),
+            shape = RoundedCornerShape(28.dp),
+            color = colors.surfaceContainer.copy(alpha = 0.94f),
+            contentColor = colors.onSurface,
+            shadowElevation = 6.dp,
+            border = BorderStroke(if (dropHover) 2.dp else 1.dp, colors.outlineVariant.copy(alpha = if (dropHover) 1f else 0.5f)),
+        ) {
+            Column {
+                if (attachments.isNotEmpty()) AttachmentStrip(attachments, onRemove)
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val density = LocalDensity.current
+                    val measurer = rememberTextMeasurer()
+                    val style = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface)
+                    val collapsedWidth = with(density) { (maxWidth - 112.dp).roundToPx().coerceAtLeast(1) }
+                    val expanded = measurer.measure(text.ifEmpty { placeholder }, style, constraints = Constraints(maxWidth = collapsedWidth)).lineCount > 1
+                    Layout(content = {
+                        BasicTextField(
+                            value = text, onValueChange = onChange, textStyle = style,
+                            cursorBrush = SolidColor(colors.onSurface), maxLines = 6,
+                            decorationBox = { field ->
+                                Box {
+                                    if (text.isEmpty()) Text(placeholder, style = style, color = colors.onSurfaceVariant)
+                                    field()
+                                }
+                            },
+                        )
+                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { AttachButton(onAttach) }
+                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                            if (busy) CircularProgressIndicator(Modifier.size(24.dp), color = colors.onSurfaceVariant)
+                            else IconButton(onClick = onSend, enabled = (text.isNotBlank() || attachments.isNotEmpty()) && ready) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send))
+                            }
+                        }
+                    }) { children, constraints ->
+                        val width = constraints.maxWidth
+                        val edge = 8.dp.roundToPx()
+                        val inset = 16.dp.roundToPx()
+                        val control = 48.dp.roundToPx()
+                        val fieldWidth = (width - if (expanded) inset * 2 else (control + edge) * 2).coerceAtLeast(1)
+                        val field = children[0].measure(Constraints(maxWidth = fieldWidth, minWidth = fieldWidth))
+                        val attach = children[1].measure(Constraints.fixed(control, control))
+                        val send = children[2].measure(Constraints.fixed(control, control))
+                        val height = if (expanded) inset + field.height + edge + control + edge else maxOf(56.dp.roundToPx(), field.height + edge * 2)
+                        layout(width, height) {
+                            field.placeRelative(if (expanded) inset else edge + control, if (expanded) inset else (height - field.height) / 2)
+                            attach.placeRelative(edge, height - control - if (expanded) edge else (height - control) / 2)
+                            send.placeRelative(width - edge - control, height - control - if (expanded) edge else (height - control) / 2)
                         }
                     }
                 }
@@ -512,7 +453,7 @@ private fun Composer(
 }
 
 @Composable
-private fun StatusDot(session: ChatSession) {
+internal fun StatusDot(session: ChatSession) {
     val color = when (session.status) {
         SessionStatus.ACTIVE -> if (session.isIdle) Color(0xFFF59E0B) else Color(0xFF22C55E)
         SessionStatus.SLEEPING -> Color(0xFF3B82F6)
@@ -579,6 +520,7 @@ fun UserError.message(): String = when (this) {
     is UserError.TooManyFiles -> stringResource(R.string.error_too_many_files, max.toInt())
     is UserError.AttachmentsTooLarge -> stringResource(R.string.error_attachments_too_large, Formatter.formatShortFileSize(LocalContext.current, maxBytes.toLong()))
     UserError.AttachmentsNotReady -> stringResource(R.string.error_attachments_not_ready)
+    UserError.RepositoryAccessFailed -> stringResource(R.string.project_repository_access_failed)
     UserError.ProfileNameRequired -> stringResource(R.string.error_profile_name_required)
     UserError.EffortNotSupported -> stringResource(R.string.error_effort_not_supported)
     is UserError.InvalidProfileNumber -> stringResource(R.string.error_invalid_profile_number, field.label())

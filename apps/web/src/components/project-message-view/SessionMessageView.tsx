@@ -30,6 +30,7 @@ import { useAcpPermissionPlacement } from './useAcpPermissionPlacement';
 import { useAnimatedUserMessages } from './useAnimatedUserMessages';
 import { useConversationJump } from './useConversationJump';
 import { useFilePanelAccessGate } from './useFilePanelAccessGate';
+import { useRequestedSessionTool } from './useRequestedSessionTool';
 import { useSessionCommentInbox } from './useSessionCommentInbox';
 import { useSessionLifecycle } from './useSessionLifecycle';
 import { useSessionLinkedWork } from './useSessionLinkedWork';
@@ -258,6 +259,12 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
     canManageShare: viewer.canManageAccess,
     canBrowseWorkspace: viewer.canBrowseWorkspace,
   });
+  useRequestedSessionTool(
+    sessionId,
+    lc.session?.id === sessionId,
+    sessionTools.actions,
+    sessionTools.selectTool
+  );
   const sessionToolRail = lc.session ? (
     <SessionToolRail
       actions={sessionTools.actions}
