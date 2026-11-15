@@ -139,19 +139,41 @@ impl ProjectViewModel {
         if message.is_empty() || project_id.is_empty() {
             return None;
         }
-        self.update(|s| s.submitting = true);
+        // Claim the submission atomically: shell observers can lag behind taps.
+        let mut started = false;
+        self.update(|s| {
+            if !s.submitting && s.project_id == project_id {
+                s.submitting = true;
+                s.error = None;
+                started = true;
+            }
+        });
+        if !started {
+            return None;
+        }
         let body = SubmitTask { message: &message, agent_profile_id: selected_profile_id.as_deref(), attachments: &files };
         let result: Result<SubmittedTask> = self.app.post(&format!("/api/projects/{}/tasks/submit", seg(&project_id)), &body).await;
         self.update(|s| {
-            s.submitting = false;
+            if s.project_id != project_id {
+                return;
+            }
             match &result {
                 // Files added while this was on its way stay for the next task.
                 Ok(_) => s.attachments.retain(|a| !attached.iter().any(|sent| sent.id == a.id)),
-                Err(e) => s.error = Some(UserError::from(e)),
+                Err(e) => {
+                    s.submitting = false;
+                    s.error = Some(UserError::from(e));
+                }
             }
         });
         let submitted = result.ok()?;
-        self.load(project_id).await;
+        // Keep the composer busy while refreshing, until the shell can open the chat.
+        self.load(project_id.clone()).await;
+        self.update(|s| {
+            if s.project_id == project_id {
+                s.submitting = false;
+            }
+        });
         Some(submitted)
     }
 }

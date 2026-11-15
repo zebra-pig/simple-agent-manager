@@ -9,6 +9,7 @@ struct ProjectView: View {
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
     @State private var draft = ""
+    @State private var submitting = false
     @State private var settings = false
     @State private var editing: ProfileEditing?
 
@@ -51,9 +52,12 @@ struct ProjectView: View {
         .interactiveKeyboardDismiss()
         .task { await model.core.load(projectId: project.id) }
         .safeAreaInset(edge: .bottom) {
-            Composer(placeholder: "Describe a task…", text: $draft, busy: model.state.submitting, files: model.files) {
+            Composer(placeholder: "Describe a task…", text: $draft, busy: submitting || model.state.submitting, files: model.files) {
+                guard !submitting && !model.state.submitting else { return }
+                submitting = true
                 let message = draft
                 Task {
+                    defer { submitting = false }
                     if let task = await model.core.submitTask(message: message) {
                         draft = ""
                         open(SessionRef(projectId: project.id, sessionId: task.sessionId))
