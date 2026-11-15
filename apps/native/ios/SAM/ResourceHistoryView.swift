@@ -9,6 +9,13 @@ struct ResourceHistoryView: View {
     @State private var metric = ResourceMetric.cpu
     @State private var selectedDate: Date?
 
+    init(points: [ResourcePoint], collection: String, omittedChunks: UInt32, loading: Bool,
+         metric: ResourceMetric = .cpu) {
+        self.points = points; self.collection = collection
+        self.omittedChunks = omittedChunks; self.loading = loading
+        _metric = State(initialValue: metric)
+    }
+
     var body: some View {
         let samples = metric.samples(from: points)
         let selected = selectedDate.flatMap { date in
@@ -183,6 +190,7 @@ struct ResourceChartSample: Identifiable {
     let segment: Int
 }
 
+#if DEBUG
 #Preview("Resource history") {
     ScrollView {
         ResourceHistoryView(points: (0..<90).map { minute in
@@ -199,3 +207,5 @@ struct ResourceChartSample: Identifiable {
 #Preview("Collecting resources") {
     ResourceHistoryView(points: [], collection: "pending", omittedChunks: 0, loading: false).padding()
 }
+
+#endif

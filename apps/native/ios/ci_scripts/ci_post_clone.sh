@@ -30,5 +30,24 @@ install_rust_if_needed() {
 }
 
 "$repo_dir/apps/native/scripts/configure-ios.sh"
+# Render the actual Swift Charts view on the macOS host. Fixture images are
+# carried in build logs because Xcode Cloud has no custom-artifact upload hook.
+# Only mock resource data is encoded; this never reads a live session.
+if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
+    render_dir=$(mktemp -d)
+    xcrun --sdk macosx swiftc -parse-as-library \
+        "$repo_dir/apps/native/ios/SAM/Glass.swift" \
+        "$repo_dir/apps/native/ios/SAM/ResourceHistoryView.swift" \
+        "$repo_dir/apps/native/ios/tests/resource-history-render.swift" \
+        -o "$render_dir/render"
+    "$render_dir/render" "$render_dir/images"
+    for chart_image in "$render_dir/images/"*.png; do
+        echo "RESOURCE_CHART_RENDER_BEGIN $(basename "$chart_image")"
+        base64 -b 76 -i "$chart_image"
+        echo "RESOURCE_CHART_RENDER_END"
+    done
+    rm -rf "$render_dir"
+fi
+
 install_rust_if_needed
 "$repo_dir/apps/native/scripts/build-ios.sh"
