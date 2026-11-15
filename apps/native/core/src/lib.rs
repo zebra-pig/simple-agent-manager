@@ -37,8 +37,8 @@ pub use projects::*;
 pub use server::deployment_name;
 pub use session::*;
 pub use timeline::{
-    ActivityStep, ActivitySummary, ChatContent, ChatItem, Notice, NoticeSeverity, NoticeSource, PlanEntry, PlanStatus, ToolCall, ToolKind,
-    ToolStatus,
+    ActivityStep, ActivitySummary, ChatContent, ChatItem, ChatNotice, NoticeSeverity, NoticeSource, PlanEntry, PlanStatus, ToolCall,
+    ToolKind, ToolStatus,
 };
 
 uniffi::setup_scaffolding!();

@@ -163,7 +163,7 @@ private fun MarkdownTable(header: TableRow, rows: List<TableRow>, openUrl: (Stri
     val all = listOf(header) + rows
     val columns = all.maxOf { it.cells.size }
     val texts = all.mapIndexed { r, row -> List(columns) { c -> rememberSpans(row.cells.getOrNull(c).orEmpty(), openUrl) to if (r == 0) headerStyle else style } }
-    val widths = remember(texts) {
+    val widths = remember(texts, density, measurer) {
         List(columns) { c ->
             val widest = texts.maxOf { row -> measurer.measure(row[c].first, row[c].second, softWrap = false).size.width }
             with(density) { widest.toDp() }.coerceIn(48.dp, 260.dp) + 24.dp

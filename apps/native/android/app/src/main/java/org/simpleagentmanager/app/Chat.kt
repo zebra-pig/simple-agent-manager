@@ -127,7 +127,7 @@ private fun TimelineItem(item: ChatItem, openUrl: (String) -> Unit) {
                         is ActivityStep.Thought -> Detail(stringResource(R.string.thinking), step.text)
                         is ActivityStep.Tool -> Column(Modifier.padding(start = 12.dp, bottom = 10.dp)) {
                             val call = step.call
-                            Text(call.title ?: call.kind.name.lowercase().replace('_', ' '), style = MaterialTheme.typography.bodyMedium, fontFamily = if (call.titleIsCode) FontFamily.Monospace else null, color = if (call.status == ToolStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(call.title ?: toolLabel(call.kind), style = MaterialTheme.typography.bodyMedium, fontFamily = if (call.titleIsCode) FontFamily.Monospace else null, color = if (call.status == ToolStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                             call.locations.forEach { Text(it, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace) }
                             call.output?.let { Detail(stringResource(R.string.tool_output), it, code = true) }
                         }
@@ -162,3 +162,17 @@ private fun Detail(title: String, text: String, code: Boolean = false) {
         }
     }
 }
+
+@Composable
+private fun toolLabel(kind: ToolKind) = stringResource(when (kind) {
+    ToolKind.READ -> R.string.tool_read
+    ToolKind.EDIT -> R.string.tool_edit
+    ToolKind.DELETE -> R.string.tool_delete
+    ToolKind.MOVE -> R.string.tool_move
+    ToolKind.SEARCH -> R.string.tool_search
+    ToolKind.EXECUTE -> R.string.tool_execute
+    ToolKind.THINK -> R.string.thinking
+    ToolKind.FETCH -> R.string.tool_fetch
+    ToolKind.SWITCH_MODE -> R.string.tool_mode
+    ToolKind.OTHER -> R.string.tool_other
+})

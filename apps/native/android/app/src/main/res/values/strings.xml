@@ -137,4 +137,13 @@
 <string name="workspace_report">Report from the workspace</string>
 <string name="chat_context">Conversation context</string>
 <string name="details">Details</string>
+    <string name="tool_read">Read file</string>
+    <string name="tool_edit">Edit file</string>
+    <string name="tool_delete">Delete file</string>
+    <string name="tool_move">Move file</string>
+    <string name="tool_search">Search</string>
+    <string name="tool_execute">Run command</string>
+    <string name="tool_fetch">Fetch resource</string>
+    <string name="tool_mode">Change mode</string>
+    <string name="tool_other">Tool call</string>
 </resources>

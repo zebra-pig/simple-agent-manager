@@ -88,3 +88,21 @@ async fn builds_the_timeline_and_follows_a_reply_through_the_outbox() {
     // Blank text sends nothing.
     assert!(!vm.send("  ".into()).await);
 }
+
+#[tokio::test]
+async fn rejects_duplicate_sends_and_does_not_leak_outbox_across_projects() {
+    let server = Arc::new(Server { rows: Mutex::new(vec![]), fail_prompt: Mutex::new(None), pending: Mutex::new(vec![]) });
+    let vm = chat(server.clone()).await;
+    let (first, duplicate) = tokio::join!(vm.send("first".into()), vm.send("duplicate".into()));
+    assert!(first);
+    assert!(!duplicate);
+    assert_eq!(server.rows.lock().unwrap().len(), 1);
+
+    // Session IDs alone are not sufficient: another project can use the same ID.
+    let (sent, ()) = tokio::join!(vm.send("old project".into()), vm.load("p2".into(), "s1".into()));
+    assert!(sent);
+    let state = vm.state();
+    assert_eq!(state.project_id, "p2");
+    assert!(state.outbox.is_empty());
+    assert!(!state.sending);
+}

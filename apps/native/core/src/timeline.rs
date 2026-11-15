@@ -71,7 +71,7 @@ pub enum ChatContent {
         entries: Vec<PlanEntry>,
     },
     Notice {
-        notice: Notice,
+        notice: ChatNotice,
     },
 }
 
@@ -144,7 +144,7 @@ pub enum PlanStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
-pub struct Notice {
+pub struct ChatNotice {
     pub source: NoticeSource,
     /// One line to show. `None` for `Workspace` and `Context`: the shell names those.
     pub headline: Option<String>,
@@ -244,7 +244,7 @@ enum Item {
     Thinking(String),
     Tool(ToolCall),
     Plan(Vec<PlanEntry>),
-    Notice(Notice),
+    Notice(ChatNotice),
 }
 
 struct Positioned {
@@ -515,7 +515,7 @@ fn plan_entries(content: &str) -> Option<Vec<PlanEntry>> {
 
 /// The notice SAM wrote on a row only it writes: a durable delivery or an
 /// orchestrator check-in (`samNoticeForMessage`).
-fn sam_notice(meta: &serde_json::Map<String, Value>) -> Option<Notice> {
+fn sam_notice(meta: &serde_json::Map<String, Value>) -> Option<ChatNotice> {
     let from_sam = meta.get("kind").and_then(Value::as_str) == Some("durable_prompt_delivery")
         || meta.get("source").and_then(Value::as_str) == Some("sam_orchestrator");
     let notice = meta.get("samNotice")?.as_object().filter(|_| from_sam)?;
@@ -535,13 +535,13 @@ fn sam_notice(meta: &serde_json::Map<String, Value>) -> Option<Notice> {
         Some("error") => NoticeSeverity::Error,
         _ => NoticeSeverity::Info,
     };
-    Some(Notice { source: NoticeSource::Sam, headline: Some(headline), detail, severity })
+    Some(ChatNotice { source: NoticeSource::Sam, headline: Some(headline), detail, severity })
 }
 
 /// A system row: a workspace report, the creator's context, or SAM's own
 /// (`systemRowNoticeForMessage`).
-fn system_notice(content: &str, meta: Option<&serde_json::Map<String, Value>>) -> Notice {
-    let quoted = |source| Notice {
+fn system_notice(content: &str, meta: Option<&serde_json::Map<String, Value>>) -> ChatNotice {
+    let quoted = |source| ChatNotice {
         source,
         headline: None,
         detail: Some(content.trim().to_owned()).filter(|s| !s.is_empty()),
@@ -557,11 +557,11 @@ fn system_notice(content: &str, meta: Option<&serde_json::Map<String, Value>>) -
 }
 
 /// The first line as the headline, everything as the detail when there is more.
-fn first_line_notice(content: &str) -> Notice {
+fn first_line_notice(content: &str) -> ChatNotice {
     let text = content.trim();
     let headline = text.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_owned);
     let detail = (text.lines().filter(|l| !l.trim().is_empty()).count() > 1).then(|| text.to_owned());
-    Notice { source: NoticeSource::Sam, headline, detail, severity: NoticeSeverity::Info }
+    ChatNotice { source: NoticeSource::Sam, headline, detail, severity: NoticeSeverity::Info }
 }
 
 #[cfg(test)]
@@ -701,7 +701,7 @@ mod tests {
         assert_eq!(
             items[1].content,
             ChatContent::Notice {
-                notice: Notice {
+                notice: ChatNotice {
                     source: NoticeSource::Sam,
                     headline: Some("Task failed".into()),
                     detail: Some("Task failed\nexit code 1".into()),

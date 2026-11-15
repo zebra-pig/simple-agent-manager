@@ -26,6 +26,9 @@ class MainActivity : ComponentActivity() {
 
     /** Sign-in approval pages and pull requests open in a Custom Tab. */
     private fun openUrl(url: String) {
-        CustomTabsIntent.Builder().build().launchUrl(this, url.toUri())
+        val uri = url.toUri()
+        if (uri.scheme == "https" || uri.scheme == "http") {
+            runCatching { CustomTabsIntent.Builder().build().launchUrl(this, uri) }
+        }
     }
 }

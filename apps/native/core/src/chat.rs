@@ -71,7 +71,7 @@ impl ChatViewModel {
         let result: crate::error::Result<SessionDetail> =
             self.app.get(&format!("/api/projects/{}/sessions/{}", seg(&project_id), seg(&session_id))).await;
         self.update(|s| {
-            if s.session_id != session_id {
+            if s.project_id != project_id || s.session_id != session_id {
                 return;
             }
             s.loading = false;
@@ -109,12 +109,20 @@ impl ChatViewModel {
             return false;
         }
         let local_id = format!("local-{}", NEXT_LOCAL_ID.fetch_add(1, Ordering::Relaxed));
+        let mut started = false;
         self.update(|s| {
+            if s.sending || s.project_id != project_id || s.session_id != session_id {
+                return;
+            }
+            started = true;
             s.sending = true;
             s.error = None;
             let baseline = user_count(&s.items, &content);
             s.outbox.push(OutgoingMessage { id: local_id.clone(), text: content.clone(), accepted: false, baseline });
         });
+        if !started {
+            return false;
+        }
         let result: crate::error::Result<serde_json::Value> = self
             .app
             .post(
@@ -124,6 +132,9 @@ impl ChatViewModel {
             .await;
         let ok = result.is_ok();
         self.update(|s| {
+            if s.project_id != project_id || s.session_id != session_id {
+                return;
+            }
             s.sending = false;
             match result {
                 Ok(_) => {

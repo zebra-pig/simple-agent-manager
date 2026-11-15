@@ -122,7 +122,7 @@ struct TimelineItemView: View {
                         DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary) }
                     case let .tool(call):
                         VStack(alignment: .leading, spacing: 6) {
-                            Label { Text(verbatim: call.title ?? String(describing: call.kind)) }
+                            Label { Text(verbatim: call.title ?? toolLabel(call.kind)) }
                                 icon: { Image(systemName: call.status == .failed ? "exclamationmark.circle" : "terminal") }
                                 .font(.callout).foregroundStyle(call.status == .failed ? Color.red : Color.secondary)
                             ForEach(call.locations, id: \.self) { Text(verbatim: $0).font(.caption.monospaced()) }
@@ -191,5 +191,20 @@ struct TaskCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+private func toolLabel(_ kind: ToolKind) -> String {
+    switch kind {
+    case .read: String(localized: "Read file")
+    case .edit: String(localized: "Edit file")
+    case .delete: String(localized: "Delete file")
+    case .move: String(localized: "Move file")
+    case .search: String(localized: "Search")
+    case .execute: String(localized: "Run command")
+    case .think: String(localized: "Thinking")
+    case .fetch: String(localized: "Fetch resource")
+    case .switchMode: String(localized: "Change mode")
+    case .other: String(localized: "Tool call")
     }
 }
