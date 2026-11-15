@@ -6,7 +6,7 @@ struct ChatView: View {
     let app: App
     let ref: SessionRef
     @State private var chat: ChatModel
-    @State private var draft = ""
+    @ChatDraft private var draft: String
     @State private var followsLatest = true
     @State private var scrollControl = ChatScrollControl()
     @State private var tool: ChatTool?
@@ -17,6 +17,9 @@ struct ChatView: View {
     init(app: App, ref: SessionRef) {
         self.app = app
         self.ref = ref
+        let account = app.state()
+        _draft = ChatDraft(server: account.serverUrl, user: account.viewer?.id ?? "",
+                           project: ref.projectId, session: ref.sessionId)
         _chat = State(initialValue: ChatModel(app: app))
     }
 
@@ -147,8 +150,9 @@ struct ChatView: View {
             if canReply {
                 Composer(placeholder: "Reply to the agent…", text: $draft, busy: chat.state.sending, files: chat.files) {
                     let content = draft
-                    draft = ""
-                    Task { if !(await chat.core.send(content: content)), draft.isEmpty { draft = content } }
+                    Task {
+                        if await chat.core.send(content: content) { _draft.clear(ifUnchanged: content) }
+                    }
                 }
             }
         }

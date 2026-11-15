@@ -56,6 +56,11 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
         base64 -b 76 -i "$browser_image"
         echo "FILES_GIT_RENDER_END"
     done
+    xcrun --sdk macosx swiftc -parse-as-library \
+        "$repo_dir/apps/native/ios/SAM/ChatDraft.swift" \
+        "$repo_dir/apps/native/ios/tests/chat-draft.swift" \
+        -o "$render_dir/chat-draft-tests"
+    "$render_dir/chat-draft-tests"
     rm -rf "$render_dir"
 fi
 
