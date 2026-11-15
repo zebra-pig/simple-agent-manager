@@ -57,6 +57,7 @@ pub enum ChatContent {
     /// What the user sent.
     User {
         text: String,
+        attachments: Vec<crate::ChatDocument>,
     },
     /// The agent's reply: the raw Markdown (to copy) and its blocks (to show).
     Agent {
@@ -201,7 +202,7 @@ pub(crate) fn build(mut rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
                 } else if row.origin.as_deref() == Some("system") {
                     Item::Notice(first_line_notice(&row.content))
                 } else {
-                    Item::User(row.content)
+                    Item::User(crate::documents::user_message(&row.content))
                 };
                 items.push(item.at(row.id, row.created_at));
             }
@@ -250,7 +251,7 @@ pub(crate) fn build(mut rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
 /// Mid-build items, before tool calls are grouped.
 enum Item {
     Document(crate::ChatDocument),
-    User(String),
+    User((String, Vec<crate::ChatDocument>)),
     Agent(String),
     Thinking(String),
     Tool(ToolCall),
@@ -332,7 +333,7 @@ fn flush_run(run: &mut Vec<Positioned>, out: &mut Vec<ChatItem>) {
 fn finish(p: Positioned) -> ChatItem {
     let content = match p.item {
         Item::Document(document) => ChatContent::Document { document },
-        Item::User(text) => ChatContent::User { text },
+        Item::User((text, attachments)) => ChatContent::User { text, attachments },
         Item::Agent(text) => ChatContent::Agent { blocks: markdown::parse(&text), text },
         Item::Thinking(text) => ChatContent::Thinking { text: text.trim().to_owned() },
         Item::Tool(call) => {

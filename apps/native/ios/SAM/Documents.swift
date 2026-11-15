@@ -12,6 +12,7 @@ struct DocumentCard: View {
     let document: ChatDocument
     let documents: [ChatDocument]
     let core: ChatViewModel
+    var compactImage = false
     @State private var image: Image?
     @State private var gallery = false
     @State private var preview: URL?
@@ -24,6 +25,9 @@ struct DocumentCard: View {
             if document.isImage { gallery = true }
             else { Task { await openFile() } }
         } label: {
+            if compactImage && document.isImage {
+                ImageTile(image: image, side: 120)
+            } else {
             VStack(alignment: .leading, spacing: 6) {
                 if document.isImage {
                     ImageTile(image: image, side: 160)
@@ -41,6 +45,7 @@ struct DocumentCard: View {
                 else { Text(document.isImage ? String(localized: "Open gallery") : String(localized: "Open file")).font(.caption2).foregroundStyle(.secondary) }
             }.padding(10).frame(maxWidth: 260, alignment: .leading)
                 .glass(in: RoundedRectangle(cornerRadius: 16))
+            }
         }
         .buttonStyle(.plain)
         .disabled(document.unavailable || document.fileId.isEmpty || loading)

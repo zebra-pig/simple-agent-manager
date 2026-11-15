@@ -172,3 +172,45 @@ async fn thumbnails_are_local_bounded_and_do_not_replace_uploads() {
     assert_eq!(state.attachments[1].thumbnail, None);
     assert_eq!(state.attachments[1].status, AttachmentStatus::Ready);
 }
+
+#[tokio::test]
+async fn attachment_echo_replaces_queued_message_and_loads_tiles_without_guidance() {
+    let origin = Arc::new(Mutex::new(String::new()));
+    let base = origin.clone();
+    let sent = Arc::new(Mutex::new(false));
+    let delivered = sent.clone();
+    let upload = "01M7FSHXZ07Z2V7660M26N06SY";
+    let content = format!("Look at this\n\n## Attached Files\n\nThe following files have been uploaded to the workspace:\n- `/workspaces/.private/{upload}/photo.png` (4 bytes, image/png)\n\nThese are absolute paths inside your workspace container, outside the repository. Open the exact paths listed above to read the attachments; do not look for them relative to the repository.\n");
+    let server = serve(Arc::new(move |r| match (r.method.as_str(), r.path.as_str()) {
+        ("GET", "/api/projects/p1/sessions/s1") => (200, json!({"session":{"id":"s1","status":"active","startedAt":1}, "messages": if *delivered.lock().unwrap() { vec![json!({"id":"m1","role":"user","content":content})] } else { vec![] }}).to_string()),
+        ("POST", "/api/projects/p1/tasks/request-upload") => (200, json!({"uploadId":upload,"uploadUrl":format!("{}/r2", base.lock().unwrap())}).to_string()),
+        ("PUT", "/r2") => (200, String::new()),
+        ("POST", "/api/projects/p1/sessions/s1/prompt") => {
+            let prompt: Value = serde_json::from_slice(&r.body).unwrap();
+            assert_eq!(prompt["content"], "Look at this");
+            assert_eq!(prompt["attachments"][0]["uploadId"], upload);
+            *delivered.lock().unwrap() = true;
+            (202, "{}".into())
+        }
+        ("GET", p) if p == format!("/api/projects/p1/tasks/uploads/{upload}/photo.png") => {
+            assert_eq!(r.header("cookie").as_deref(), Some(COOKIE));
+            (200, "PNG!".into())
+        }
+        _ => (200, "{}".into()),
+    })).await;
+    *origin.lock().unwrap() = server.clone();
+    let store = MemoryStore::default();
+    *store.0.lock().unwrap() = Some(Credentials { server_url: server, session_cookie: COOKIE.into() });
+    let vm = ChatViewModel::new(App::new(Box::new(store), None));
+    vm.load("p1".into(), "s1".into()).await;
+    vm.add_attachment("photo.png".into(), "image/png".into(), 4, file(b"PNG!")).await;
+    assert!(vm.send("Look at this".into()).await);
+    let state = vm.state();
+    assert!(state.outbox.is_empty(), "stored attachment echo must clear the queued bubble");
+    assert_eq!(state.items.len(), 1);
+    let sam_core::ChatContent::User { text, attachments } = &state.items[0].content else { panic!("expected one user message") };
+    assert_eq!(text, "Look at this");
+    assert_eq!(attachments.len(), 1);
+    assert_eq!(vm.document_bytes(attachments[0].file_id.clone()).await.unwrap(), b"PNG!");
+    assert!(vm.document_bytes("attachment:other/secret.png".into()).await.is_none());
+}

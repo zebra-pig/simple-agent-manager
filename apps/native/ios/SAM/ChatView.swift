@@ -28,12 +28,14 @@ struct ChatView: View {
                         Group {
                             if case let .document(document) = message.content {
                                 DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
+                            } else if case let .user(text, attachments) = message.content {
+                                UserMessageView(text: text, attachments: attachments, core: chat.core)
                             } else { TimelineItemView(item: message) }
                         }.id(message.id)
                     }
                     ForEach(chat.state.outbox, id: \.id) { message in
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(verbatim: message.text).padding(12).glass(in: RoundedRectangle(cornerRadius: 18))
+                            UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
                             Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, alignment: .trailing)
                     }
@@ -197,7 +199,7 @@ struct TimelineItemView: View {
     var body: some View {
         switch item.content {
         case .document: EmptyView()
-        case let .user(text):
+        case let .user(text, _):
             HStack {
                 Spacer(minLength: 40)
                 Text(verbatim: text).textSelection(.enabled).padding(12)
@@ -299,5 +301,30 @@ private func toolLabel(_ kind: ToolKind) -> String {
     case .fetch: String(localized: "Fetch resource")
     case .switchMode: String(localized: "Change mode")
     case .other: String(localized: "Tool call")
+    }
+}
+
+struct UserMessageView: View {
+    let text: String
+    let attachments: [ChatDocument]
+    let core: ChatViewModel
+    var body: some View {
+        HStack {
+            Spacer(minLength: 40)
+            VStack(alignment: .trailing, spacing: 10) {
+                if !attachments.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(attachments, id: \.fileId) { document in
+                                DocumentCard(document: document, documents: attachments, core: core, compactImage: true)
+                            }
+                        }
+                    }
+                }
+                if !text.isEmpty { Text(verbatim: text).textSelection(.enabled).multilineTextAlignment(.leading) }
+            }
+            .padding(12)
+            .glass(in: RoundedRectangle(cornerRadius: 18))
+        }
     }
 }

@@ -14,7 +14,7 @@ import org.simpleagentmanager.core.*
 
 private fun span(text: String, code: Boolean = false) = Span(text, false, false, code, false, null)
 private val previewItems = listOf(
-        ChatItem("user", 0, ChatContent.User("Please add keyboard shortcuts and check accessibility.")),
+        ChatItem("user", 0, ChatContent.User("Please add keyboard shortcuts and check accessibility.", emptyList())),
         ChatItem("agent", 1, ChatContent.Agent("", listOf(
             Block.Heading(2u, listOf(span("Keyboard shortcuts"))),
             Block.Paragraph(listOf(span("I’ve added shortcuts for the main actions. They work with "), span("⌘K", true), span(" and respect the current focus."))),

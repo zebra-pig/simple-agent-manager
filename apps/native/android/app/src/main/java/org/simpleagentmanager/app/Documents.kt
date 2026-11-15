@@ -58,7 +58,7 @@ private suspend fun decode(bytes: ByteArray, max: Int): ImageBitmap? =
   }
 
 @Composable
-fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: ChatViewModel) {
+fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: ChatViewModel, compactImage: Boolean = false) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var thumbnail by remember(document.fileId) { mutableStateOf<ImageBitmap?>(null) }
@@ -115,7 +115,8 @@ fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: Ch
     enabled = !busy && !document.unavailable && document.fileId.isNotEmpty(),
     modifier = Modifier.widthIn(max = 260.dp),
   ) {
-    DocumentCardContent(document, thumbnail, busy, failed)
+    if (compactImage && document.image) SquareImageTile(thumbnail, label, 120.dp)
+    else DocumentCardContent(document, thumbnail, busy, failed)
   }
   if (gallery)
     DocumentGallery(
