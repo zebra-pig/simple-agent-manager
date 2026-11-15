@@ -76,15 +76,16 @@ fun ChatContent(
     val list = listState
     val scope = rememberCoroutineScope()
     val atBottom by remember { derivedStateOf { !list.canScrollForward } }
-    var followsLatest by remember { mutableStateOf(true) }
+    var followsLatest by remember(state.projectId, state.sessionId) { mutableStateOf(true) }
+    var positioned by remember(state.projectId, state.sessionId) { mutableStateOf(false) }
     LaunchedEffect(list) {
         snapshotFlow { list.isScrollInProgress to list.canScrollForward }.collect { (scrolling, more) ->
             if (scrolling) followsLatest = !more
         }
     }
     val loadOlder by rememberUpdatedState(onLoadOlder)
-    LaunchedEffect(state.hasMore, state.loadingHistory, state.historyError, state.items.firstOrNull()?.id) {
-        if (state.hasMore && !state.loadingHistory && state.historyError == null) {
+    LaunchedEffect(positioned, state.hasMore, state.loadingHistory, state.historyError, state.items.firstOrNull()?.id) {
+        if (positioned && state.hasMore && !state.loadingHistory && state.historyError == null) {
             snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.key == "history" } }
                 .first { it }
             followsLatest = false
@@ -96,6 +97,7 @@ fun ChatContent(
         if (!state.loadingHistory && (followsLatest || state.outbox.isNotEmpty())) {
             withFrameNanos { }
             if (list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1)
+            if (state.items.isNotEmpty()) positioned = true
         }
     }
     Scaffold(
@@ -109,8 +111,9 @@ fun ChatContent(
             LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter).testTag("chat-timeline"), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 if (state.hasMore || state.loadingHistory) item("history") {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (state.historyError != null) {
-                            ErrorRow(state.historyError.message())
+                        val historyError = state.historyError
+                        if (historyError != null) {
+                            ErrorRow(historyError.message())
                             TextButton(onClick = { followsLatest = false; loadOlder() }, enabled = !state.loadingHistory) {
                                 Text(stringResource(R.string.retry_earlier_messages))
                             }

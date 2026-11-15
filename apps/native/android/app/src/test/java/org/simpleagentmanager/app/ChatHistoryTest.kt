@@ -49,14 +49,14 @@ class ChatHistoryTest {
         var key: Any? = null
         var offset = 0
         compose.runOnIdle {
-            key = list.layoutInfo.visibleItemsInfo.first().key
+            key = list.layoutInfo.visibleItemsInfo.first { it.index == list.firstVisibleItemIndex }.key
             offset = list.firstVisibleItemScrollOffset
             val older = List(20) { ChatItem("older-$it", it.toLong() - 20, ChatContent.User("Older $it", emptyList())) }
             snapshot.value = snapshot.value.copy(items = older + snapshot.value.items, loadingHistory = false)
         }
         compose.waitForIdle()
         compose.runOnIdle {
-            assertEquals(key, list.layoutInfo.visibleItemsInfo.first().key)
+            assertEquals(key, list.layoutInfo.visibleItemsInfo.first { it.index == list.firstVisibleItemIndex }.key)
             assertEquals(offset, list.firstVisibleItemScrollOffset)
             assertEquals(1, requests)
         }
