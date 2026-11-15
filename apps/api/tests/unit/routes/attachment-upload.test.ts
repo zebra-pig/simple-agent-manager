@@ -35,6 +35,8 @@ import { Hono } from 'hono';
 
 import type { Env } from '../../../src/env';
 import { uploadRoutes } from '../../../src/routes/tasks/upload';
+import { requireProjectAccess } from '../../../src/middleware/project-auth';
+import { errors } from '../../../src/middleware/error';
 
 const BASE_URL = 'https://api.test.example.com';
 
@@ -230,4 +232,13 @@ describe('GET task attachment previews', () => {
     const res = await app.fetch(new Request(`${BASE_URL}/projects/test-project-id/tasks/uploads/${upload}/photo.png`), env);
     expect(res.status).toBe(404);
   });
+});
+
+it('denies previews without project membership before touching storage', async () => {
+  vi.mocked(requireProjectAccess).mockRejectedValueOnce(errors.forbidden('Project access required'));
+  const get = vi.fn();
+  const { app, env } = makeApp(makeEnv({ R2: { get } as any }));
+  const res = await app.fetch(new Request(`${BASE_URL}/projects/test-project-id/tasks/uploads/01M7FSHXZ07Z2V7660M26N06SY/photo.png`), env);
+  expect(res.status).toBe(403);
+  expect(get).not.toHaveBeenCalled();
 });
