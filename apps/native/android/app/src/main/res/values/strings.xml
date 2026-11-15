@@ -170,4 +170,11 @@
     <string name="request_delivery_unconfirmed">Saved, but the agent could not be notified. Tell it in the conversation.</string>
     <!-- Push notifications -->
     <string name="notification_channel_name">Agent updates</string>
+    <string name="action_retry_snapshot">Retry snapshot</string>
+    <string name="action_rerun_node_cleanup">Re-run node cleanup</string>
+    <string name="action_sleep_session">Sleep session</string>
+    <string name="action_delete_workspace">Delete workspace</string>
+    <string name="action_delete_node">Delete node</string>
+    <string name="action_restart_vm_agent">Restart VM agent</string>
+    <string name="action_cancel_stuck_task">Cancel stuck task</string>
 </resources>

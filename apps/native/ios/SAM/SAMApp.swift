@@ -18,6 +18,7 @@ struct SAMApp: SwiftUI.App {
 
 struct RootView: View {
     @State private var selectedTab = 0
+    @State private var push = PushRouter.shared
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -33,6 +34,9 @@ struct RootView: View {
         }
         .task {
             if app.state.status == .signedIn { await app.core.refreshViewer() }
+        }
+        .onChange(of: push.pending, initial: true) { _, ref in
+            if ref != nil { selectedTab = 0 }
         }
         // Signed in (at launch or just now): ask for notifications and register.
         .task(id: app.state.status) {

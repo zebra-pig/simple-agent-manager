@@ -86,7 +86,7 @@ struct RequestCard: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if !model.state.title.isEmpty { Text(model.state.title).font(.headline) }
+            if !model.state.title.isEmpty { Text(approval ? approvalTitle(model.state.title) : model.state.title).font(.headline) }
             Text(model.state.reason).textSelection(.enabled)
             if model.state.irreversible && model.state.canRespond { Text("Approving permanently deletes this resource. This cannot be undone.").foregroundStyle(.red) }
             if let error = model.state.error { Text(error.message).foregroundStyle(.red) }
@@ -149,4 +149,20 @@ private func requestStatus(_ status: String) -> String {
     case "executed": String(localized: "Executed")
     default: status
     }
+}
+
+private func approvalTitle(_ title: String) -> String {
+    let parts = title.components(separatedBy: " · ")
+    let action: String
+    switch parts[0] {
+    case "retry_snapshot": action = String(localized: "Retry snapshot")
+    case "rerun_node_cleanup": action = String(localized: "Re-run node cleanup")
+    case "sleep_session": action = String(localized: "Sleep session")
+    case "delete_workspace": action = String(localized: "Delete workspace")
+    case "delete_node": action = String(localized: "Delete node")
+    case "restart_vm_agent": action = String(localized: "Restart VM agent")
+    case "cancel_stuck_task": action = String(localized: "Cancel stuck task")
+    default: action = parts[0]
+    }
+    return ([action] + parts.dropFirst()).joined(separator: " · ")
 }
