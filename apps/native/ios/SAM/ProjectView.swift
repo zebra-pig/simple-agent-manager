@@ -86,9 +86,8 @@ struct SessionRow: View {
 /// The floating input island: a Liquid Glass container with the attach
 /// button, the text field and a round send button, over the content (which
 /// scrolls beneath it). Attached files show above the text field; files
-/// dropped on the island are attached too. `accessory` (the project screen's
-/// profile selector) sits at the top of the same container, only while the
-/// text field has focus (keyboard open).
+/// dropped on the island are attached too. The project profile selector stays
+/// beside the attachment button, below the input, regardless of keyboard focus.
 struct Composer<Accessory: View>: View {
     let placeholder: LocalizedStringKey
     @Binding var text: String
@@ -98,9 +97,6 @@ struct Composer<Accessory: View>: View {
     let accessory: Accessory
     @State private var dropTargeted = false
     @FocusState private var focused: Bool
-    /// Follows `focused`, but hides a moment later, so tapping the accessory
-    /// (which may briefly take focus) doesn't make it vanish under the finger.
-    @State private var showsAccessory = false
 
     init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles,
          send: @escaping () -> Void, @ViewBuilder accessory: () -> Accessory) {
@@ -119,21 +115,26 @@ struct Composer<Accessory: View>: View {
     var body: some View {
         GlassGroup {
             VStack(alignment: .leading, spacing: 0) {
-                if showsAccessory && Accessory.self != EmptyView.self {
-                    accessory
-                        .padding(.horizontal, 14)
-                        .padding(.top, 10)
-                        .padding(.bottom, 2)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
                 if !files.items.isEmpty {
                     AttachmentStrip(files: files)
+                }
+                if Accessory.self != EmptyView.self {
+                    composerInput
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        .padding(.bottom, 8)
                 }
                 HStack(alignment: .bottom, spacing: 8) {
                     AttachButton(files: files)
                         .padding([.leading, .vertical], 4)
-                    composerInput
-                        .padding(.vertical, 10)
+                    if Accessory.self == EmptyView.self {
+                        composerInput
+                            .padding(.vertical, 10)
+                    } else {
+                        accessory
+                            .padding(.vertical, 4)
+                        Spacer(minLength: 0)
+                    }
                     Group {
                         if busy {
                             ProgressView().frame(width: 36, height: 36)
@@ -153,18 +154,7 @@ struct Composer<Accessory: View>: View {
                     .padding(4)
                 }
             }
-            .animation(.snappy(duration: 0.25), value: showsAccessory)
             .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)
-            .onChange(of: focused) { _, isFocused in
-                if isFocused {
-                    showsAccessory = true
-                } else {
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        if !focused { showsAccessory = false }
-                    }
-                }
-            }
             .overlay {
                 if dropTargeted {
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
