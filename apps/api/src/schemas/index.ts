@@ -64,7 +64,9 @@ export {
 
 // Notification schemas
 export {
+  DeleteNativePushTokenSchema,
   DeleteWebPushSubscriptionSchema,
+  NativePushTokenSchema,
   UpdateNotificationPreferenceSchema,
   WebPushSubscriptionSchema,
 } from './notifications';

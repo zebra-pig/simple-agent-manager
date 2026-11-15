@@ -115,6 +115,31 @@ export const NOTIFICATION_MIGRATIONS: NotificationMigration[] = [
       sql.exec('ALTER TABLE notifications ADD COLUMN in_app_visible INTEGER NOT NULL DEFAULT 1');
     },
   },
+  {
+    // Native app device tokens (APNs, FCM). A separate table: a device token has
+    // none of a Web Push subscription's endpoint or encryption keys.
+    name: '005-native-push-tokens',
+    run: (sql) => {
+      sql.exec(`
+        CREATE TABLE native_push_tokens (
+          token TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          platform TEXT NOT NULL,
+          sandbox INTEGER NOT NULL DEFAULT 0,
+          user_agent TEXT,
+          disabled_at INTEGER,
+          failure_count INTEGER NOT NULL DEFAULT 0,
+          last_success_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+      sql.exec(
+        `CREATE INDEX idx_native_push_tokens_user_active
+         ON native_push_tokens(user_id, disabled_at, updated_at DESC)`
+      );
+    },
+  },
 ];
 
 /**
