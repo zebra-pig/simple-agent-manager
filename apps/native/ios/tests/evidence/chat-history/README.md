@@ -9,10 +9,11 @@ Retry; concurrent older requests are coalesced. Changing sessions resets history
 
 Validation on the macOS build host:
 
-- Full Rust suite passes, including five history integration tests against a
+- Full Rust suite passes, including six history integration tests against a
   scripted API: same timestamps/sequence ties, retries/stalled cursors, missed
   forward pages, stream grouping, repeated-text delivery receipts, session reset,
-  duplicate loading and persistence across polling.
+  duplicate loading, persistence across polling, and cancellation/retry after
+  navigating away.
 - Rust core and UniFFI bindings rebuilt for iOS, simulator and macOS.
 - Full unsigned iOS Simulator and macOS app builds pass.
 - Six original NSHostingView captures of the production ChatHistoryPager at

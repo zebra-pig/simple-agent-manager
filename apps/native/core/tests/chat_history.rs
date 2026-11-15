@@ -12,6 +12,8 @@ struct History {
     cursors: Vec<Value>,
     before_requests: usize,
     after_requests: usize,
+    delay: Arc<std::sync::atomic::AtomicBool>,
+    started: Arc<std::sync::atomic::AtomicUsize>,
 }
 fn row(id: &str, at: i64, sequence: i64, role: &str, content: &str) -> Value {
     json!({"id": id, "createdAt": at, "sequence": sequence, "role": role, "content": content})
@@ -27,6 +29,14 @@ async fn model(state: Arc<Mutex<History>>) -> Arc<ChatViewModel> {
         }
         if !url.path().starts_with("/api/projects/p/sessions/") {
             return (404, "{}".into());
+        }
+        let (delay, started) = {
+            let state = state.lock().unwrap();
+            (state.delay.clone(), state.started.clone())
+        };
+        if delay.load(std::sync::atomic::Ordering::SeqCst) {
+            started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(150));
         }
         let session = url.path().rsplit('/').next().unwrap();
         let query = url.query_pairs().find(|(key, _)| key == "before" || key == "after");
@@ -168,4 +178,42 @@ async fn concurrent_older_loads_share_one_request_and_id_breaks_cursor_ties() {
     assert_eq!(ids(&vm), ["r2", "r3", "r4", "r5"]);
     vm.load_older().await;
     assert_eq!(ids(&vm), ["r0", "r1", "r2", "r3", "r4", "r5"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_requests_can_be_retried_after_navigation() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let state = Arc::new(Mutex::new(History {
+        rows: (0..5).map(|n| row(&format!("r{n}"), 100, n, "user", "Message")).collect(),
+        ..Default::default()
+    }));
+    let vm = model(state.clone()).await;
+    let (delay, started) = {
+        let state = state.lock().unwrap();
+        (state.delay.clone(), state.started.clone())
+    };
+    delay.store(true, SeqCst);
+    let refreshing = vm.clone();
+    let task = tokio::spawn(async move { refreshing.refresh().await });
+    while started.load(SeqCst) < 1 {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    delay.store(false, SeqCst);
+    state.lock().unwrap().rows.push(row("r5", 100, 5, "user", "Latest"));
+    vm.refresh().await;
+    assert!(ids(&vm).contains(&"r5".into()), "Cancelled refresh must not leave polling busy forever");
+    delay.store(true, SeqCst);
+    let older = vm.clone();
+    let task = tokio::spawn(async move { older.load_older().await });
+    while started.load(SeqCst) < 2 {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    assert!(!vm.state().loading_history);
+    delay.store(false, SeqCst);
+    vm.load_older().await;
+    assert_eq!(ids(&vm), ["r1", "r2", "r3", "r4", "r5"]);
 }

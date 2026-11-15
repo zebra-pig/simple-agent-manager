@@ -63,6 +63,30 @@ struct ChatHistory {
     refreshing: bool,
 }
 
+/// Navigation can drop an in-flight intent. Release its busy flag even then.
+struct ChatLoad<'a> {
+    model: &'a ChatViewModel,
+    generation: u64,
+    older: bool,
+    active: bool,
+}
+impl Drop for ChatLoad<'_> {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.model.update_data(|state, history| {
+            if history.generation == self.generation {
+                if self.older {
+                    state.loading_history = false;
+                } else {
+                    history.refreshing = false;
+                }
+            }
+        });
+    }
+}
+
 fn position(row: &timeline::Row) -> (i64, i64, &str) {
     (row.created_at, row.sequence.unwrap_or(0), &row.id)
 }
@@ -114,6 +138,7 @@ impl ChatViewModel {
             }
         });
         let Some((project_id, session_id, generation, latest)) = request else { return };
+        let mut _load = ChatLoad { model: self, generation, older: false, active: true };
         let base = format!("/api/projects/{}/sessions/{}", seg(&project_id), seg(&session_id));
         let mut result: crate::error::Result<SessionDetail> = self.app.get(&base).await;
         // If polling missed a whole page, drain the forward cursor before
@@ -188,6 +213,7 @@ impl ChatViewModel {
                 Err(e) => s.error = Some(UserError::from(&e)),
             }
         });
+        _load.active = false;
     }
 
     /// Intent: prepend the preceding page without losing loaded/live messages.
@@ -203,6 +229,7 @@ impl ChatViewModel {
             }
         });
         let Some((project, session, generation, before)) = request else { return };
+        let mut _load = ChatLoad { model: self, generation, older: true, active: true };
         let result: crate::error::Result<SessionDetail> =
             self.app.get(&format!("/api/projects/{}/sessions/{}?before={}", seg(&project), seg(&session), seg(&before))).await;
         self.update_data(|s, history| {
@@ -235,6 +262,7 @@ impl ChatViewModel {
                 Err(error) => s.history_error = Some(UserError::from(&error)),
             }
         });
+        _load.active = false;
     }
 
     /// Intent: send a follow-up to the agent, with the attached files. It shows
