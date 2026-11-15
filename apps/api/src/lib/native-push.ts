@@ -10,6 +10,9 @@
  * A platform whose secrets are missing is skipped.
  */
 import { importPKCS8, SignJWT } from 'jose';
+import * as v from 'valibot';
+
+import { parseWithSchema, readResponseJson } from './runtime-validation';
 
 export type NativePushPlatform = 'apns' | 'fcm';
 export const NATIVE_PUSH_PLATFORMS = ['apns', 'fcm'] as const;
@@ -70,24 +73,27 @@ export function decodeSecretValue(value: string): string {
   }
 }
 
-interface ServiceAccount {
-  project_id: string;
-  client_email: string;
-  private_key: string;
-}
+const ServiceAccountSchema = v.object({
+  project_id: v.string(),
+  client_email: v.string(),
+  private_key: v.string(),
+});
+type ServiceAccount = v.InferOutput<typeof ServiceAccountSchema>;
+
+const GoogleTokenSchema = v.object({
+  access_token: v.string(),
+  expires_in: v.optional(v.number()),
+});
+
+const ApnsErrorSchema = v.object({ reason: v.optional(v.string()) });
 
 function parseServiceAccount(raw: string): ServiceAccount {
-  const parsed: unknown = JSON.parse(decodeSecretValue(raw));
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    typeof (parsed as Record<string, unknown>).project_id !== 'string' ||
-    typeof (parsed as Record<string, unknown>).client_email !== 'string' ||
-    typeof (parsed as Record<string, unknown>).private_key !== 'string'
-  ) {
-    throw new Error('FCM_SERVICE_ACCOUNT_JSON is not a service account key');
-  }
-  return parsed as ServiceAccount;
+  // Throws without echoing the key material: issues name fields, not values.
+  return parseWithSchema(
+    ServiceAccountSchema,
+    JSON.parse(decodeSecretValue(raw)),
+    'FCM_SERVICE_ACCOUNT_JSON'
+  );
 }
 
 interface ApnsConfig {
@@ -162,13 +168,10 @@ async function googleAccessToken(
     signal,
   });
   if (!response.ok) throw new Error(`Google token exchange failed: HTTP ${response.status}`);
-  const body: unknown = await response.json();
-  const accessToken = (body as { access_token?: unknown }).access_token;
-  const expiresIn =
-    Number((body as { expires_in?: unknown }).expires_in) || GOOGLE_TOKEN_LIFETIME_S;
-  if (typeof accessToken !== 'string') throw new Error('Google token response without a token');
-  googleToken = { cacheKey, token: accessToken, expiresAt: now + expiresIn * 1000 };
-  return accessToken;
+  const body = await readResponseJson(response, GoogleTokenSchema, 'google.oauth_token');
+  const expiresIn = body.expires_in ?? GOOGLE_TOKEN_LIFETIME_S;
+  googleToken = { cacheKey, token: body.access_token, expiresAt: now + expiresIn * 1000 };
+  return body.access_token;
 }
 
 async function sendApns(
@@ -205,7 +208,9 @@ async function sendApns(
   if (response.ok) return { kind: 'success' };
   if (response.status === 410) return { kind: 'gone', status: 410 };
   if (response.status === 400) {
-    const reason = ((await response.json().catch(() => ({}))) as { reason?: string }).reason;
+    const { reason } = await readResponseJson(response, ApnsErrorSchema, 'apns.error').catch(
+      () => ({ reason: undefined })
+    );
     if (reason && APNS_GONE_REASONS.has(reason)) return { kind: 'gone', status: 400 };
   }
   return { kind: 'failure', status: response.status };
