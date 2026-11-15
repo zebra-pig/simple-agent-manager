@@ -36,6 +36,7 @@ import { useSessionLinkedWork } from './useSessionLinkedWork';
 import { useSessionOverlays } from './useSessionOverlays';
 import { useSessionTimeline } from './useSessionTimeline';
 import { useSessionTools } from './useSessionTools';
+import { useRequestedSessionTool } from './useRequestedSessionTool';
 import { useToolCallGroupRowState } from './useToolCallGroupRowState';
 
 export type { ProjectMessageViewProps };
@@ -258,6 +259,12 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
     canManageShare: viewer.canManageAccess,
     canBrowseWorkspace: viewer.canBrowseWorkspace,
   });
+  useRequestedSessionTool(
+    sessionId,
+    lc.session?.id === sessionId,
+    sessionTools.actions,
+    sessionTools.selectTool
+  );
   const sessionToolRail = lc.session ? (
     <SessionToolRail
       actions={sessionTools.actions}

@@ -33,6 +33,7 @@ pub struct ChatState {
     pub attachments: Vec<Attachment>,
     /// Visible only during first-boot VM/container setup.
     pub provisioning: Option<ProvisioningState>,
+    pub report_enabled: bool,
     pub loading: bool,
     pub sending: bool,
     pub error: Option<UserError>,
@@ -66,6 +67,15 @@ impl ChatViewModel {
             s.loading = true;
         });
         self.refresh().await;
+        let current = self.state();
+        let config: crate::error::Result<serde_json::Value> = self.app.get("/api/report-issue/config").await;
+        if let Ok(config) = config {
+            self.update(|s| {
+                if s.project_id == current.project_id && s.session_id == current.session_id {
+                    s.report_enabled = config["enabled"].as_bool().unwrap_or(false);
+                }
+            });
+        }
     }
 
     /// Intent: pull the latest messages and task status.
@@ -215,5 +225,64 @@ impl ChatViewModel {
             return None;
         }
         self.app.library_bytes(&state.project_id, &file_id).await.ok()
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl ChatViewModel {
+    /// Web's Complete/Cancel gate is evaluated again at confirmation time.
+    pub async fn end_task(&self) {
+        let state = self.state();
+        let Some(session) = state.session.filter(|s| s.can_drive()) else { return };
+        let Some(task) = session.task else { return };
+        let status = match task.status.as_str() {
+            "in_progress" | "sleeping" => "completed",
+            "draft" | "ready" | "queued" | "delegated" => "cancelled",
+            _ => return,
+        };
+        let result: crate::error::Result<serde_json::Value> = self
+            .app
+            .post(
+                &format!("/api/projects/{}/tasks/{}/status", seg(&state.project_id), seg(&task.id)),
+                &serde_json::json!({"status": status}),
+            )
+            .await;
+        if let Err(e) = result {
+            self.update(|s| s.error = Some(UserError::from(&e)));
+        } else {
+            self.refresh().await;
+        }
+    }
+    pub fn web_url(&self) -> String {
+        let s = self.state();
+        let base = self.app.state().server_url.replacen("://api.", "://app.", 1);
+        format!("{base}/projects/{}/chat/{}", seg(&s.project_id), seg(&s.session_id))
+    }
+}
+
+/// Tools handed to web open a panel or a prefilled composer; never execute an action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum WebChatTool {
+    Related,
+    Automation,
+    Comments,
+    Share,
+    Retry,
+    Fork,
+    Report,
+}
+#[uniffi::export]
+impl ChatViewModel {
+    pub fn web_tool_url(&self, tool: WebChatTool) -> String {
+        let name = match tool {
+            WebChatTool::Related => "related",
+            WebChatTool::Automation => "automation",
+            WebChatTool::Comments => "comments",
+            WebChatTool::Share => "share",
+            WebChatTool::Retry => "retry",
+            WebChatTool::Fork => "fork",
+            WebChatTool::Report => "report",
+        };
+        format!("{}?tool={name}", self.web_url())
     }
 }

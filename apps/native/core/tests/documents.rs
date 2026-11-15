@@ -25,6 +25,7 @@ async fn library_cards_survive_sparse_updates_reload_and_load_authenticated_byte
             }).to_string()),
             "/api/projects/p1/library/image/download" => (200, "PNG!".into()),
             "/api/projects/p1/library/pdf/download" => (200, "%PDF".into()),
+            "/api/report-issue/config" => (200, json!({"enabled":false}).to_string()),
             p if p.starts_with("/api/notifications?") => (200, json!({"notifications":[],"nextCursor":null}).to_string()),
             _ => panic!("unexpected request {}", r.path),
         }
@@ -47,7 +48,7 @@ async fn library_cards_survive_sparse_updates_reload_and_load_authenticated_byte
     assert!(vm.document_bytes("https://example.com".into()).await.is_none());
     vm.refresh().await;
     assert_eq!(vm.state().items, state.items);
-    assert_eq!(requests.lock().unwrap().len(), 6);
+    assert_eq!(requests.lock().unwrap().len(), 7);
 }
 
 #[tokio::test]

@@ -34,6 +34,7 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
     var draft by rememberSaveable(route.sessionId) { mutableStateOf("") }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(route) {
+        model.tools.load(route.projectId, route.sessionId)
         model.vm.load(route.projectId, route.sessionId)
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
@@ -44,7 +45,7 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
     }
     if (state.projectId == route.projectId && state.sessionId == route.sessionId) {
         ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach,
-            documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
+            toolsMenu = { ChatToolsMenu(model, state, openUrl) }, documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
             serverUrl = model.app.state().serverUrl, requestCard = { request -> RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval) }) {
             val sent = draft
             draft = ""
@@ -59,7 +60,7 @@ fun ChatContent(
     state: ChatState, draft: String, onDraft: (String) -> Unit,
     onBack: () -> Unit, openUrl: (String) -> Unit,
     onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit,
-    documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
+    toolsMenu: @Composable () -> Unit = {}, documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -78,9 +79,9 @@ fun ChatContent(
         }
     }
     Scaffold(
-        topBar = { BackBar(session?.topic ?: stringResource(R.string.session), onBack) { session?.let { StatusDot(it); Spacer(Modifier.width(16.dp)) } } },
+        topBar = { BackBar(session?.topic ?: stringResource(R.string.session), onBack) { session?.let { StatusDot(it); Spacer(Modifier.width(16.dp)) }; toolsMenu() } },
         bottomBar = {
-            if (session?.status in listOf(SessionStatus.ACTIVE, SessionStatus.SLEEPING))
+            if (session != null && (session.viewerAccess in listOf("owner", "grantee") || (session.viewerAccess == null && session.isMine)) && session.status in listOf(SessionStatus.ACTIVE, SessionStatus.SLEEPING))
                 Composer(stringResource(R.string.reply_to_agent), draft, onDraft, state.sending, state.attachments, onAttach, onRemove, onSend)
         },
     ) { padding ->

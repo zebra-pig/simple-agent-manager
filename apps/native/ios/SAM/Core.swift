@@ -41,10 +41,12 @@ import Security
 
 @MainActor @Observable final class ChatModel {
     let core: ChatViewModel
+    let tools: ChatToolsModel
     private(set) var state: ChatState
 
     init(app: App) {
         core = ChatViewModel(app: app)
+        tools = ChatToolsModel(app: app)
         state = core.state()
         core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
     }
@@ -119,4 +121,17 @@ enum Brand {
     static let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "SAM"
     /// The platform's `BASE_DOMAIN` this build suggests; the API is `api.<domain>`.
     static let baseDomain = Bundle.main.object(forInfoDictionaryKey: "SAMBaseDomain") as? String
+}
+
+@MainActor @Observable final class ChatToolsModel {
+    let core: ChatToolsViewModel
+    private(set) var state: ChatToolsState
+    init(app: App) {
+        core = ChatToolsViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+extension Relay: ChatToolsObserver where State == ChatToolsState {
+    func onStateChanged(state: ChatToolsState) { send(state) }
 }

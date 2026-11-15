@@ -99,6 +99,37 @@ Secret values remain in the form's transient state, go directly to the dedicated
 and are cleared after success or leaving the form. They never become chat prompts or core state.
 Replacing a project value requires consent tied to the exact existing version; a changed version
 requires fresh consent. A failed save preserves the input for retry. Permissions match web.
+## Chat tools
+
+The top-right **Session tools** menu follows the web tool rail's groups: workspace and
+history, session actions, then task completion and details. Files and Git are offered only
+for an active workspace to its owner or a teammate with shared access. Completing or
+cancelling a task asks for confirmation and uses the web's task-status transition rules.
+
+- **Files** browses directories and opens selectable, line-numbered source. **Git** separates
+  staged, unstaged and untracked files; staged diffs retain the staged flag, renamed files
+  show their old path, and untracked files open as source. `ChatToolsViewModel` uses the
+  same `/sessions/:id/files/*` and `/git/*` proxies as web. `code_lines` parses unified-diff
+  hunk offsets in Rust so the two shells share line numbering and addition/removal markers.
+- **Resources** charts session CPU, memory and read/write I/O from
+  `/sessions/:id/resource-timeline` minute rollups. Missing samples remain gaps; charts do
+  not invent zeroes or connect separate VM runs. Older chunks without rollups are not
+  plotted. Collection failures, pending history and omitted chunks are disclosed.
+- **Details** includes session/task status, workspace and VM status/hardware, and provider
+  usage from `/projects/:id/credential-limits?agentSessionId=...`. Remaining amounts appear
+  only when reported by the provider. These are usage windows, not an assumed credit
+  balance; their observation and reset times are shown. Owner-only infrastructure endpoints
+  are not called for teammates.
+- Related, Automation, Comments, Share, Retry, Fork and Report are marked **(web)**. They
+  hand off to the corresponding web panel or prefilled composer with `?tool=...`.
+  `useRequestedSessionTool` waits for web's authoritative available-action list, consumes
+  the query once, and never accepts Complete/Cancel from a URL. The matching web change
+  must deploy alongside the native app for these direct handoffs.
+
+Apple tool surfaces use Liquid Glass with the existing material fallback. Android uses
+neutral translucent surfaces, a light rim and a subtle gradient. File/diff parsing and API
+logic stay in Rust; the shells use Swift Charts and Compose drawing for the plots, without
+adding a platform-specific viewer dependency.
 
 ## Attachments
 

@@ -18,6 +18,7 @@ pub use assistant::*;
 mod notifications;
 pub use notifications::*;
 mod documents;
+mod chat_tools;
 mod error;
 mod markdown;
 mod project;
@@ -37,6 +38,7 @@ pub use attachments::{
 };
 pub use chat::*;
 pub use documents::ChatDocument;
+pub use chat_tools::*;
 pub use error::UserError;
 pub use markdown::{Block, ListMarker, Span, TableRow};
 pub use project::*;

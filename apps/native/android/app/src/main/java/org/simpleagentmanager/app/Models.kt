@@ -147,11 +147,18 @@ class ProjectModel(application: Application) : AndroidViewModel(application) {
 
 class ChatModel(application: Application) : AndroidViewModel(application) {
     val app = (application as SamApplication).core
+    val tools = org.simpleagentmanager.core.ChatToolsViewModel((application as SamApplication).core)
+    private val _toolsState = MutableStateFlow(tools.state())
+    val toolsState: StateFlow<org.simpleagentmanager.core.ChatToolsState> = _toolsState
+
     val vm = ChatViewModel((application as SamApplication).core)
     private val _state = MutableStateFlow(vm.state())
     val state: StateFlow<ChatState> = _state
 
     init {
+        tools.setObserver(object : org.simpleagentmanager.core.ChatToolsObserver {
+            override fun onStateChanged(state: org.simpleagentmanager.core.ChatToolsState) { _toolsState.value = state }
+        })
         vm.setObserver(object : ChatObserver {
             override fun onStateChanged(state: ChatState) { _state.value = state }
         })
@@ -172,6 +179,8 @@ class ChatModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        tools.clearObserver()
+        tools.close()
         vm.clearObserver()
         vm.close()
     }
