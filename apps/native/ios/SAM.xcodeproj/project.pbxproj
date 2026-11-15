@@ -199,6 +199,8 @@
 			baseConfigurationReference = 5A00000000000000000000C1 /* Brand.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = SAM.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = SAM.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = SAMMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(SAM_BUILD_NUMBER)";
@@ -236,6 +238,8 @@
 			baseConfigurationReference = 5A00000000000000000000C1 /* Brand.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = SAM.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = SAM.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = SAMMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(SAM_BUILD_NUMBER)";

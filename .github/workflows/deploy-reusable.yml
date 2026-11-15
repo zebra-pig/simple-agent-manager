@@ -265,7 +265,12 @@ jobs:
               "SMOKE_TEST_AUTH_ENABLED": ${{ toJSON(secrets.SMOKE_TEST_AUTH_ENABLED || '') }},
               "VAPID_PRIVATE_KEY": ${{ toJSON(secrets.VAPID_PRIVATE_KEY || '') }},
               "VAPID_PUBLIC_KEY": ${{ toJSON(secrets.VAPID_PUBLIC_KEY || '') }},
-              "VAPID_SUBJECT": ${{ toJSON(secrets.VAPID_SUBJECT || '') }}
+              "VAPID_SUBJECT": ${{ toJSON(secrets.VAPID_SUBJECT || '') }},
+              "APNS_KEY_ID": ${{ toJSON(secrets.APNS_KEY_ID || '') }},
+              "APNS_TEAM_ID": ${{ toJSON(secrets.APNS_TEAM_ID || '') }},
+              "APNS_PRIVATE_KEY": ${{ toJSON(secrets.APNS_PRIVATE_KEY || '') }},
+              "APNS_TOPIC": ${{ toJSON(secrets.APNS_TOPIC || '') }},
+              "FCM_SERVICE_ACCOUNT_JSON": ${{ toJSON(secrets.FCM_SERVICE_ACCOUNT_JSON || '') }}
             }
           SAM_CI_VARIABLES_JSON: ${{ toJSON(vars) }}
           SAM_CI_ENVIRONMENT: ${{ inputs.environment }}
@@ -1901,6 +1906,11 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
+          APNS_PRIVATE_KEY: ${{ secrets.APNS_PRIVATE_KEY }}
+          APNS_TOPIC: ${{ secrets.APNS_TOPIC }}
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
           GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
           GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
           GH_APP_ID: ${{ secrets.GH_APP_ID }}

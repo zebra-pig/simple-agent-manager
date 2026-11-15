@@ -2,6 +2,11 @@ import SwiftUI
 
 @main
 struct SAMApp: SwiftUI.App {
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor private var delegate: AppDelegate
+    #else
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
+    #endif
     @State private var app = AppModel()
 
     var body: some Scene {
@@ -12,14 +17,15 @@ struct SAMApp: SwiftUI.App {
 }
 
 struct RootView: View {
+    @State private var selectedTab = 0
     @Environment(AppModel.self) private var app
 
     var body: some View {
         Group {
             if app.state.status == .signedIn {
-                TabView {
-                    ProjectsView(app: app.core).tabItem { Label("Projects", systemImage: "folder") }
-                    NotificationsView(app: app.core).tabItem { Label("Notifications", systemImage: "bell") }
+                TabView(selection: $selectedTab) {
+                    ProjectsView(app: app.core, onPush: { selectedTab = 0 }).tabItem { Label("Projects", systemImage: "folder") }.tag(0)
+                    NotificationsView(app: app.core).tabItem { Label("Notifications", systemImage: "bell") }.tag(1)
                 }
             } else {
                 SignInView()
@@ -27,6 +33,10 @@ struct RootView: View {
         }
         .task {
             if app.state.status == .signedIn { await app.core.refreshViewer() }
+        }
+        // Signed in (at launch or just now): ask for notifications and register.
+        .task(id: app.state.status) {
+            if app.state.status == .signedIn { await Push.enable() }
         }
     }
 }

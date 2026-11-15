@@ -66,6 +66,26 @@ pub struct AppState {
     pub error: Option<UserError>,
 }
 
+/// Which push service issued a device token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, uniffi::Enum)]
+#[serde(rename_all = "lowercase")]
+pub enum PushPlatform {
+    /// Apple Push Notification service (iOS, macOS).
+    Apns,
+    /// Firebase Cloud Messaging (Android).
+    Fcm,
+}
+
+/// The device's push token, registered with the server while signed in
+/// (`POST /api/notifications/push/native-tokens`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, uniffi::Record)]
+pub struct PushToken {
+    pub platform: PushPlatform,
+    pub token: String,
+    /// APNs development environment (debug builds). Always false on Android.
+    pub sandbox: bool,
+}
+
 #[uniffi::export(callback_interface)]
 pub trait AppObserver: Send + Sync {
     fn on_state_changed(&self, state: AppState);
@@ -115,6 +135,7 @@ pub struct App {
     pending: Mutex<Option<PendingSignIn>>,
     state: Mutex<AppState>,
     observer: Mutex<Option<Arc<dyn AppObserver>>>,
+    push_token: Mutex<Option<PushToken>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -145,6 +166,7 @@ impl App {
             pending: Mutex::new(None),
             state: Mutex::new(AppState { status, server_url, viewer: None, sign_in: None, error: None }),
             observer: Mutex::new(None),
+            push_token: Mutex::new(None),
         })
     }
 
@@ -238,6 +260,7 @@ impl App {
                     s.sign_in = None;
                     s.error = None;
                 });
+                self.register_push_token().await;
                 self.refresh_viewer().await;
             }
             Err(e) => self.update(|s| {
@@ -246,6 +269,13 @@ impl App {
                 s.error = Some(UserError::from(&e));
             }),
         }
+    }
+
+    /// Intent: the OS handed the app a push token (at launch, or rotated).
+    /// Registered now if signed in, else after the next sign-in.
+    pub async fn set_push_token(&self, token: PushToken) {
+        *self.push_token.lock().unwrap() = Some(token);
+        self.register_push_token().await;
     }
 
     /// Intent: the user gave up on this sign-in.
@@ -283,7 +313,18 @@ impl App {
             s.error = None;
         });
         if let Some(c) = credentials {
-            // Best effort: signed out locally either way.
+            // Best effort: signed out locally either way. Unregister the device
+            // first, while the cookie still works, so it gets no more pushes.
+            let push = self.push_token.lock().unwrap().clone();
+            if let Some(push) = push {
+                let _ = self
+                    .http
+                    .delete(format!("{}/api/notifications/push/native-tokens", c.server_url))
+                    .header(reqwest::header::COOKIE, &c.session_cookie)
+                    .json(&serde_json::json!({ "token": push.token }))
+                    .send()
+                    .await;
+            }
             let _ = self
                 .http
                 .post(format!("{}/api/auth/sign-out", c.server_url))
@@ -292,6 +333,17 @@ impl App {
                 .send()
                 .await;
         }
+    }
+}
+
+impl App {
+    /// Best effort: a failure only means no pushes until the next launch.
+    async fn register_push_token(&self) {
+        let Some(token) = self.push_token.lock().unwrap().clone() else { return };
+        if self.credentials.lock().unwrap().is_none() {
+            return;
+        }
+        let _ = self.post::<serde_json::Value, _>("/api/notifications/push/native-tokens", &token).await;
     }
 }
 

@@ -168,4 +168,6 @@
     <string name="request_denied">Denied</string>
     <string name="request_executed">Executed</string>
     <string name="request_delivery_unconfirmed">Saved, but the agent could not be notified. Tell it in the conversation.</string>
+    <!-- Push notifications -->
+    <string name="notification_channel_name">Agent updates</string>
 </resources>

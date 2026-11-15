@@ -30,9 +30,15 @@ import { DurableObject } from 'cloudflare:workers';
 
 import { getAppOrigin } from '../lib/app-origin';
 import { createModuleLogger } from '../lib/logger';
+import type { NativePushTarget } from '../lib/native-push';
 import { validateWebPushSubscription } from '../lib/web-push';
 import { runNotificationMigrationsAtomically } from './notification-migrations';
-import type { WebPushEnv } from './notification-push';
+import type { NativePushDeliveryEnv } from './notification-native-push';
+import {
+  addNativePushToken,
+  deliverNotificationNativePush,
+  removeNativePushToken,
+} from './notification-native-push';
 import { deliverNotificationWebPush } from './notification-push';
 import {
   parseIdRow,
@@ -44,7 +50,7 @@ import {
 } from './notification-row-schemas';
 import { parseCountCnt, parseEnabled } from './project-data/row-schemas';
 
-type Env = WebPushEnv & {
+type Env = NativePushDeliveryEnv & {
   BASE_DOMAIN: string;
   MAX_NOTIFICATIONS_PER_USER?: string;
   NOTIFICATION_AUTO_DELETE_AGE_MS?: string;
@@ -549,6 +555,19 @@ export class NotificationService extends DurableObject<Env> {
     return parsePushSubscriptionRow(storedSubscription);
   }
 
+  /** Add or refresh a native app's device token (APNs/FCM). */
+  async addNativePushToken(
+    userId: string,
+    target: NativePushTarget,
+    userAgent?: string | null
+  ): Promise<void> {
+    addNativePushToken(this.sql, userId, target, userAgent ?? null, this.env);
+  }
+
+  async removeNativePushToken(userId: string, token: string): Promise<boolean> {
+    return removeNativePushToken(this.sql, userId, token);
+  }
+
   /** Remove only the authenticated user's matching endpoint. */
   async removePushSubscription(userId: string, endpoint: string): Promise<boolean> {
     const result = this.sql.exec(
@@ -750,13 +769,14 @@ export class NotificationService extends DurableObject<Env> {
   private async deliverPushNotification(userId: string, notificationId: string): Promise<void> {
     const notification = this.getNotificationById(notificationId);
     if (!notification) return;
-    await deliverNotificationWebPush(
-      this.sql,
-      userId,
-      notification,
-      getAppOrigin(this.env),
-      this.env
-    );
+    const appOrigin = getAppOrigin(this.env);
+    // Browsers and native apps are independent channels: one failing must not stop the other.
+    const results = await Promise.allSettled([
+      deliverNotificationWebPush(this.sql, userId, notification, appOrigin, this.env),
+      deliverNotificationNativePush(this.sql, userId, notification, appOrigin, this.env),
+    ]);
+    const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (rejected) throw rejected.reason;
   }
 
   private broadcast(message: NotificationWsMessage): void {

@@ -132,12 +132,8 @@ struct Composer<Accessory: View>: View {
                 HStack(alignment: .bottom, spacing: 8) {
                     AttachButton(files: files)
                         .padding([.leading, .vertical], 4)
-                    TextField(placeholder, text: $text, axis: .vertical)
-                        .lineLimit(1...6)
-                        .textFieldStyle(.plain)
+                    composerInput
                         .padding(.vertical, 10)
-                        .submitLabel(.send)
-                        .focused($focused)
                     Group {
                         if busy {
                             ProgressView().frame(width: 36, height: 36)
@@ -181,6 +177,30 @@ struct Composer<Accessory: View>: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
+
+    @ViewBuilder
+    private var composerInput: some View {
+        #if os(iOS)
+        ComposerTextInput(text: $text, focused: Binding(get: { focused }, set: { focused = $0 }),
+                          files: files)
+            .accessibilityLabel(Text(placeholder))
+            .overlay(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text(placeholder).foregroundStyle(.tertiary).allowsHitTesting(false)
+                }
+            }
+        #else
+        TextField(placeholder, text: $text, axis: .vertical)
+            .lineLimit(1...6)
+            .textFieldStyle(.plain)
+            .submitLabel(.send)
+            .focused($focused)
+            .onPasteCommand(of: [.fileURL, .image, .pdf, .archive, .audiovisualContent]) { providers in
+                AttachmentIntake.add(providers: providers, to: files)
+            }
+        #endif
+    }
+
 }
 
 extension Composer where Accessory == EmptyView {
