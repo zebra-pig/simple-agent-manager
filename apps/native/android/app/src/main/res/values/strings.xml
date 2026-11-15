@@ -100,4 +100,17 @@
     <string name="error_attachments_not_ready">Wait for the files to upload, or remove the ones that failed.</string>
     <string name="error_profile_name_required">Give the profile a name.</string>
     <string name="error_effort_not_supported">This agent doesn\'t offer that effort level.</string>
+<string name="latest_messages">Showing the latest messages</string>
+<string name="message_queued">Queued</string>
+<string name="message_sending">Sending…</string>
+<string name="chat_empty">The conversation will appear here.</string>
+<string name="jump_latest">Jump to latest</string>
+<string name="thinking">Thinking</string>
+<string name="activity_count">Activity · %1$d tools</string>
+<string name="activity_failed"> · %1$d failed</string>
+<string name="tool_output">Output</string>
+<string name="agent_plan">Plan</string>
+<string name="workspace_report">Report from the workspace</string>
+<string name="chat_context">Conversation context</string>
+<string name="details">Details</string>
 </resources>

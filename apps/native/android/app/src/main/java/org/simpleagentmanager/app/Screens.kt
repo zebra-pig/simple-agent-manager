@@ -84,9 +84,7 @@ import org.simpleagentmanager.core.AppState
 import org.simpleagentmanager.core.Attachment
 import org.simpleagentmanager.core.AttachmentStatus
 import org.simpleagentmanager.core.AuthStatus
-import org.simpleagentmanager.core.ChatMessage
 import org.simpleagentmanager.core.ChatSession
-import org.simpleagentmanager.core.MessageRole
 import org.simpleagentmanager.core.Project
 import org.simpleagentmanager.core.SessionStatus
 import org.simpleagentmanager.core.TaskSummary
@@ -280,88 +278,7 @@ private fun ProjectScreen(
 }
 
 @Composable
-private fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl: (String) -> Unit) {
-    val state by model.state.collectAsStateWithLifecycle()
-    var draft by rememberSaveable(route.sessionId) { mutableStateOf("") }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    // Poll while on screen and in front; there is no push channel yet.
-    LaunchedEffect(route) {
-        model.vm.load(route.projectId, route.sessionId)
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                val status = model.vm.state().session?.status
-                delay(if (status == SessionStatus.STOPPED || status == SessionStatus.FAILED) 20_000 else 4_000)
-                model.vm.refresh()
-            }
-        }
-    }
-    val current = state.sessionId == route.sessionId
-    val messages = if (current) state.messages else emptyList()
-    val session = state.session.takeIf { current }
-    val list = rememberLazyListState()
-    // Follow the conversation: the last message's row, after the optional task card.
-    LaunchedEffect(messages.lastOrNull()?.id) {
-        if (messages.isNotEmpty()) list.animateScrollToItem(messages.size - 1 + if (session?.task != null) 1 else 0)
-    }
-
-    Scaffold(
-        topBar = {
-            BackBar(session?.topic ?: stringResource(R.string.session), onBack) {
-                if (session != null) {
-                    StatusDot(session)
-                    Spacer(Modifier.size(16.dp))
-                }
-            }
-        },
-        bottomBar = {
-            if (session != null && (session.status == SessionStatus.ACTIVE || session.status == SessionStatus.SLEEPING)) {
-                Composer(stringResource(R.string.reply_to_agent), draft, { draft = it }, busy = state.sending, if (current) state.attachments else emptyList(), model::attach, model::detach) {
-                    model.send(draft) { draft = "" }
-                }
-            }
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                session?.task?.let { task -> item { TaskCard(task, openUrl) } }
-                items(messages, key = { it.id }) { MessageRow(it) }
-                if (current) state.error?.let { item { Text(it.message(), color = MaterialTheme.colorScheme.error) } }
-            }
-            if (messages.isEmpty() && (state.loading || !current)) CircularProgressIndicator(Modifier.align(Alignment.Center))
-        }
-    }
-}
-
-@Composable
-private fun MessageRow(message: ChatMessage) {
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    when (message.role) {
-        MessageRole.USER -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            Text(
-                message.content,
-                Modifier.widthIn(max = 320.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
-                    .padding(10.dp),
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        }
-        MessageRole.ASSISTANT -> Text(message.content)
-        MessageRole.THINKING -> Text(message.content, color = muted, fontStyle = FontStyle.Italic, maxLines = 4, overflow = TextOverflow.Ellipsis)
-        MessageRole.TOOL -> Text(
-            message.content,
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)).padding(8.dp),
-            color = muted,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
-        MessageRole.SYSTEM, MessageRole.PLAN, MessageRole.UNKNOWN -> Text(message.content, color = muted, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun TaskCard(task: TaskSummary, openUrl: (String) -> Unit) {
+internal fun TaskCard(task: TaskSummary, openUrl: (String) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val step = task.executionStep?.takeIf { task.status == "in_progress" || task.status == "queued" }
@@ -408,7 +325,7 @@ internal fun BackBar(title: String, onBack: () -> Unit, actions: @Composable Row
  * files above the field. Files dropped on it are attached too.
  */
 @Composable
-private fun Composer(
+internal fun Composer(
     placeholder: String,
     text: String,
     onChange: (String) -> Unit,
@@ -451,7 +368,7 @@ private fun Composer(
 }
 
 @Composable
-private fun StatusDot(session: ChatSession) {
+internal fun StatusDot(session: ChatSession) {
     val color = when (session.status) {
         SessionStatus.ACTIVE -> if (session.isIdle) Color(0xFFF59E0B) else Color(0xFF22C55E)
         SessionStatus.SLEEPING -> Color(0xFF3B82F6)

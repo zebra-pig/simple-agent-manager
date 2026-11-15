@@ -6,6 +6,7 @@ struct ChatView: View {
     let ref: SessionRef
     @State private var chat: ChatModel
     @State private var draft = ""
+    @State private var followsLatest = true
     @Environment(\.openURL) private var openURL
 
     init(app: App, ref: SessionRef) {
@@ -17,28 +18,45 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
+                    if chat.state.hasMore { Text("Showing the latest messages").font(.caption).foregroundStyle(.secondary) }
                     if let task = chat.state.session?.task {
                         TaskCard(task: task) { openURL($0) }
                     }
-                    ForEach(chat.state.messages, id: \.id) { message in
-                        MessageView(message: message).id(message.id)
+                    ForEach(chat.state.items, id: \.id) { message in
+                        TimelineItemView(item: message).id(message.id)
                     }
+                    ForEach(chat.state.outbox, id: \.id) { message in
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text(verbatim: message.text).padding(12).background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+                            Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    if chat.state.working { Text("Working").font(.caption).foregroundStyle(Color.accentColor) }
                     if let error = chat.state.error {
                         Text(error.message).foregroundStyle(.red).font(.callout)
                     }
+                    Color.clear.frame(height: 1).id("latest")
+                        .onAppear { followsLatest = true }
+                        .onDisappear { followsLatest = false }
                 }
                 .padding()
             }
             .defaultScrollAnchor(.bottom)
             .interactiveKeyboardDismiss()
-            .onChange(of: chat.state.messages.last?.id) {
-                if let last = chat.state.messages.last?.id {
-                    withAnimation { proxy.scrollTo(last, anchor: .bottom) }
+            .onChange(of: chat.state.items) {
+                if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
+            }
+            .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
+            .overlay(alignment: .bottom) {
+                if !followsLatest {
+                    Button("Jump to latest", systemImage: "arrow.down") {
+                        withAnimation { proxy.scrollTo("latest", anchor: .bottom) }
+                    }.buttonStyle(.borderedProminent).padding()
                 }
             }
         }
         .overlay {
-            if chat.state.messages.isEmpty && chat.state.loading { ProgressView() }
+            if chat.state.items.isEmpty && chat.state.loading { ProgressView() }
         }
         .navigationTitle(chat.state.session?.topic ?? String(localized: "Session"))
         .inlineTitle()
@@ -56,7 +74,8 @@ struct ChatView: View {
             if canReply {
                 Composer(placeholder: "Reply to the agent…", text: $draft, busy: chat.state.sending, files: chat.files) {
                     let content = draft
-                    Task { if await chat.core.send(content: content) { draft = "" } }
+                    draft = ""
+                    Task { if !(await chat.core.send(content: content)), draft.isEmpty { draft = content } }
                 }
             }
         }
@@ -81,44 +100,61 @@ struct ChatView: View {
     }
 }
 
-struct MessageView: View {
-    let message: ChatMessage
-
+struct TimelineItemView: View {
+    let item: ChatItem
     var body: some View {
-        switch message.role {
-        case .user:
+        switch item.content {
+        case let .user(text):
             HStack {
                 Spacer(minLength: 40)
-                Text(message.content)
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .glass(in: RoundedRectangle(cornerRadius: 18, style: .continuous), tint: .accentColor.opacity(0.35))
+                Text(verbatim: text).textSelection(.enabled).padding(12)
+                    .glass(in: RoundedRectangle(cornerRadius: 18), tint: .accentColor.opacity(0.35))
             }
-        case .assistant:
-            Text(markdown(message.content)).textSelection(.enabled)
-        case .thinking:
-            Text(message.content)
-                .font(.callout.italic())
-                .foregroundStyle(.secondary)
-                .lineLimit(4)
-        case .tool:
-            Text(message.content)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-        case .system, .plan, .unknown:
-            Text(markdown(message.content))
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        case let .agent(_, blocks):
+            MarkdownView(blocks: blocks)
+        case let .thinking(text):
+            DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+        case let .activity(steps, summary):
+            DisclosureGroup {
+                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                    switch step {
+                    case let .thought(text):
+                        DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary) }
+                    case let .tool(call):
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label { Text(verbatim: call.title ?? String(describing: call.kind)) }
+                                icon: { Image(systemName: call.status == .failed ? "exclamationmark.circle" : "terminal") }
+                                .font(.callout).foregroundStyle(call.status == .failed ? Color.red : Color.secondary)
+                            ForEach(call.locations, id: \.self) { Text(verbatim: $0).font(.caption.monospaced()) }
+                            if let output = call.output {
+                                DisclosureGroup("Output") { CodeView(code: output, language: nil) }
+                            }
+                        }.padding(.vertical, 4)
+                    }
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Activity · \(summary.toolCount) tools").font(.callout)
+                    if summary.failedCount > 0 { Text("\(summary.failedCount) failed").font(.caption).foregroundStyle(.red) }
+                    if summary.live, let title = summary.liveTitle { Text(verbatim: title).font(.caption).foregroundStyle(Color.accentColor) }
+                }
+            }
+        case let .plan(entries):
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Plan").font(.headline)
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    Label(entry.content, systemImage: entry.status == .completed ? "checkmark.circle.fill" : entry.status == .inProgress ? "circle.inset.filled" : "circle")
+                        .font(.callout).foregroundStyle(entry.status == .inProgress ? Color.accentColor : Color.secondary)
+                }
+            }
+        case let .notice(notice):
+            VStack(alignment: .leading, spacing: 6) {
+                Text(notice.headline ?? (notice.source == .workspace ? String(localized: "Report from the workspace") : String(localized: "Conversation context")))
+                    .font(.callout.weight(.medium))
+                if let detail = notice.detail { DisclosureGroup("Details") { Text(verbatim: detail).font(.callout).textSelection(.enabled) } }
+            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                .background(notice.severity == .error ? Color.red.opacity(0.1) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
         }
-    }
-
-    private func markdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
     }
 }
 

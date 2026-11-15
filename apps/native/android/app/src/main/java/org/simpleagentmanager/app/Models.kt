@@ -164,8 +164,8 @@ class ChatModel(application: Application) : AndroidViewModel(application) {
 
     fun detach(id: String) = vm.removeAttachment(id)
 
-    fun send(content: String, sent: () -> Unit) = viewModelScope.launch {
-        if (vm.send(content)) sent()
+    fun send(content: String, result: (Boolean) -> Unit) = viewModelScope.launch {
+        result(vm.send(content))
     }
 
     override fun onCleared() {
