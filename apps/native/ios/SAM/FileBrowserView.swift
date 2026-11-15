@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FileBrowserView: View {
     let path: String
+    @State private var loaded = false
     @State private var model: ChatToolsModel
     @State private var search = ""
 
@@ -46,13 +47,18 @@ struct FileBrowserView: View {
         .inlineTitle()
         .searchable(text: $search, prompt: "Filter files")
         .toolbar { ToolRefreshButton(loading: model.state.loading, refresh: refresh) }
-        .task { await refresh() }
+        .task {
+            guard !loaded else { return }
+            loaded = true
+            await refresh()
+        }
     }
 
     private func refresh() async { await model.core.browse(path: path) }
 }
 
 struct GitChangesView: View {
+    @State private var loaded = false
     @State private var model: ChatToolsModel
     @State private var search = ""
 
@@ -95,7 +101,11 @@ struct GitChangesView: View {
         .listStyle(.plain)
         .searchable(text: $search, prompt: "Filter files")
         .toolbar { ToolRefreshButton(loading: model.state.loading, refresh: refresh) }
-        .task { await refresh() }
+        .task {
+            guard !loaded else { return }
+            loaded = true
+            await refresh()
+        }
     }
 
     private func matches(_ change: GitChange) -> Bool {
@@ -109,6 +119,7 @@ struct SourceFileView: View {
     let path: String
     let diff: Bool
     let staged: Bool
+    @State private var loaded = false
     @State private var model: ChatToolsModel
 
     init(source: ChatToolsModel, path: String, diff: Bool = false, staged: Bool = false) {
@@ -158,7 +169,11 @@ struct SourceFileView: View {
                 }
             }
         }
-        .task { await refresh() }
+        .task {
+            guard !loaded else { return }
+            loaded = true
+            await refresh()
+        }
     }
 
     private func refresh() async { await model.core.openFile(path: path, diff: diff, staged: staged) }
