@@ -391,5 +391,5 @@ infrastructure, runtime and deployment settings remain available in the web app.
 Both shells use `ProjectManagementViewModel`: GitHub installation/repository discovery, GitLab
 project search, deployment capability discovery, and `POST /api/projects`, `GET/PATCH/DELETE
 /api/projects/:id`. PATCH sends only general settings, so other settings keep their values.
-Concurrent loads and mutations are serialized. Apple sheets and project cards use Liquid Glass
-with material fallbacks on older OS versions.
+Concurrent loads and mutations are serialized. Apple project creation and settings use a native
+grouped form with opaque section backgrounds and standard row separators.

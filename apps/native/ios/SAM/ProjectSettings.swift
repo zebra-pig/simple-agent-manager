@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Repository onboarding and general project settings share a glass sheet.
+/// Repository onboarding and general project settings use native grouped rows.
 struct ProjectSettings: View {
     let projectId: String?
     let saved: (Project?) -> Void
@@ -30,93 +30,105 @@ struct ProjectSettings: View {
     }
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if model.state.loading { ProgressView().frame(maxWidth: .infinity) }
-                    if let error = model.state.error {
-                        Text(error.message).foregroundStyle(.red)
-                        if !model.state.initialized {
-                            Button("Retry") { Task { await load() } }.glassButton()
-                        }
+            Form {
+                if model.state.loading { ProgressView().frame(maxWidth: .infinity) }
+                if let error = model.state.error {
+                    Text(error.message).foregroundStyle(.red)
+                    if !model.state.initialized {
+                        Button("Retry") { Task { await load() } }.buttonStyle(.borderless)
                     }
-                    if projectId == nil || model.state.project != nil {
-                        card {
-                            Label(projectId == nil ? "New project" : "General", systemImage: "folder").font(.headline)
-                            TextField("Project name", text: $name).textFieldStyle(.roundedBorder)
-                            TextField("Description (optional)", text: $description, axis: .vertical)
-                                .textFieldStyle(.roundedBorder).lineLimit(3...6)
+                }
+                if projectId == nil || model.state.project != nil {
+                    Section("General") {
+                        LabeledContent("Name") {
+                            TextField("Project name", text: $name)
+                                .multilineTextAlignment(.trailing)
                         }
-                        card {
-                            Label("Repository", systemImage: "chevron.left.forwardslash.chevron.right").font(.headline)
-                            if let project = model.state.project {
+                        TextField("Description (optional)", text: $description, axis: .vertical)
+                            .lineLimit(3...6)
+                    }
+                    Section {
+                        if let project = model.state.project {
+                            LabeledContent("Repository") {
                                 Text(project.repository).textSelection(.enabled)
-                                Text("The repository provider is fixed after creation.").font(.caption).foregroundStyle(.secondary)
-                            } else {
-                                Picker("Provider", selection: $provider) {
-                                    Text("GitHub").tag("github")
-                                    Text("GitLab").tag("gitlab")
-                                    if model.state.artifactsEnabled { Text("SAM-hosted").tag("artifacts") }
-                                }.onChange(of: provider) { _, _ in resetRepository() }
-                                if provider == "github" {
-                                    Picker("GitHub account", selection: $installation) {
-                                        Text("Select account").tag("")
-                                        ForEach(model.state.installations, id: \.id) { Text($0.accountName).tag($0.id) }
-                                    }.onChange(of: installation) { _, _ in resetRepository() }
-                                    if model.state.installations.isEmpty {
-                                        Text("Connect a GitHub account in SAM on the web, then retry.").font(.callout).foregroundStyle(.secondary)
-                                    }
-                                }
-                                if provider != "artifacts" {
-                                    TextField("Search repositories", text: $search).textFieldStyle(.roundedBorder)
-                                    Button("Load repositories") {
-                                        repositoryId = nil
-                                        loadedFor = "\(provider):\(installation)"
-                                        Task { await model.core.loadRepositories(provider: provider, installationId: installation, search: search) }
-                                    }.glassButton().disabled(provider == "github" && installation.isEmpty)
-                                    ForEach(model.state.repositories.filter {
-                                        loadedFor == "\(provider):\(installation)" &&
-                                        (provider == "gitlab" || search.isEmpty || $0.fullName.localizedCaseInsensitiveContains(search))
-                                    }, id: \.id) { repo in
-                                        Button {
-                                            repositoryId = repo.id; repository = repo.fullName; branch = repo.defaultBranch
-                                            if name.isEmpty { name = repo.fullName.components(separatedBy: "/").last ?? "" }
-                                        } label: {
-                                            HStack {
-                                                Text(repo.fullName); Spacer()
-                                                if repositoryId == repo.id { Image(systemName: "checkmark") }
-                                            }.frame(minHeight: 44).contentShape(Rectangle())
-                                        }.buttonStyle(.plain)
-                                    }
-                                    if !repository.isEmpty { Text(repository).font(.caption).foregroundStyle(.secondary) }
-                                    if loadedFor == "\(provider):\(installation)" && !model.state.loading && model.state.repositories.isEmpty && model.state.error == nil {
-                                        Text("No repositories found.").foregroundStyle(.secondary)
-                                    }
-                                } else {
-                                    Text("SAM creates a private Git repository for this project.").foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Picker("Provider", selection: $provider) {
+                                Text("GitHub").tag("github")
+                                Text("GitLab").tag("gitlab")
+                                if model.state.artifactsEnabled { Text("SAM-hosted").tag("artifacts") }
+                            }.onChange(of: provider) { _, _ in resetRepository() }
+                            if provider == "github" {
+                                Picker("GitHub account", selection: $installation) {
+                                    Text("Select account").tag("")
+                                    ForEach(model.state.installations, id: \.id) { Text($0.accountName).tag($0.id) }
+                                }.onChange(of: installation) { _, _ in resetRepository() }
+                                if model.state.installations.isEmpty {
+                                    Text("Connect a GitHub account in SAM on the web, then retry.").font(.callout).foregroundStyle(.secondary)
                                 }
                             }
                             if provider != "artifacts" {
-                                TextField("Default branch", text: $branch).textFieldStyle(.roundedBorder)
+                                TextField("Search repositories", text: $search)
+                                Button("Load repositories") {
+                                    repositoryId = nil
+                                    loadedFor = "\(provider):\(installation)"
+                                    Task { await model.core.loadRepositories(provider: provider, installationId: installation, search: search) }
+                                }.buttonStyle(.borderless).disabled(provider == "github" && installation.isEmpty)
+                                ForEach(model.state.repositories.filter {
+                                    loadedFor == "\(provider):\(installation)" &&
+                                    (provider == "gitlab" || search.isEmpty || $0.fullName.localizedCaseInsensitiveContains(search))
+                                }, id: \.id) { repo in
+                                    Button {
+                                        repositoryId = repo.id; repository = repo.fullName; branch = repo.defaultBranch
+                                        if name.isEmpty { name = repo.fullName.components(separatedBy: "/").last ?? "" }
+                                    } label: {
+                                        HStack {
+                                            Text(repo.fullName); Spacer()
+                                            if repositoryId == repo.id { Image(systemName: "checkmark") }
+                                        }.frame(minHeight: 44).contentShape(Rectangle())
+                                    }.buttonStyle(.plain)
+                                }
+                                if !repository.isEmpty { Text(repository).font(.caption).foregroundStyle(.secondary) }
+                                if loadedFor == "\(provider):\(installation)" && !model.state.loading && model.state.repositories.isEmpty && model.state.error == nil {
+                                    Text("No repositories found.").foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Text("SAM creates a private Git repository for this project.").foregroundStyle(.secondary)
                             }
                         }
-                        if let project = model.state.project {
-                            card {
-                                Label("Delete project", systemImage: "trash").font(.headline).foregroundStyle(.red)
-                                Text("Permanently deletes this project and all associated data. This cannot be undone.").font(.callout)
-                                if deleting {
-                                    Text("Type \(project.name) to confirm.").font(.callout)
-                                    TextField("Confirm project name", text: $confirmation).textFieldStyle(.roundedBorder)
-                                    Button("Permanently delete", role: .destructive) {
-                                        Task { if await model.core.delete(confirmation: confirmation) { saved(nil); dismiss() } }
-                                    }.glassButton().disabled(confirmation != project.name)
-                                } else {
-                                    Button("Delete project", role: .destructive) { deleting = true }.glassButton()
-                                }
+                        if provider != "artifacts" {
+                            LabeledContent("Default branch") {
+                                TextField("Default branch", text: $branch)
+                                    .multilineTextAlignment(.trailing)
                             }
+                        }
+                    } header: {
+                        Text("Repository")
+                    } footer: {
+                        if model.state.project != nil {
+                            Text("The repository provider is fixed after creation.")
                         }
                     }
-                }.padding(20).disabled(model.state.saving || model.state.loading)
+                    if let project = model.state.project {
+                        Section {
+                            if deleting {
+                                Text("Type \(project.name) to confirm.").font(.callout)
+                                TextField("Confirm project name", text: $confirmation)
+                                Button("Permanently delete", role: .destructive) {
+                                    Task { if await model.core.delete(confirmation: confirmation) { saved(nil); dismiss() } }
+                                }.buttonStyle(.borderless).disabled(confirmation != project.name)
+                            } else {
+                                Button("Delete project", role: .destructive) { deleting = true }.buttonStyle(.borderless)
+                            }
+                        } footer: {
+                            Text("Permanently deletes this project and all associated data. This cannot be undone.")
+                        }
+                    }
+                }
             }
+            .formStyle(.grouped)
+            .textFieldStyle(.plain)
+            .disabled(model.state.saving || model.state.loading)
             .navigationTitle(projectId == nil ? "New project" : "Project settings")
             .inlineTitle()
             .toolbar {
@@ -145,9 +157,4 @@ struct ProjectSettings: View {
         }
     }
     private func resetRepository() { repositoryId = nil; repository = ""; branch = "main"; loadedFor = "" }
-    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14, content: content)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            .glass(in: RoundedRectangle(cornerRadius: 24))
-    }
 }
