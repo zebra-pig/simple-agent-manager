@@ -51,7 +51,9 @@ pub struct ChatItem {
 
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum ChatContent {
-    Document { document: crate::ChatDocument },
+    Document {
+        document: crate::ChatDocument,
+    },
     /// What the user sent.
     User {
         text: String,

@@ -156,13 +156,19 @@ fun Root(
             when (val route = rootRoute) {
                 Route.Assistant -> AssistantScreen(session.app, openUrl) { p, s -> session.push(Route.Chat(p, s)) }
                 Route.Notifications -> NotificationsScreen(session.app, openUrl) { p, s -> session.push(Route.Chat(p, s)) }
-                Route.Projects -> ProjectsScreen(projects, onOpen = { session.push(Route.Project(it.id, it.name)) }, onAccount = { session.push(Route.Account) })
+                Route.Projects -> ProjectsScreen(projects, onOpen = { session.push(Route.Project(it.id, it.name)) }, onAccount = { session.push(Route.Account) }, onCreate = { session.push(Route.ProjectSettings(null)) })
                 Route.Account -> AccountScreen(app, onBack = session::pop, onSignOut = { session.signOut() })
                 is Route.Project -> ProjectScreen(
-                    route, project, onBack = session::pop,
+                    route, project, onBack = session::pop, onSettings = { session.push(Route.ProjectSettings(route.id)) },
                     onOpen = { session.push(Route.Chat(route.id, it)) },
                     onEditProfile = { session.push(Route.ProfileEditor(route.id, it)) },
                 )
+                is Route.ProjectSettings -> ProjectSettingsScreen(route.projectId, onBack = session::pop) { updated ->
+                    session.pop()
+                    if (route.projectId != null) session.pop()
+                    projects.load()
+                    if (updated != null) session.push(Route.Project(updated.id, updated.name))
+                }
                 is Route.Chat -> ChatScreen(route, chat, onBack = session::pop, openUrl = openUrl)
                 is Route.ProfileEditor -> ProfileEditorScreen(route, project, onBack = session::pop)
             }
@@ -237,13 +243,13 @@ private fun SignInScreen(app: AppState, onSignIn: (String) -> Unit, onOpen: (Str
 }
 
 @Composable
-private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, onAccount: () -> Unit) {
+private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, onAccount: () -> Unit, onCreate: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.projects)) },
-                actions = { IconButton(onClick = onAccount) { Icon(Icons.Default.AccountCircle, contentDescription = stringResource(R.string.account)) } },
+                actions = { TextButton(onClick = onCreate) { Text(stringResource(R.string.project_new_project)) }; IconButton(onClick = onAccount) { Icon(Icons.Default.AccountCircle, contentDescription = stringResource(R.string.account)) } },
             )
         },
     ) { padding ->
@@ -268,7 +274,7 @@ private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, o
             Empty(
                 loading = state.loading && state.projects.isEmpty(),
                 empty = state.projects.isEmpty() && state.error == null,
-                text = stringResource(R.string.no_projects, stringResource(R.string.app_name)),
+                text = stringResource(R.string.no_projects),
             )
         }
     }
@@ -281,6 +287,7 @@ private fun ProjectScreen(
     onBack: () -> Unit,
     onOpen: (sessionId: String) -> Unit,
     onEditProfile: (profileId: String?) -> Unit,
+    onSettings: () -> Unit,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     var draft by rememberSaveable(route.id) { mutableStateOf("") }
@@ -288,7 +295,9 @@ private fun ProjectScreen(
     // A switch keeps the previous project's rows until the core resets them.
     val sessions = if (state.projectId == route.id) state.sessions else emptyList()
     Scaffold(
-        topBar = { BackBar(route.name, onBack) },
+        topBar = { TopAppBar(title = { Text(route.name) }, navigationIcon = {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
+        }, actions = { TextButton(onClick = onSettings) { Text(stringResource(R.string.project_settings)) } }) },
         bottomBar = {
             val current = state.projectId == route.id
             val attachments = if (current) state.attachments else emptyList()
@@ -511,6 +520,7 @@ fun UserError.message(): String = when (this) {
     is UserError.TooManyFiles -> stringResource(R.string.error_too_many_files, max.toInt())
     is UserError.AttachmentsTooLarge -> stringResource(R.string.error_attachments_too_large, Formatter.formatShortFileSize(LocalContext.current, maxBytes.toLong()))
     UserError.AttachmentsNotReady -> stringResource(R.string.error_attachments_not_ready)
+    UserError.RepositoryAccessFailed -> stringResource(R.string.project_repository_access_failed)
     UserError.ProfileNameRequired -> stringResource(R.string.error_profile_name_required)
     UserError.EffortNotSupported -> stringResource(R.string.error_effort_not_supported)
     is UserError.InvalidProfileNumber -> stringResource(R.string.error_invalid_profile_number, field.label())

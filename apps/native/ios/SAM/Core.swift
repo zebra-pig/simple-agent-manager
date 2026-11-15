@@ -135,3 +135,16 @@ enum Brand {
 extension Relay: ChatToolsObserver where State == ChatToolsState {
     func onStateChanged(state: ChatToolsState) { send(state) }
 }
+
+@MainActor @Observable final class ProjectManagementModel {
+    let core: ProjectManagementViewModel
+    private(set) var state: ProjectManagementState
+    init(app: App) {
+        core = ProjectManagementViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+extension Relay: ProjectManagementObserver where State == ProjectManagementState {
+    func onStateChanged(state: ProjectManagementState) { send(state) }
+}

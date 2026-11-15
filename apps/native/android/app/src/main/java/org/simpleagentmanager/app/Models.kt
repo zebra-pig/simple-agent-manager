@@ -33,6 +33,7 @@ sealed interface Route {
     data object Notifications : Route
     data object Projects : Route
     data object Account : Route
+    data class ProjectSettings(val projectId: String?) : Route
     data class Project(val id: String, val name: String) : Route
     data class Chat(val projectId: String, val sessionId: String) : Route
     /** The profile editor; `profileId` null for a new profile. */
@@ -184,4 +185,26 @@ class ChatModel(application: Application) : AndroidViewModel(application) {
         vm.clearObserver()
         vm.close()
     }
+}
+
+class ProjectManagementModel(application: Application) : AndroidViewModel(application) {
+    val vm = org.simpleagentmanager.core.ProjectManagementViewModel((application as SamApplication).core)
+    private val _state = MutableStateFlow(vm.state())
+    val state: StateFlow<org.simpleagentmanager.core.ProjectManagementState> = _state
+    init {
+        vm.setObserver(object : org.simpleagentmanager.core.ProjectManagementObserver {
+            override fun onStateChanged(state: org.simpleagentmanager.core.ProjectManagementState) { _state.value = state }
+        })
+    }
+    fun load(id: String?) = viewModelScope.launch { vm.load(id) }
+    fun repositories(provider: String, installation: String, search: String) = viewModelScope.launch {
+        vm.loadRepositories(provider, installation, search)
+    }
+    fun save(draft: org.simpleagentmanager.core.ProjectDraft, done: (org.simpleagentmanager.core.Project?) -> Unit) = viewModelScope.launch {
+        vm.save(draft)?.let(done)
+    }
+    fun delete(confirmation: String, done: (org.simpleagentmanager.core.Project?) -> Unit) = viewModelScope.launch {
+        if (vm.delete(confirmation)) done(null)
+    }
+    override fun onCleared() { vm.clearObserver(); vm.close() }
 }

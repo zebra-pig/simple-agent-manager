@@ -469,6 +469,10 @@ impl App {
         self.send(|http, base| http.post(format!("{base}{path}")).json(body)).await
     }
 
+    pub(crate) async fn patch<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
+        self.send(|http, base| http.patch(format!("{base}{path}")).json(body)).await
+    }
+
     /// PUT JSON to `path` as the signed-in user.
     pub(crate) async fn put<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
         self.send(|http, base| http.put(format!("{base}{path}")).json(body)).await

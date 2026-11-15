@@ -17,12 +17,14 @@ mod chat;
 pub use assistant::*;
 mod notifications;
 pub use notifications::*;
-mod documents;
 mod chat_tools;
+mod documents;
 mod error;
 mod markdown;
 mod project;
+mod project_management;
 mod projects;
+pub use project_management::*;
 mod provisioning;
 mod server;
 mod session;
@@ -37,8 +39,8 @@ pub use attachments::{
     Attachment, AttachmentSource, AttachmentStatus, ATTACHMENT_BATCH_MAX_BYTES, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES,
 };
 pub use chat::*;
-pub use documents::ChatDocument;
 pub use chat_tools::*;
+pub use documents::ChatDocument;
 pub use error::UserError;
 pub use markdown::{Block, ListMarker, Span, TableRow};
 pub use project::*;

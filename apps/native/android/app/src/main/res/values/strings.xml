@@ -17,7 +17,7 @@
     <string name="account">Account</string>
     <string name="back">Back</string>
     <string name="send">Send</string>
-    <string name="no_projects">No projects. Create one in %1$s on the web to get started.</string>
+    <string name="no_projects">Create your first project with New project.</string>
     <string name="describe_task">Describe a task…</string>
     <string name="untitled_session">Untitled session</string>
     <string name="no_sessions">No sessions yet. Describe a task below and an agent picks it up.</string>
@@ -299,4 +299,30 @@
     <string name="tool_fork">Fork</string>
     <string name="tool_report">Report</string>
     <string name="web_tool_label">%1$s (web)</string>
+
+    <string name="project_retry">Retry</string>
+    <string name="project_project_name">Project name</string>
+    <string name="project_description_optional">Description (optional)</string>
+    <string name="project_the_repository_provider_is_fixed_after_creation">The repository provider is fixed after creation.</string>
+    <string name="project_connect_a_github_account_in_sam_on_the_web_then_retry">Connect a GitHub account in SAM on the web, then retry.</string>
+    <string name="project_sam_creates_a_private_git_repository_for_this_project">SAM creates a private Git repository for this project.</string>
+    <string name="project_search_repositories">Search repositories</string>
+    <string name="project_load_repositories">Load repositories</string>
+    <string name="project_no_repositories_found">No repositories found.</string>
+    <string name="project_default_branch">Default branch</string>
+    <string name="project_permanently_deletes_this_project_and_all_associated_data_this_cannot_b">Permanently deletes this project and all associated data. This cannot be undone.</string>
+    <string name="project_confirm_project_name">Confirm project name</string>
+    <string name="project_permanently_delete">Permanently delete</string>
+    <string name="project_delete_project">Delete project</string>
+    <string name="project_general">General</string>
+    <string name="project_repository">Repository</string>
+    <string name="project_provider">Provider</string>
+    <string name="project_github_account">GitHub account</string>
+    <string name="project_new_project">New project</string>
+    <string name="project_project_settings">Project settings</string>
+    <string name="project_create">Create</string>
+    <string name="project_type_name_to_confirm">Type %1$s to confirm.</string>
+    <string name="project_select">Select…</string>
+    <string name="project_settings">Settings</string>
+    <string name="project_repository_access_failed">Could not load all repositories. Reconnect your GitHub account on the web, then load repositories again.</string>
 </resources>
