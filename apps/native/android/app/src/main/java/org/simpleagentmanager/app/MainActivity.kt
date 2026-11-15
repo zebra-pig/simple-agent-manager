@@ -1,5 +1,6 @@
 package org.simpleagentmanager.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,11 +18,25 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        openNotification(intent)
+        Push.askPermission(this)
         setContent {
             SamTheme {
                 Root(session, projects, project, chat, openUrl = ::openUrl)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openNotification(intent)
+    }
+
+    /** A tapped notification (Push.kt) opens its session. */
+    private fun openNotification(intent: Intent?) {
+        val route = Push.route(intent) ?: return
+        intent?.replaceExtras(null) // not again on recreation
+        session.push(route)
     }
 
     /** Sign-in approval pages and pull requests open in a Custom Tab. */

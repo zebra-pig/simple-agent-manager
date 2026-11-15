@@ -2,7 +2,12 @@ package org.simpleagentmanager.app
 
 import android.app.Application
 import androidx.compose.material3.*
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.*
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNode
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -68,6 +73,22 @@ class ChatRenderTest {
             compose.onNodeWithContentDescription("Jump to latest").performClick()
             compose.onNodeWithText("Verify accessibility", substring = true).assertIsDisplayed()
         }
+    }
+    @Test fun composerKeepsFocusWhenDraftWraps() {
+        var sent = ""
+        var current = ""
+        compose.setContent {
+            var draft by remember { mutableStateOf("") }
+            MaterialTheme {
+                Composer("Message", draft, { draft = it; current = it }, false, emptyList(), {}, {}, { sent = draft })
+            }
+        }
+        val editor = compose.onNode(hasSetTextAction())
+        editor.performClick().performTextInput("Please check keyboard shortcuts and accessibility with a screen reader before sending the final summary.")
+        editor.assertIsFocused()
+        compose.onNodeWithContentDescription("Send").performClick()
+        org.junit.Assert.assertEquals(current, sent)
+        org.junit.Assert.assertTrue(sent.startsWith("Please check"))
     }
     @Test fun provisioningBelowMessages() = render(setup = true)
     @Test fun historyArrow() = render(history = true)

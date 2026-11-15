@@ -9,6 +9,8 @@
  *   POST   /api/notifications/:id/dismiss — dismiss a notification
  *   GET    /api/notifications/preferences — get notification preferences
  *   PUT    /api/notifications/preferences — update a preference
+ *   POST   /api/notifications/push/native-tokens — register a native app device token
+ *   DELETE /api/notifications/push/native-tokens — remove one (e.g. on sign-out)
  *   GET    /api/notifications/ws         — WebSocket upgrade for real-time delivery
  *
  * Auth: All endpoints require authenticated user (per-route middleware).
@@ -29,8 +31,10 @@ import {
 import { errors } from '../middleware/error';
 import { rateLimitPushSubscription } from '../middleware/rate-limit';
 import {
+  DeleteNativePushTokenSchema,
   DeleteWebPushSubscriptionSchema,
   jsonValidator,
+  NativePushTokenSchema,
   UpdateNotificationPreferenceSchema,
   WebPushSubscriptionSchema,
 } from '../schemas';
@@ -151,6 +155,42 @@ notificationRoutes.delete(
     const removed = await getNotificationStub(c.env, userId).removePushSubscription(
       userId,
       c.req.valid('json').endpoint
+    );
+    return c.json({ success: true, removed });
+  }
+);
+
+// Native app device tokens (APNs/FCM): the app counterpart of a PushSubscription.
+notificationRoutes.post(
+  '/push/native-tokens',
+  requireAuth(),
+  requireApproved(),
+  // Same reason as browser subscriptions: a token keeps receiving the account's notifications.
+  rejectAgentSignInSession(),
+  async (c, next) => rateLimitPushSubscription(c.env)(c, next),
+  jsonValidator(NativePushTokenSchema),
+  async (c) => {
+    const userId = getUserId(c);
+    await getNotificationStub(c.env, userId).addNativePushToken(
+      userId,
+      c.req.valid('json'),
+      c.req.header('User-Agent') ?? null
+    );
+    return c.json({ success: true }, 201);
+  }
+);
+
+notificationRoutes.delete(
+  '/push/native-tokens',
+  requireAuth(),
+  requireApproved(),
+  async (c, next) => rateLimitPushSubscription(c.env)(c, next),
+  jsonValidator(DeleteNativePushTokenSchema),
+  async (c) => {
+    const userId = getUserId(c);
+    const removed = await getNotificationStub(c.env, userId).removeNativePushToken(
+      userId,
+      c.req.valid('json').token
     );
     return c.json({ success: true, removed });
   }

@@ -208,3 +208,43 @@ export function parsePushSubscriptionRows(
   });
   return parsed;
 }
+
+// =============================================================================
+// Native push token rows (APNs / FCM device tokens)
+// =============================================================================
+
+const NativePushTokenRowSchema = v.object({
+  token: v.string(),
+  user_id: v.string(),
+  platform: v.picklist(['apns', 'fcm']),
+  sandbox: v.number(),
+});
+
+export interface StoredNativePushToken {
+  token: string;
+  userId: string;
+  platform: 'apns' | 'fcm';
+  sandbox: boolean;
+}
+
+/** Parse each row on its own so one corrupt token cannot hide the user's other devices. */
+export function parseNativePushTokenRows(
+  rows: unknown[],
+  onInvalid?: (index: number, error: unknown) => void
+): StoredNativePushToken[] {
+  const parsed: StoredNativePushToken[] = [];
+  rows.forEach((row, index) => {
+    try {
+      const r = parseRow(NativePushTokenRowSchema, row, 'native_push_token');
+      parsed.push({
+        token: r.token,
+        userId: r.user_id,
+        platform: r.platform,
+        sandbox: r.sandbox === 1,
+      });
+    } catch (error) {
+      onInvalid?.(index, error);
+    }
+  });
+  return parsed;
+}

@@ -157,7 +157,8 @@ describe('Notification DO Migrations', () => {
 
     sql.failOn = null;
     expect(() => runNotificationMigrationsAtomically(storage)).not.toThrow();
-    expect(sql.getMigrationsTable().at(-1)?.name).toBe('004-push-subscriptions');
+    expect(sql.getMigrationsTable().at(-1)?.name).toBe('005-native-push-tokens');
     expect(sql.hasTable('push_subscriptions')).toBe(true);
+    expect(sql.hasTable('native_push_tokens')).toBe(true);
   });
 });

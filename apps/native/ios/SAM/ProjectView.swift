@@ -131,11 +131,7 @@ struct Composer<Accessory: View>: View {
                     AttachmentStrip(files: files)
                 }
                 ComposerInputLayout(lineHeight: lineHeight) {
-                    TextField(placeholder, text: $text, axis: .vertical)
-                        .lineLimit(1...6)
-                        .textFieldStyle(.plain)
-                        .submitLabel(.send)
-                        .focused($focused)
+                    composerInput
                     AttachButton(files: files)
                         .frame(width: 44, height: 44)
                     Group {
@@ -182,6 +178,30 @@ struct Composer<Accessory: View>: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
+
+    @ViewBuilder
+    private var composerInput: some View {
+        #if os(iOS)
+        ComposerTextInput(text: $text, focused: Binding(get: { focused }, set: { focused = $0 }),
+                          files: files)
+            .accessibilityLabel(Text(placeholder))
+            .overlay(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text(placeholder).foregroundStyle(.tertiary).allowsHitTesting(false)
+                }
+            }
+        #else
+        TextField(placeholder, text: $text, axis: .vertical)
+            .lineLimit(1...6)
+            .textFieldStyle(.plain)
+            .submitLabel(.send)
+            .focused($focused)
+            .onPasteCommand(of: [.fileURL, .image, .pdf, .archive, .audiovisualContent]) { providers in
+                AttachmentIntake.add(providers: providers, to: files)
+            }
+        #endif
+    }
+
 }
 
 /// Keeps the editor's identity and keyboard focus while its controls move below a wrapped draft.

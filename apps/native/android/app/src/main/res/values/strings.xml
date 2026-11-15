@@ -164,4 +164,6 @@
     <string name="setup_workspace_ready">Setting up development environment.</string>
     <string name="setup_attachments">Uploading attachments to workspace.</string>
     <string name="setup_agent_session">Starting AI agent.</string>
+    <!-- Push notifications -->
+    <string name="notification_channel_name">Agent updates</string>
 </resources>

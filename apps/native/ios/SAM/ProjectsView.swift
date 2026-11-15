@@ -12,6 +12,7 @@ struct ProjectsView: View {
     @State private var path = NavigationPath()
     @State private var query = ""
     @State private var showingAccount = false
+    @State private var push = PushRouter.shared
 
     init(app: App) {
         self.app = app
@@ -60,6 +61,12 @@ struct ProjectsView: View {
                 ChatView(app: app, ref: ref)
             }
             .sheet(isPresented: $showingAccount) { AccountView().macSheet() }
+            // A tapped notification opens its session on top of the stack.
+            .onChange(of: push.pending, initial: true) { _, ref in
+                guard let ref else { return }
+                push.pending = nil
+                path.append(ref)
+            }
         }
     }
 }

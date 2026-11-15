@@ -51,3 +51,21 @@ export const WebPushSubscriptionSchema = v.object({
 export const DeleteWebPushSubscriptionSchema = v.object({
   endpoint: HttpsWebPushEndpointSchema,
 });
+
+// APNs tokens are hex; FCM registration tokens use base64url plus ':'.
+const NativePushTokenValueSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(MAX_WEB_PUSH_ENDPOINT_LENGTH),
+  v.regex(/^[A-Za-z0-9_:-]+$/, 'token must be an APNs or FCM device token')
+);
+
+export const NativePushTokenSchema = v.object({
+  platform: v.picklist(['apns', 'fcm']),
+  token: NativePushTokenValueSchema,
+  sandbox: v.optional(v.boolean(), false),
+});
+
+export const DeleteNativePushTokenSchema = v.object({
+  token: NativePushTokenValueSchema,
+});

@@ -1197,6 +1197,12 @@ export interface Env
   WEB_PUSH_FAILURE_THRESHOLD?: string;
   WEB_PUSH_MAX_SUBSCRIPTIONS_PER_USER?: string;
   WEB_PUSH_USER_AGENT_MAX_LENGTH?: string;
+  // Native app push (src/lib/native-push.ts); Worker secrets, each platform optional.
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  APNS_PRIVATE_KEY?: string; // .p8 key as PEM or base64 of it
+  APNS_TOPIC?: string; // The native app's bundle id
+  FCM_SERVICE_ACCOUNT_JSON?: string; // Service account key JSON, raw or base64
   // Codex token refresh proxy configuration
   CODEX_REFRESH_PROXY_ENABLED?: string; // Kill switch: "false" to disable (default: enabled)
   CODEX_REFRESH_LOCK_TIMEOUT_MS?: string; // Per-user lock timeout (default: 30000)

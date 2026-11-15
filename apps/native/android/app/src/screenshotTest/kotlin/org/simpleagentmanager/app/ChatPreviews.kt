@@ -53,3 +53,12 @@ fun LatestArrowPreview() {
         Surface { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LatestArrow({}) } }
     }
 }
+
+@PreviewTest
+@Preview(name = "Expanded composer", widthDp = 411, heightDp = 891)
+@Composable
+fun ExpandedComposerChat() {
+    MaterialTheme(colorScheme = lightColorScheme()) {
+        ChatContent(previewState(), "Please verify the keyboard shortcuts with a screen reader, then summarize the remaining accessibility improvements.", {}, {}, {}, {}, {}, {})
+    }
+}
