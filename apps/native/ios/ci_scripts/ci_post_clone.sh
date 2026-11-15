@@ -35,7 +35,7 @@ install_rust_if_needed() {
 # Only mock resource data is encoded; this never reads a live session.
 if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
     render_dir=$(mktemp -d)
-    xcrun --sdk macosx swiftc -parse-as-library \
+    xcrun --sdk macosx swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.0" \
         "$repo_dir/apps/native/ios/SAM/Glass.swift" \
         "$repo_dir/apps/native/ios/SAM/ResourceHistoryView.swift" \
         "$repo_dir/apps/native/ios/tests/resource-history-render.swift" \
