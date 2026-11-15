@@ -71,8 +71,9 @@ read them. Follow-ups with files need durable prompt delivery on the server, as 
 ## Agent profiles
 
 A profile is a saved setup for new chats: the agent, model, effort, permission mode, work type
-(task or conversation) and extra instructions. The project screen shows the selected profile above
-the composer. Its menu switches profiles and opens the editor ("Edit", "New profile"). Everything
+(task or conversation) and extra instructions. The project screen shows the selected profile in
+the composer (on iOS and macOS, at the top of its glass container while the text field has focus;
+on Android, above it). Its menu switches profiles and opens the editor ("Edit", "New profile"). Everything
 goes through the routes the web app uses (`apps/api/src/routes/agent-profiles.ts`):
 
 - `GET /api/projects/:id/agent-profiles` and `.../agent-profiles/picker` load the list. The
