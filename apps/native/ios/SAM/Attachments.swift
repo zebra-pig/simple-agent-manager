@@ -1,5 +1,5 @@
 // Files for the next message: picked with the composer's attach button (Files,
-// Photos) or dropped onto the composer. The shell only turns each into a name,
+// Photos), pasted into the input or dropped onto the composer. The shell only turns each into a name,
 // a type, a size and an AttachmentSource; the core checks the limits, reads the
 // file off the main thread, uploads it and reports progress in its state.
 
@@ -103,7 +103,7 @@ enum AttachmentIntake {
             }
     }
 
-    /// Items dropped on the composer.
+    /// Items dropped on or explicitly pasted into the composer.
     static func add(providers: [NSItemProvider], to files: ComposerFiles) {
         for provider in providers where isFile(provider) {
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -121,7 +121,20 @@ enum AttachmentIntake {
             let type = types.first { !$0.conforms(to: .heic) && !$0.conforms(to: .heif) } ?? types.first
             guard let type else { continue }
             _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, _ in
-                guard let url, let copy = AttachmentIntake.temporaryCopy(of: url) else { return }
+                guard let url, let copy = AttachmentIntake.temporaryCopy(of: url) else {
+                    // Clipboard images may offer bytes but no file representation.
+                    _ = provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
+                        guard let data else { return }
+                        var name = provider.suggestedName ?? "Pasted-\(UUID().uuidString)"
+                        if (name as NSString).pathExtension.isEmpty, let ext = type.preferredFilenameExtension {
+                            name += ".\(ext)"
+                        }
+                        DispatchQueue.main.async {
+                            files.add(name, type.preferredMIMEType ?? "", UInt64(data.count), DataSource(data))
+                        }
+                    }
+                    return
+                }
                 var name = provider.suggestedName ?? url.deletingPathExtension().lastPathComponent
                 if (name as NSString).pathExtension.isEmpty, let ext = type.preferredFilenameExtension ?? url.pathExtension.nonEmpty {
                     name += ".\(ext)"
