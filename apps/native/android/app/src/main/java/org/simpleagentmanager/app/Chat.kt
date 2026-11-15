@@ -2,9 +2,13 @@ package org.simpleagentmanager.app
 
 import android.net.Uri
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -23,8 +27,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import org.simpleagentmanager.core.*
 import org.simpleagentmanager.core.ChatContent as Content
 
@@ -46,6 +50,7 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
     if (state.projectId == route.projectId && state.sessionId == route.sessionId) {
         ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach,
             toolsMenu = { ChatToolsMenu(model, state, openUrl) }, documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
+            attachmentCard = { document -> DocumentCard(document, state.items.flatMap { (it.content as? Content.User)?.attachments ?: emptyList() } + state.outbox.flatMap { it.attachments }, model.vm, compactImage = true) },
             serverUrl = model.app.state().serverUrl, requestCard = { request -> RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval) }) {
             val sent = draft
             draft = ""
@@ -60,9 +65,11 @@ fun ChatContent(
     state: ChatState, draft: String, onDraft: (String) -> Unit,
     onBack: () -> Unit, openUrl: (String) -> Unit,
     onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit,
+    attachmentCard: @Composable (ChatDocument) -> Unit = { SquareImageTile(null, it.filename, 120.dp) },
+    listState: LazyListState = rememberLazyListState(),
     toolsMenu: @Composable () -> Unit = {}, documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
-    val list = rememberLazyListState()
+    val list = listState
     val scope = rememberCoroutineScope()
     val atBottom by remember { derivedStateOf { !list.canScrollForward } }
     var followsLatest by remember { mutableStateOf(true) }
@@ -90,11 +97,14 @@ fun ChatContent(
                 if (state.hasMore) item("history") { Text(stringResource(R.string.latest_messages), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.items, key = { "message-${it.id}" }) { item ->
                     val document = (item.content as? Content.Document)?.document
-                    if (document != null) documentCard(document) else TimelineItem(item, openUrl)
+                    val user = item.content as? Content.User
+                    if (document != null) documentCard(document)
+                    else if (user != null) UserBubble(user.text, user.attachments, attachmentCard)
+                    else TimelineItem(item, openUrl)
                 }
                 items(state.outbox, key = { it.id }) {
                     Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
-                        UserBubble(it.text)
+                        UserBubble(it.text, it.attachments, attachmentCard)
                         Text(stringResource(if (it.accepted) R.string.message_queued else R.string.message_sending), style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -116,7 +126,14 @@ fun ChatContent(
             }
             if (state.loading && state.items.isEmpty()) CircularProgressIndicator(Modifier.align(Alignment.Center))
             if (!atBottom) LatestArrow(
-                onClick = { scope.launch { list.animateScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } },
+                onClick = {
+                    scope.launch {
+                        list.scroll(MutatePriority.PreventUserInput) {
+                            list.requestScrollToItem((list.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                        }
+                        followsLatest = true
+                    }
+                },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
             )
         }
@@ -124,10 +141,15 @@ fun ChatContent(
 }
 
 @Composable
-private fun UserBubble(text: String) {
+private fun UserBubble(text: String, attachments: List<ChatDocument> = emptyList(), attachmentCard: @Composable (ChatDocument) -> Unit = {}) {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.widthIn(max = 340.dp)) {
-            SelectionContainer { Text(text, Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) }
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (attachments.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    attachments.forEach { attachmentCard(it) }
+                }
+                if (text.isNotEmpty()) SelectionContainer { Text(text) }
+            }
         }
     }
 }

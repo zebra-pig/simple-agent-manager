@@ -4,6 +4,15 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -49,7 +58,7 @@ private suspend fun decode(bytes: ByteArray, max: Int): ImageBitmap? =
   }
 
 @Composable
-fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: ChatViewModel) {
+fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: ChatViewModel, compactImage: Boolean = false) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var thumbnail by remember(document.fileId) { mutableStateOf<ImageBitmap?>(null) }
@@ -106,7 +115,8 @@ fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: Ch
     enabled = !busy && !document.unavailable && document.fileId.isNotEmpty(),
     modifier = Modifier.widthIn(max = 260.dp),
   ) {
-    DocumentCardContent(document, thumbnail, busy, failed)
+    if (compactImage && document.image) SquareImageTile(thumbnail, label, 120.dp)
+    else DocumentCardContent(document, thumbnail, busy, failed)
   }
   if (gallery)
     DocumentGallery(
@@ -235,14 +245,7 @@ internal fun DocumentCardContent(
   val context = LocalContext.current
   val label = document.filename.ifEmpty { stringResource(R.string.document_file) }
   Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    thumbnail?.let {
-      Image(
-        it,
-        label,
-        Modifier.sizeIn(maxWidth = 220.dp, maxHeight = 140.dp),
-        contentScale = ContentScale.Fit,
-      )
-    }
+    if (document.image) SquareImageTile(thumbnail, label, 160.dp)
     Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
     if (document.caption.isNotEmpty())
       Text(document.caption, style = MaterialTheme.typography.bodySmall)
@@ -267,5 +270,24 @@ internal fun DocumentCardContent(
         stringResource(if (document.image) R.string.open_gallery else R.string.open_file),
         style = MaterialTheme.typography.labelSmall,
       )
+  }
+}
+
+@Composable
+internal fun SquareImageTile(thumbnail: ImageBitmap?, label: String, side: Dp) {
+  Box(
+    Modifier.size(side).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).semantics { contentDescription = label },
+    contentAlignment = Alignment.Center,
+  ) {
+    if (thumbnail != null) Image(thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    else {
+      val color = MaterialTheme.colorScheme.onSurfaceVariant
+      Canvas(Modifier.size(24.dp)) {
+        drawRoundRect(color, cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()), style = Stroke(1.5.dp.toPx()))
+        drawCircle(color, 2.dp.toPx(), Offset(size.width * .7f, size.height * .3f))
+        drawLine(color, Offset(0f, size.height * .8f), Offset(size.width * .35f, size.height * .45f), 1.5.dp.toPx())
+        drawLine(color, Offset(size.width * .35f, size.height * .45f), Offset(size.width * .9f, size.height), 1.5.dp.toPx())
+      }
+    }
   }
 }

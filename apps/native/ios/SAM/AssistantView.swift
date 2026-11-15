@@ -169,7 +169,7 @@ struct AssistantView: View {
             Text("SAM · \(turn.state.replacingOccurrences(of: "_", with: " "))").font(.caption).foregroundStyle(.secondary)
             if let live = turn.live, ["running", "accepted"].contains(turn.state) {
                 HStack { ProgressView().controlSize(.small); Text(live.phase.capitalized).font(.caption) }
-                if let thinking = live.thinking { DisclosureGroup("Thinking") { Text(thinking).font(.footnote) } }
+                if let thinking = live.thinking { ThinkingView(text: thinking, font: .footnote) }
                 ForEach(live.activity, id: \.id) { item in Text("\(assistantOperation(item.operation)) · \(item.state)").font(.caption) }
                 if !live.text.isEmpty { markdown(live.text) }
             }

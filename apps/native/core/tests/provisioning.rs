@@ -41,7 +41,7 @@ async fn setup_restores_progresses_and_disappears_when_the_agent_starts() {
     assert_eq!(setup.stage, 0);
     assert_eq!(setup.step, ProvisioningStep::NodeProvisioning);
     assert_eq!(setup.started_at, 1000);
-    assert_eq!(vm.state().items[0].content, ChatContent::User { text: "Build an app".into() });
+    assert_eq!(vm.state().items[0].content, ChatContent::User { text: "Build an app".into(), attachments: vec![] });
 
     for (step, stage) in
         [("workspace_creation", 1), ("workspace_dispatch", 1), ("workspace_ready", 2), ("attachment_transfer", 2), ("agent_session", 3)]

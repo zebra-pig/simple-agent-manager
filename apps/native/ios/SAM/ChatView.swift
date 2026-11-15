@@ -8,6 +8,7 @@ struct ChatView: View {
     @State private var chat: ChatModel
     @State private var draft = ""
     @State private var followsLatest = true
+    @State private var scrollControl = ChatScrollControl()
     @State private var tool: ChatTool?
     @State private var confirmEnd = false
     @State private var ending = false
@@ -21,59 +22,63 @@ struct ChatView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if chat.state.hasMore { Text("Showing the latest messages").font(.caption).foregroundStyle(.secondary) }
-                    ForEach(chat.state.items, id: \.id) { message in
-                        Group {
-                            if case let .document(document) = message.content {
-                                DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
-                            } else { TimelineItemView(item: message) }
-                        }.id(message.id)
+            ZStack(alignment: .bottom) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        if chat.state.hasMore { Text("Showing the latest messages").font(.caption).foregroundStyle(.secondary) }
+                        ForEach(chat.state.items, id: \.id) { message in
+                            Group {
+                                if case let .document(document) = message.content {
+                                    DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
+                                } else if case let .user(text, attachments) = message.content {
+                                    UserMessageView(text: text, attachments: attachments, core: chat.core)
+                                } else { TimelineItemView(item: message) }
+                            }.id(message.id)
+                        }
+                        ForEach(chat.state.outbox, id: \.id) { message in
+                            VStack(alignment: .trailing, spacing: 4) {
+                                UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
+                                Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                        ForEach(chat.state.requests, id: \.id) { request in
+                            RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval)
+                                .padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                        }
+                        ForEach(chat.state.notifications.filter { item in
+                            guard let id = item.requestId else { return false }
+                            return !chat.state.requests.contains { $0.id == id }
+                        }, id: \.id) { item in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(item.title).font(.headline)
+                                if let id = item.requestId {
+                                    RequestCard(app: app, project: ref.projectId, session: ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval")
+                                } else if let body = item.body { Text(body) }
+                                if let action = item.actionUrl, let url = notificationUrl(serverUrl: app.state().serverUrl, actionUrl: action).flatMap(URL.init(string:)) {
+                                    Button("Open on web") { openURL(url) }
+                                }
+                            }.padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                        }
+                        if let error = chat.state.error {
+                            Text(error.message).foregroundStyle(.red).font(.callout)
+                        }
+                        Color.clear.frame(height: 1).id("latest")
+                            .onAppear { followsLatest = true }
+                            .onDisappear { followsLatest = false }
                     }
-                    ForEach(chat.state.outbox, id: \.id) { message in
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text(verbatim: message.text).padding(12).glass(in: RoundedRectangle(cornerRadius: 18))
-                            Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    ForEach(chat.state.requests, id: \.id) { request in
-                        RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval)
-                            .padding().glass(in: RoundedRectangle(cornerRadius: 20))
-                    }
-                    ForEach(chat.state.notifications.filter { item in
-                        guard let id = item.requestId else { return false }
-                        return !chat.state.requests.contains { $0.id == id }
-                    }, id: \.id) { item in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(item.title).font(.headline)
-                            if let id = item.requestId {
-                                RequestCard(app: app, project: ref.projectId, session: ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval")
-                            } else if let body = item.body { Text(body) }
-                            if let action = item.actionUrl, let url = notificationUrl(serverUrl: app.state().serverUrl, actionUrl: action).flatMap(URL.init(string:)) {
-                                Button("Open on web") { openURL(url) }
-                            }
-                        }.padding().glass(in: RoundedRectangle(cornerRadius: 20))
-                    }
-                    if let error = chat.state.error {
-                        Text(error.message).foregroundStyle(.red).font(.callout)
-                    }
-                    Color.clear.frame(height: 1).id("latest")
-                        .onAppear { followsLatest = true }
-                        .onDisappear { followsLatest = false }
+                    .padding()
+                    .background(ChatScrollProbe(control: scrollControl))
                 }
-                .padding()
-            }
-            .defaultScrollAnchor(.bottom)
-            .interactiveKeyboardDismiss()
-            .onChange(of: chat.state.items) {
-                if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
-            }
-            .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
-            .overlay(alignment: .bottom) {
+                .defaultScrollAnchor(.bottom)
+                .interactiveKeyboardDismiss()
+                .onChange(of: chat.state.items) {
+                    if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
+                }
+                .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
                 if !followsLatest {
                     Button {
-                        withAnimation { proxy.scrollTo("latest", anchor: .bottom) }
+                        scrollControl.jump(using: proxy, to: "latest")
+                        followsLatest = true
                     } label: {
                         Image(systemName: "arrow.down").font(.body.weight(.medium))
                             .frame(width: 28, height: 28)
@@ -197,7 +202,7 @@ struct TimelineItemView: View {
     var body: some View {
         switch item.content {
         case .document: EmptyView()
-        case let .user(text):
+        case let .user(text, _):
             HStack {
                 Spacer(minLength: 40)
                 Text(verbatim: text).textSelection(.enabled).padding(12)
@@ -206,18 +211,28 @@ struct TimelineItemView: View {
         case let .agent(_, blocks):
             MarkdownView(blocks: blocks)
         case let .thinking(text):
-            DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+            ThinkingView(text: text)
         case let .activity(steps, summary):
             DisclosureGroup {
                 ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                     switch step {
                     case let .thought(text):
-                        DisclosureGroup("Thinking") { Text(verbatim: text).font(.callout).foregroundStyle(.secondary) }
+                        ThinkingView(text: text)
                     case let .tool(call):
                         VStack(alignment: .leading, spacing: 6) {
-                            Label { Text(verbatim: call.title ?? toolLabel(call.kind)) }
+                            Label { Text(verbatim: toolLabel(call.kind)) }
                                 icon: { Image(systemName: call.status == .failed ? "exclamationmark.circle" : "terminal") }
                                 .font(.callout).foregroundStyle(call.status == .failed ? Color.red : Color.secondary)
+                            if let title = call.title {
+                                if call.kind == .execute {
+                                    CodeView(code: title, language: nil)
+                                } else {
+                                    Text(verbatim: title)
+                                        .font(.callout)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
                             ForEach(call.locations, id: \.self) { Text(verbatim: $0).font(.caption.monospaced()) }
                             if let output = call.output {
                                 DisclosureGroup("Output") { CodeView(code: output, language: nil) }
@@ -227,11 +242,24 @@ struct TimelineItemView: View {
                 }
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Activity · \(summary.toolCount) tools").font(.callout)
+                    if summary.toolCount == 1 {
+                        Text("Activity · 1 tool").font(.callout)
+                    } else {
+                        Text("Activity · \(summary.toolCount) tools").font(.callout)
+                    }
                     if summary.failedCount > 0 { Text("\(summary.failedCount) failed").font(.caption).foregroundStyle(.red) }
-                    if summary.live, let title = summary.liveTitle { Text(verbatim: title).font(.caption).foregroundStyle(Color.accentColor) }
+                    if summary.live, let title = summary.liveTitle {
+                        Text(verbatim: title)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
                 }
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .tint(.primary)
         case let .plan(entries):
             VStack(alignment: .leading, spacing: 8) {
                 Text("Plan").font(.headline)
@@ -299,5 +327,30 @@ private func toolLabel(_ kind: ToolKind) -> String {
     case .fetch: String(localized: "Fetch resource")
     case .switchMode: String(localized: "Change mode")
     case .other: String(localized: "Tool call")
+    }
+}
+
+struct UserMessageView: View {
+    let text: String
+    let attachments: [ChatDocument]
+    let core: ChatViewModel
+    var body: some View {
+        HStack {
+            Spacer(minLength: 40)
+            VStack(alignment: .trailing, spacing: 10) {
+                if !attachments.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(attachments, id: \.fileId) { document in
+                                DocumentCard(document: document, documents: attachments, core: core, compactImage: true)
+                            }
+                        }
+                    }
+                }
+                if !text.isEmpty { Text(verbatim: text).textSelection(.enabled).multilineTextAlignment(.leading) }
+            }
+            .padding(12)
+            .glass(in: RoundedRectangle(cornerRadius: 18))
+        }
     }
 }

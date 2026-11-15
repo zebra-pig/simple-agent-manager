@@ -22,7 +22,7 @@ class ChatProgressRenderTest {
     private fun state() = ChatState(
         projectId = "p", sessionId = "s", session = ChatSession(null, null, "owner", true, "s", "A conversation", SessionStatus.ACTIVE, 1u, 0, null, null, true,
             TaskSummary("task", "in_progress", "running", null, null, "feature", null, "Task summary")),
-        items = listOf(ChatItem("reply", 1, org.simpleagentmanager.core.ChatContent.User("Latest message"))),
+        items = listOf(ChatItem("reply", 1, org.simpleagentmanager.core.ChatContent.User("Latest message", emptyList()))),
         outbox = emptyList(), working = true, hasMore = false,
         requests = listOf(RequestRef("new", "s", false, false)),
         notifications = listOf(

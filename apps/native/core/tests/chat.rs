@@ -76,7 +76,7 @@ async fn builds_the_timeline_and_follows_a_reply_through_the_outbox() {
     assert!(vm.send("ok".into()).await);
     let state = vm.state();
     assert!(state.outbox.is_empty(), "the refresh after sending found it: {:?}", state.outbox);
-    assert_eq!(state.items.iter().filter(|i| i.content == ChatContent::User { text: "ok".into() }).count(), 2);
+    assert_eq!(state.items.iter().filter(|i| i.content == ChatContent::User { text: "ok".into(), attachments: vec![] }).count(), 2);
 
     // A failed send leaves the outbox and reports why.
     *server.fail_prompt.lock().unwrap() = Some(409);

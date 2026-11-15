@@ -33,6 +33,12 @@ final class FileSource: AttachmentSource, @unchecked Sendable {
         self.temporary = temporary
     }
 
+    func thumbnail() -> Data? {
+        let accessing = scoped && url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        return attachmentThumbnail(CGImageSourceCreateWithURL(url as CFURL, nil))
+    }
+
     func read() -> Data? {
         let accessing = scoped && url.startAccessingSecurityScopedResource()
         defer {
@@ -48,6 +54,7 @@ final class DataSource: AttachmentSource, @unchecked Sendable {
     private let data: Data
     init(_ data: Data) { self.data = data }
     func read() -> Data? { data }
+    func thumbnail() -> Data? { attachmentThumbnail(CGImageSourceCreateWithData(data as CFData, nil)) }
 }
 
 // MARK: - Turning picks and drops into attachments
@@ -241,6 +248,30 @@ struct AttachmentChip: View {
     let remove: () -> Void
 
     var body: some View {
+        if attachment.contentType.hasPrefix("image/") {
+            ImageTile(image: attachment.thumbnail.flatMap { platformImage($0, maxPixelSize: 320) }, side: 80)
+                .overlay(alignment: .bottomLeading) {
+                    if case .uploading = attachment.status { ProgressView().padding(6) }
+                    if case let .failed(error) = attachment.status {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                            .padding(6).accessibilityLabel(Text(error.message))
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    Button(action: remove) {
+                        Image(systemName: "xmark").font(.caption.bold())
+                            .frame(width: 24, height: 24)
+                            .background(.regularMaterial, in: Circle())
+                            .frame(width: 44, height: 44)
+                    }.buttonStyle(.plain).accessibilityLabel(Text("Remove \(attachment.filename)"))
+                }
+                .accessibilityLabel(Text(attachment.filename))
+        } else {
+            fileChip
+        }
+    }
+
+    private var fileChip: some View {
         HStack(spacing: 6) {
             Group {
                 switch attachment.status {
