@@ -1223,6 +1223,8 @@ location.
 
 Remove the allowance; the user reverts to platform defaults and every tier.
 
-### Attachment preview download
+## Attachment previews
 
-`GET /api/projects/:projectId/tasks/uploads/:uploadId/:filename` streams an original task/chat upload for native previews. Requires an approved authenticated user and project membership. Storage reads are scoped to that user's upload namespace; another sender's uploads are not exposed by this endpoint. Responses use attachment disposition, `application/octet-stream`, `nosniff`, and private/no-store caching. Invalid references return 400; missing or expired uploads return 404. Native clients keep the square placeholder when an upload is unavailable.
+### `GET /api/projects/:projectId/tasks/uploads/:uploadId/:filename`
+
+Streams an original task/chat upload for native previews. Requires an approved authenticated user and project membership. Storage reads are scoped to that user's upload namespace; another sender's uploads are not exposed by this endpoint. Responses use attachment disposition, `application/octet-stream`, `nosniff`, and private/no-store caching. Invalid references return 400; missing or expired uploads return 404. Native clients keep the square placeholder when an upload is unavailable.
