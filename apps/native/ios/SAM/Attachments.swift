@@ -260,8 +260,9 @@ struct AttachmentChip: View {
                 .overlay(alignment: .topTrailing) {
                     Button(action: remove) {
                         Image(systemName: "xmark").font(.caption.bold())
-                            .frame(width: 44, height: 44)
+                            .frame(width: 24, height: 24)
                             .background(.regularMaterial, in: Circle())
+                            .frame(width: 44, height: 44)
                     }.buttonStyle(.plain).accessibilityLabel(Text("Remove \(attachment.filename)"))
                 }
                 .accessibilityLabel(Text(attachment.filename))

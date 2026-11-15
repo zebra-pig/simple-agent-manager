@@ -17,6 +17,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.ByteArrayOutputStream
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
@@ -72,10 +73,16 @@ import org.simpleagentmanager.core.AttachmentStatus
 /** A picked or dropped file, read once by the core. */
 class UriSource(private val resolver: ContentResolver, private val uri: Uri) : AttachmentSource {
     override fun thumbnail(): ByteArray? = runCatching {
-        val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
+        val bitmap = if (android.os.Build.VERSION.SDK_INT >= 28) ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
             val scale = minOf(1f, 320f / maxOf(info.size.width, info.size.height))
             decoder.setTargetSize(maxOf(1, (info.size.width * scale).toInt()), maxOf(1, (info.size.height * scale).toInt()))
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        } else {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            val options = BitmapFactory.Options().apply { inSampleSize = 1 }
+            while (maxOf(bounds.outWidth, bounds.outHeight) / options.inSampleSize > 320) options.inSampleSize *= 2
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: error("Image unreadable")
         }
         try { ByteArrayOutputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out); out.toByteArray() } }
         finally { bitmap.recycle() }
@@ -155,10 +162,9 @@ internal fun AttachmentChip(attachment: Attachment, onRemove: () -> Unit) {
                 is AttachmentStatus.Failed -> Icon(Icons.Default.Warning, status.error.message(), Modifier.align(Alignment.BottomStart).padding(6.dp), tint = MaterialTheme.colorScheme.error)
                 AttachmentStatus.Ready -> {}
             }
-            Surface(Modifier.align(Alignment.TopEnd), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = .9f)) {
-                IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.Close, stringResource(R.string.remove_file, attachment.filename))
-                }
+            IconButton(onClick = onRemove, modifier = Modifier.align(Alignment.TopEnd).size(48.dp)) {
+                Icon(Icons.Default.Close, stringResource(R.string.remove_file, attachment.filename),
+                    Modifier.size(28.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = .9f), RoundedCornerShape(14.dp)).padding(5.dp))
             }
         }
         return

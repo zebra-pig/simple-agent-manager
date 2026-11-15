@@ -4,6 +4,9 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -276,6 +279,14 @@ internal fun SquareImageTile(thumbnail: ImageBitmap?, label: String, side: Dp) {
     contentAlignment = Alignment.Center,
   ) {
     if (thumbnail != null) Image(thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-    else Text("▧", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    else {
+      val color = MaterialTheme.colorScheme.onSurfaceVariant
+      Canvas(Modifier.size(24.dp)) {
+        drawRoundRect(color, cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()), style = Stroke(1.5.dp.toPx()))
+        drawCircle(color, 2.dp.toPx(), Offset(size.width * .7f, size.height * .3f))
+        drawLine(color, Offset(0f, size.height * .8f), Offset(size.width * .35f, size.height * .45f), 1.5.dp.toPx())
+        drawLine(color, Offset(size.width * .35f, size.height * .45f), Offset(size.width * .9f, size.height), 1.5.dp.toPx())
+      }
+    }
   }
 }
