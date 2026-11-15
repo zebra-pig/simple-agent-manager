@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::api::{ChatSession, Prompt, SessionDetail};
 use crate::attachments::{self, Attachment};
 use crate::error::UserError;
+use crate::provisioning::{ProvisioningState, ProvisioningTask};
 use crate::session::seg;
 use crate::timeline::{self, ChatContent, ChatItem};
 
@@ -27,6 +28,8 @@ pub struct ChatState {
     pub has_more: bool,
     /// Files for the next follow-up.
     pub attachments: Vec<Attachment>,
+    /// Visible only during first-boot VM/container setup.
+    pub provisioning: Option<ProvisioningState>,
     pub loading: bool,
     pub sending: bool,
     pub error: Option<UserError>,
@@ -70,6 +73,22 @@ impl ChatViewModel {
         }
         let result: crate::error::Result<SessionDetail> =
             self.app.get(&format!("/api/projects/{}/sessions/{}", seg(&project_id), seg(&session_id))).await;
+        // The session embed lacks startedAt/admissionState. Read the full task
+        // only during setup so wake-ups and provider holds use the same gates as web.
+        let provisioning = if let Ok(detail) = &result {
+            if let Some(task) = detail.session.task.as_ref().filter(|t| {
+                detail.session.status == crate::api::SessionStatus::Active && matches!(t.status.as_str(), "queued" | "delegated")
+            }) {
+                let task: crate::error::Result<ProvisioningTask> =
+                    self.app.get(&format!("/api/projects/{}/tasks/{}", seg(&project_id), seg(&task.id))).await;
+                // Keep the last snapshot during a transient task-fetch failure.
+                task.map(|t| t.state(&detail.session)).ok()
+            } else {
+                Some(None)
+            }
+        } else {
+            None
+        };
         self.update(|s| {
             if s.project_id != project_id || s.session_id != session_id {
                 return;
@@ -80,6 +99,9 @@ impl ChatViewModel {
                     s.working = detail.working();
                     s.has_more = detail.has_more;
                     s.items = timeline::build(detail.messages, s.working);
+                    if let Some(provisioning) = provisioning {
+                        s.provisioning = provisioning;
+                    }
                     s.session = Some(detail.session);
                     let items = &s.items;
                     // Accepted messages leave the outbox once the chat has them.

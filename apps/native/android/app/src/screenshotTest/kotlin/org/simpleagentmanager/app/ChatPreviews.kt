@@ -23,7 +23,7 @@ private val previewItems = listOf(
         ChatItem("plan", 3, ChatContent.Plan(listOf(PlanEntry("Add shortcuts", PlanStatus.COMPLETED), PlanEntry("Verify accessibility", PlanStatus.IN_PROGRESS)))),
     )
 
-private fun previewState() = ChatState("project", "session", ChatSession("session", "Keyboard shortcuts", SessionStatus.ACTIVE, 4u, 0, null, null, true, null), previewItems, emptyList(), false, false, emptyList(), false, false, null)
+private fun previewState() = ChatState("project", "session", ChatSession("session", "Keyboard shortcuts", SessionStatus.ACTIVE, 4u, 0, null, null, true, null), previewItems, emptyList(), false, false, emptyList(), null, false, false, null)
 
 @PreviewTest
 @Preview(name = "Phone", widthDp = 411, heightDp = 891)

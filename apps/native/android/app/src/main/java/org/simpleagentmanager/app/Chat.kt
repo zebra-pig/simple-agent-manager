@@ -42,7 +42,7 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
             }
         }
     }
-    if (state.sessionId == route.sessionId) {
+    if (state.projectId == route.projectId && state.sessionId == route.sessionId) {
         ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach) {
             val sent = draft
             draft = ""
@@ -68,7 +68,7 @@ fun ChatContent(
         }
     }
     val session = state.session
-    LaunchedEffect(state.items, state.outbox, state.working) {
+    LaunchedEffect(state.items, state.outbox, state.working, state.provisioning) {
         if (followsLatest || state.outbox.isNotEmpty()) {
             withFrameNanos { }
             if (list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1)
@@ -83,7 +83,7 @@ fun ChatContent(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter).testTag("chat-timeline"), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                session?.task?.let { item("task") { TaskCard(it, openUrl) } }
+                session?.task?.takeIf { state.provisioning == null }?.let { item("task") { TaskCard(it, openUrl) } }
                 if (state.hasMore) item("history") { Text(stringResource(R.string.latest_messages), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.items, key = { "message-${it.id}" }) { TimelineItem(it, openUrl) }
                 items(state.outbox, key = { it.id }) {
@@ -92,9 +92,10 @@ fun ChatContent(
                         Text(stringResource(if (it.accepted) R.string.message_queued else R.string.message_sending), style = MaterialTheme.typography.labelSmall)
                     }
                 }
-                if (state.working) item("working") { Text(stringResource(R.string.status_working), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium) }
+                state.provisioning?.let { item("provisioning") { ProvisioningCard(it) } }
+                if (state.working && state.provisioning == null) item("working") { Text(stringResource(R.string.status_working), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium) }
                 state.error?.let { item("error") { ErrorRow(it.message()) } }
-                if (state.items.isEmpty() && !state.loading && state.error == null) item("empty") { Text(stringResource(R.string.chat_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (state.items.isEmpty() && state.provisioning == null && !state.loading && state.error == null) item("empty") { Text(stringResource(R.string.chat_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             if (state.loading && state.items.isEmpty()) CircularProgressIndicator(Modifier.align(Alignment.Center))
             if (!atBottom) LatestArrow(

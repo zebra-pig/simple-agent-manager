@@ -19,7 +19,7 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if chat.state.hasMore { Text("Showing the latest messages").font(.caption).foregroundStyle(.secondary) }
-                    if let task = chat.state.session?.task {
+                    if chat.state.provisioning == nil, let task = chat.state.session?.task {
                         TaskCard(task: task) { openURL($0) }
                     }
                     ForEach(chat.state.items, id: \.id) { message in
@@ -31,7 +31,10 @@ struct ChatView: View {
                             Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, alignment: .trailing)
                     }
-                    if chat.state.working { Text("Working").font(.caption).foregroundStyle(Color.accentColor) }
+                    if let provisioning = chat.state.provisioning {
+                        ProvisioningView(state: provisioning).id("provisioning")
+                    }
+                    if chat.state.working && chat.state.provisioning == nil { Text("Working").font(.caption).foregroundStyle(Color.accentColor) }
                     if let error = chat.state.error {
                         Text(error.message).foregroundStyle(.red).font(.callout)
                     }
@@ -44,6 +47,9 @@ struct ChatView: View {
             .defaultScrollAnchor(.bottom)
             .interactiveKeyboardDismiss()
             .onChange(of: chat.state.items) {
+                if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
+            }
+            .onChange(of: chat.state.provisioning) {
                 if followsLatest { proxy.scrollTo("latest", anchor: .bottom) }
             }
             .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }

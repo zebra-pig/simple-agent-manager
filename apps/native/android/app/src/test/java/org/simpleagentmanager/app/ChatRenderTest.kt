@@ -39,13 +39,13 @@ class ChatRenderTest {
         ChatItem("activity", 2, ChatContent.Activity(listOf(ActivityStep.Tool(ToolCall("tool", "Run accessibility checks", false, ToolKind.EXECUTE, ToolStatus.COMPLETED, listOf("app/Chat.kt"), "All checks passed"))), ActivitySummary(3u, 0u, false, null))),
         ChatItem("plan", 3, ChatContent.Plan(listOf(PlanEntry("Add shortcuts", PlanStatus.COMPLETED), PlanEntry("Verify accessibility", PlanStatus.IN_PROGRESS)))),
     )
-    private fun render(dark: Boolean = false, expanded: Boolean = false, largeText: Boolean = false, empty: Boolean = false, history: Boolean = false, table: Boolean = false) {
+    private fun render(dark: Boolean = false, expanded: Boolean = false, largeText: Boolean = false, empty: Boolean = false, history: Boolean = false, table: Boolean = false, setup: Boolean = false) {
         val historyItems = if (history) List(20) { i -> ChatItem("history-$i", 0, ChatContent.Agent("Earlier update $i", listOf(Block.Paragraph(listOf(span("Earlier update $i")))))) } else emptyList()
         val tableItems = if (table) listOf(ChatItem("table", 4, ChatContent.Agent("", listOf(Block.Table(
             TableRow(listOf(listOf(span("Action")), listOf(span("Shortcut")), listOf(span("Accessibility")))),
             listOf(TableRow(listOf(listOf(span("Open command menu")), listOf(span("⌘K", true)), listOf(span("Focus moves to search"))))),
         ))))) else emptyList()
-        val state = ChatState("project", "session", ChatSession("session", "Keyboard shortcuts", SessionStatus.ACTIVE, 4u, 0, null, null, true, null), if (empty) emptyList() else historyItems + items + tableItems, emptyList(), false, false, emptyList(), false, false, null)
+        val state = ChatState("project", "session", ChatSession("session", "Keyboard shortcuts", SessionStatus.ACTIVE, 4u, 0, null, null, true, null), if (empty) emptyList() else if (setup) items.take(1) else historyItems + items + tableItems, emptyList(), false, false, emptyList(), if (setup) ProvisioningState(1u, ProvisioningStep.WORKSPACE_CREATION, 0) else null, false, false, null)
         compose.setContent { MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, if (largeText) 1.5f else density.fontScale)) {
@@ -62,12 +62,14 @@ class ChatRenderTest {
             compose.onNodeWithContentDescription("Jump to latest").assertIsDisplayed()
         }
         compose.onNodeWithContentDescription("Send").assertIsDisplayed()
+        if (setup) compose.onNodeWithText("Cloning repository · 2 of 4").assertIsDisplayed()
         if (empty) compose.onNodeWithText("The conversation will appear here.").assertIsDisplayed()
         if (history) {
             compose.onNodeWithContentDescription("Jump to latest").performClick()
             compose.onNodeWithText("Verify accessibility", substring = true).assertIsDisplayed()
         }
     }
+    @Test fun provisioningBelowMessages() = render(setup = true)
     @Test fun historyArrow() = render(history = true)
     @Test fun markdownTable() = render(table = true)
     @Test fun lightChat() = render()

@@ -17,6 +17,7 @@ mod error;
 mod markdown;
 mod project;
 mod projects;
+mod provisioning;
 mod server;
 mod session;
 mod timeline;
@@ -34,6 +35,7 @@ pub use error::UserError;
 pub use markdown::{Block, ListMarker, Span, TableRow};
 pub use project::*;
 pub use projects::*;
+pub use provisioning::{ProvisioningState, ProvisioningStep};
 pub use server::deployment_name;
 pub use session::*;
 pub use timeline::{

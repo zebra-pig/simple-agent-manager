@@ -396,6 +396,62 @@ describe('VM prompt delivery adapter', () => {
     }
   );
 
+  describe('a follow-up sent before the task has a workspace', () => {
+    /** No workspace row for the session yet; the starting-task probe answers `startingTask`. */
+    function envBeforeWorkspace(startingTask: { task_id: string } | null): Env {
+      return {
+        DATABASE: {
+          prepare: vi.fn((sql: string) => ({
+            bind: vi.fn(() => ({
+              first: vi.fn(async () => (sql.includes('FROM tasks task') ? startingTask : null)),
+            })),
+          })),
+        } as unknown as D1Database,
+      } as Env;
+    }
+
+    it('holds the delivery while the task is queued, without starting a sleep wake', async () => {
+      const adapter = new DefaultVmPromptDeliveryAdapter(envBeforeWorkspace({ task_id: 'task-1' }));
+
+      await expect(adapter.submit(input(false))).resolves.toMatchObject({
+        kind: 'retry',
+        reason: 'not_ready',
+        error: 'Task is still starting; no workspace yet',
+      });
+      expect(mocks.ensureSessionRecovery).not.toHaveBeenCalled();
+      expect(mocks.nodeAgentRequest).not.toHaveBeenCalled();
+    });
+
+    it('only counts pre-workspace task statuses, and defers a slept session to recovery', async () => {
+      const env = envBeforeWorkspace({ task_id: 'task-1' });
+      await new DefaultVmPromptDeliveryAdapter(env).submit(input(false));
+
+      const prepare = env.DATABASE.prepare as unknown as ReturnType<typeof vi.fn>;
+      const index = prepare.mock.calls.findIndex(([sql]) =>
+        String(sql).includes('FROM tasks task')
+      );
+      const sql = String(prepare.mock.calls[index]![0]);
+      expect(sql).toContain('snapshot.sleeping_at IS NOT NULL');
+      const bind = prepare.mock.results[index]!.value.bind as ReturnType<typeof vi.fn>;
+      expect(bind).toHaveBeenCalledWith(
+        'project-1',
+        'chat-1',
+        'draft',
+        'ready',
+        'queued',
+        'delegated'
+      );
+    });
+
+    // Control: with no starting task the missing workspace still means "slept", so it wakes.
+    it('still asks recovery to wake when no task is starting', async () => {
+      const adapter = new DefaultVmPromptDeliveryAdapter(envBeforeWorkspace(null));
+
+      await expect(adapter.submit(input(false))).resolves.toMatchObject({ kind: 'failed' });
+      expect(mocks.ensureSessionRecovery).toHaveBeenCalledOnce();
+    });
+  });
+
   it.each(['sleeping_snapshot_missing', 'source_task_not_wakeable', 'recovery_start_failed:boom'])(
     'ends delivery when recovery refuses for good (%s)',
     async (reason) => {
