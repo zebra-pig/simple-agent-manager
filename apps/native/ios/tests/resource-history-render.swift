@@ -77,10 +77,12 @@ struct ResourceHistoryRender {
             let size = NSSize(width: CGFloat(width), height: CGFloat(measured.height) / renderer.scale)
             let host = NSHostingView(rootView: view)
             host.frame = NSRect(origin: .zero, size: size)
-            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
             window.appearance = appearance
+            window.backgroundColor = dark ? .black : .white
             window.contentView = host
-            window.orderFrontRegardless()
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             host.layoutSubtreeIfNeeded()
             host.displayIfNeeded()
