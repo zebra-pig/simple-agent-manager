@@ -132,7 +132,8 @@ private fun DocumentGallery(
   var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
   var failed by remember { mutableStateOf(false) }
   var retry by remember { mutableIntStateOf(0) }
-  val document = documents[index.coerceAtMost(documents.lastIndex)]
+  val selected = index.coerceAtMost(documents.lastIndex)
+  val document = documents[selected]
   LaunchedEffect(document.fileId, retry) {
     bitmap = null
     failed = false
@@ -143,12 +144,12 @@ private fun DocumentGallery(
   Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
     DocumentGalleryContent(
       document,
-      index,
+      selected,
       documents.size,
       bitmap,
       failed,
-      { index-- },
-      { index++ },
+      { index = selected - 1 },
+      { index = selected + 1 },
       { retry++ },
       close,
     )
