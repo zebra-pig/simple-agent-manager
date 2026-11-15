@@ -40,6 +40,7 @@ struct ProjectsView: View {
                     NavigationLink(value: project) {
                         ProjectRow(project: project)
                     }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                 }
             }
             .overlay {
