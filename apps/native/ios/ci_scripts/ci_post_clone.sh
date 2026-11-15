@@ -46,6 +46,16 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
         base64 -b 76 -i "$chart_image"
         echo "RESOURCE_CHART_RENDER_END"
     done
+    xcrun --sdk macosx swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.0" \
+        "$repo_dir/apps/native/ios/SAM/FileBrowserView.swift" \
+        "$repo_dir/apps/native/ios/tests/files-git-render.swift" \
+        -o "$render_dir/files-git-render"
+    "$render_dir/files-git-render" "$render_dir/files-git-images"
+    for browser_image in "$render_dir/files-git-images/"*.png; do
+        echo "FILES_GIT_RENDER_BEGIN $(basename "$browser_image")"
+        base64 -b 76 -i "$browser_image"
+        echo "FILES_GIT_RENDER_END"
+    done
     rm -rf "$render_dir"
 fi
 
