@@ -60,6 +60,10 @@ pub enum UserError {
     AttachmentsTooLarge { max_bytes: u64 },
     /// Some files are still uploading or failed; remove the failed ones to send.
     AttachmentsNotReady,
+    /// A profile needs a name.
+    ProfileNameRequired,
+    /// The profile's agent has no such effort level.
+    EffortNotSupported,
 }
 
 impl From<&CoreError> for UserError {

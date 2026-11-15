@@ -15,6 +15,7 @@ import org.simpleagentmanager.core.AuthStatus
 import org.simpleagentmanager.core.ChatObserver
 import org.simpleagentmanager.core.ChatState
 import org.simpleagentmanager.core.ChatViewModel
+import org.simpleagentmanager.core.ProfileDraft
 import org.simpleagentmanager.core.ProjectListObserver
 import org.simpleagentmanager.core.ProjectListState
 import org.simpleagentmanager.core.ProjectListViewModel
@@ -32,6 +33,8 @@ sealed interface Route {
     data object Account : Route
     data class Project(val id: String, val name: String) : Route
     data class Chat(val projectId: String, val sessionId: String) : Route
+    /** The profile editor; `profileId` null for a new profile. */
+    data class ProfileEditor(val projectId: String, val profileId: String?) : Route
 }
 
 class SessionModel(application: Application) : AndroidViewModel(application) {
@@ -110,6 +113,21 @@ class ProjectModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun detach(id: String) = vm.removeAttachment(id)
+
+    /** The next task runs with this agent profile. */
+    fun selectProfile(id: String) = vm.selectProfile(id)
+
+    /** The editor opened: agents to choose from, last error cleared. */
+    fun loadAgents() = viewModelScope.launch { vm.loadAgents() }
+
+    /** Creates (`profileId` null) or updates a profile; [done] runs when it was saved. */
+    fun saveProfile(profileId: String?, draft: ProfileDraft, done: () -> Unit) = viewModelScope.launch {
+        if (vm.saveProfile(profileId, draft)) done()
+    }
+
+    fun deleteProfile(profileId: String, done: () -> Unit) = viewModelScope.launch {
+        if (vm.deleteProfile(profileId)) done()
+    }
 
     /** Submits, then hands the new session to [open]. */
     fun submit(message: String, open: (sessionId: String) -> Unit, sent: () -> Unit) = viewModelScope.launch {

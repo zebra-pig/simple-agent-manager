@@ -125,8 +125,15 @@ fun Root(
     when (val route = session.stack.last()) {
         Route.Projects -> ProjectsScreen(projects, onOpen = { session.push(Route.Project(it.id, it.name)) }, onAccount = { session.push(Route.Account) })
         Route.Account -> AccountScreen(app, onBack = session::pop, onSignOut = { session.signOut() })
-        is Route.Project -> ProjectScreen(route, project, onBack = session::pop, onOpen = { session.push(Route.Chat(route.id, it)) })
+        is Route.Project -> ProjectScreen(
+            route,
+            project,
+            onBack = session::pop,
+            onOpen = { session.push(Route.Chat(route.id, it)) },
+            onEditProfile = { session.push(Route.ProfileEditor(route.id, it)) },
+        )
         is Route.Chat -> ChatScreen(route, chat, onBack = session::pop, openUrl = openUrl)
+        is Route.ProfileEditor -> ProfileEditorScreen(route, project, onBack = session::pop)
     }
 }
 
@@ -223,7 +230,13 @@ private fun ProjectsScreen(model: ProjectListModel, onOpen: (Project) -> Unit, o
 }
 
 @Composable
-private fun ProjectScreen(route: Route.Project, model: ProjectModel, onBack: () -> Unit, onOpen: (sessionId: String) -> Unit) {
+private fun ProjectScreen(
+    route: Route.Project,
+    model: ProjectModel,
+    onBack: () -> Unit,
+    onOpen: (sessionId: String) -> Unit,
+    onEditProfile: (profileId: String?) -> Unit,
+) {
     val state by model.state.collectAsStateWithLifecycle()
     var draft by rememberSaveable(route.id) { mutableStateOf("") }
     LaunchedEffect(route.id) { model.load(route.id) }
@@ -232,9 +245,15 @@ private fun ProjectScreen(route: Route.Project, model: ProjectModel, onBack: () 
     Scaffold(
         topBar = { BackBar(route.name, onBack) },
         bottomBar = {
-            val attachments = if (state.projectId == route.id) state.attachments else emptyList()
-            Composer(stringResource(R.string.describe_task), draft, { draft = it }, busy = state.submitting, attachments, model::attach, model::detach) {
-                model.submit(draft, open = onOpen, sent = { draft = "" })
+            val current = state.projectId == route.id
+            val attachments = if (current) state.attachments else emptyList()
+            Column {
+                if (current && (state.profiles.isNotEmpty() || !state.loading)) {
+                    ProfileRow(state, onSelect = model::selectProfile, onEdit = onEditProfile)
+                }
+                Composer(stringResource(R.string.describe_task), draft, { draft = it }, busy = state.submitting, attachments, model::attach, model::detach) {
+                    model.submit(draft, open = onOpen, sent = { draft = "" })
+                }
             }
         },
     ) { padding ->
@@ -376,7 +395,7 @@ private fun AccountScreen(app: AppState, onBack: () -> Unit, onSignOut: () -> Un
 }
 
 @Composable
-private fun BackBar(title: String, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) {
+internal fun BackBar(title: String, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) {
     TopAppBar(
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) } },
@@ -443,7 +462,7 @@ private fun StatusDot(session: ChatSession) {
 }
 
 @Composable
-private fun ErrorRow(message: String) {
+internal fun ErrorRow(message: String) {
     Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
 }
 
@@ -499,9 +518,11 @@ fun UserError.message(): String = when (this) {
     is UserError.TooManyFiles -> stringResource(R.string.error_too_many_files, max.toInt())
     is UserError.AttachmentsTooLarge -> stringResource(R.string.error_attachments_too_large, Formatter.formatShortFileSize(LocalContext.current, maxBytes.toLong()))
     UserError.AttachmentsNotReady -> stringResource(R.string.error_attachments_not_ready)
+    UserError.ProfileNameRequired -> stringResource(R.string.error_profile_name_required)
+    UserError.EffortNotSupported -> stringResource(R.string.error_effort_not_supported)
 }
 
 /** Execution steps are progress detail: `in_progress` -> `In progress`, not translated. */
-private fun humanize(value: String) = value.replace('_', ' ').replaceFirstChar { it.uppercase() }
+internal fun humanize(value: String) = value.replace('_', ' ').replaceFirstChar { it.uppercase() }
 
 private fun ago(millis: Long): String = DateUtils.getRelativeTimeSpanString(millis).toString()

@@ -152,6 +152,8 @@ pub(crate) struct SessionDetail {
 #[derive(Serialize)]
 pub(crate) struct SubmitTask<'a> {
     pub message: &'a str,
+    #[serde(rename = "agentProfileId", skip_serializing_if = "Option::is_none")]
+    pub agent_profile_id: Option<&'a str>,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub attachments: &'a [TaskAttachment],
 }

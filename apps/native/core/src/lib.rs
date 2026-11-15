@@ -8,6 +8,7 @@
 
 #[macro_use]
 mod vm;
+mod agent_profiles;
 mod api;
 #[macro_use]
 mod attachments;
@@ -18,6 +19,7 @@ mod projects;
 mod server;
 mod session;
 
+pub use agent_profiles::{permission_modes, profile_draft, supported_efforts, task_modes, AgentOption, AgentProfile, ProfileDraft};
 pub use api::{ChatMessage, ChatSession, MessageRole, Project, SessionStatus, SubmittedTask, TaskSummary, Viewer};
 pub use attachments::{
     Attachment, AttachmentSource, AttachmentStatus, ATTACHMENT_BATCH_MAX_BYTES, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES,

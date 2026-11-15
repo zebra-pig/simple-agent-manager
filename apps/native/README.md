@@ -3,6 +3,7 @@
 Native SAM client for iOS, macOS and Android. It's an early version. You can sign in to any SAM
 server (hosted or self-hosted), browse your projects and their chat sessions, start a task, follow
 the agent's conversation and task status, open the resulting pull request, and reply to the agent. Tasks and replies can carry files.
+A new task runs with the agent profile you pick, and you can create, edit and delete the project's profiles.
 
 ## Layout
 
@@ -66,6 +67,27 @@ the core checks the limits (`ATTACHMENT_DEFAULTS`), makes the name safe (`saniti
 reads the file on a worker thread, and shows progress and errors in `state.attachments`. Send is
 blocked while a file is uploading or failed. A message with files and no text asks the agent to
 read them. Follow-ups with files need durable prompt delivery on the server, as on the web.
+
+## Agent profiles
+
+A profile is a saved setup for new chats: the agent, model, effort, permission mode, work type
+(task or conversation) and extra instructions. The project screen shows the selected profile above
+the composer. Its menu switches profiles and opens the editor ("Edit", "New profile"). Everything
+goes through the routes the web app uses (`apps/api/src/routes/agent-profiles.ts`):
+
+- `GET /api/projects/:id/agent-profiles` and `.../agent-profiles/picker` load the list. The
+  user's recent profiles come first and the ones they hid on the web are left out. The pre-selection
+  matches the web picker (`selectProfileId`): the current choice while it exists, else the most
+  recent profile, else the first one.
+- `tasks/submit` sends the selected profile as `agentProfileId`. With no profile, the server uses
+  the project's defaults.
+- `POST`, `PUT` and `DELETE .../agent-profiles[/:id]` save and delete profiles. The editor covers
+  the fields above. Fields it doesn't show (VM size, runtime, devcontainer, ...) keep their values.
+  Only the project's own profiles can be edited here. The user's global profiles can be picked but
+  not edited, as the server refuses that in a project's scope.
+
+The lists the editor offers (`supported_efforts`, `permission_modes`, `task_modes`) mirror
+`packages/shared` and live in `core/src/agent_profiles.rs`. The agents come from `GET /api/agents`.
 
 ## Core
 
@@ -177,7 +199,8 @@ There is no GitHub Actions workflow for the native app yet; locally, the command
 
 - Live updates: the chat polls every 4 s while on screen. It doesn't use the web app's WebSocket.
 - Push notifications for sessions that need attention.
-- Task options (agent, profile, VM size) and attachments: tasks use the project's defaults.
+- Per-task options besides the profile (VM size, node): tasks use the profile's or project's settings.
+- Profile fields beyond the basics (VM size, runtime, devcontainer, GitHub CLI policy) and hiding profiles from the picker: edit those on the web.
 - Older messages: the chat shows the latest page only.
 - Translations: the strings are extracted, but only English exists so far.
 - Release signing and store uploads on Android.

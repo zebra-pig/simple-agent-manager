@@ -1,12 +1,13 @@
 import SwiftUI
 
 /// A project's chat sessions, plus the composer that hands a new task (and any
-/// attached files) to an agent.
+/// attached files) to an agent, with the agent profile picked above it.
 struct ProjectView: View {
     let project: Project
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
     @State private var draft = ""
+    @State private var editing: ProfileEditing?
 
     init(app: App, project: Project, open: @escaping (SessionRef) -> Void) {
         self.project = project
@@ -41,16 +42,22 @@ struct ProjectView: View {
         .refreshable { await model.core.load(projectId: project.id) }
         .task { await model.core.load(projectId: project.id) }
         .safeAreaInset(edge: .bottom) {
-            Composer(placeholder: "Describe a task…", text: $draft, busy: model.state.submitting, files: model.files) {
-                let message = draft
-                Task {
-                    if let task = await model.core.submitTask(message: message) {
-                        draft = ""
-                        open(SessionRef(projectId: project.id, sessionId: task.sessionId))
+            VStack(spacing: 6) {
+                if !model.state.profiles.isEmpty || model.state.projectId == project.id && !model.state.loading {
+                    ProfileBar(model: model) { editing = ProfileEditing(profile: $0) }
+                }
+                Composer(placeholder: "Describe a task…", text: $draft, busy: model.state.submitting, files: model.files) {
+                    let message = draft
+                    Task {
+                        if let task = await model.core.submitTask(message: message) {
+                            draft = ""
+                            open(SessionRef(projectId: project.id, sessionId: task.sessionId))
+                        }
                     }
                 }
             }
         }
+        .sheet(item: $editing) { ProfileEditor(model: model, profile: $0.profile) }
     }
 }
 
