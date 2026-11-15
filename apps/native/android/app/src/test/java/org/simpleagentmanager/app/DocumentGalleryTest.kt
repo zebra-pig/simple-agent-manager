@@ -34,7 +34,9 @@ class DocumentGalleryTest {
         compose.onNodeWithContentDescription("Photo 15").performTouchInput { swipeLeft() }
         compose.waitForIdle()
         compose.onNodeWithText("17 of 30").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Previous").performClick()
+        compose.onNodeWithContentDescription("Previous").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Next").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Photo 16").performTouchInput { swipeRight() }
         compose.waitForIdle()
         compose.onNodeWithText("16 of 30").assertIsDisplayed()
         compose.runOnIdle { assertTrue("Only nearby pages should load", loaded.size < 10) }
