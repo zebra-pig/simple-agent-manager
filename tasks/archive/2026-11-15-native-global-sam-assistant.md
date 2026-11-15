@@ -24,8 +24,8 @@ Show SAM in a new main mobile tab when the global assistant is enabled, with the
 - [x] Add bounded voice recording and transcription to the draft, with foreground cleanup.
 - [x] Test the exported view model through an authenticated scripted HTTP server.
 - [x] Run Rust tests and Clippy, build Android, generate and inspect phone/tablet previews.
-- [ ] Verify iOS/macOS compilation with Xcode Cloud (first pass: #31; final revision pending).
-- [ ] Finish completion review and preserve PR/check evidence.
+- [x] Verify iOS/macOS compilation with Xcode Cloud #33 (all actions succeeded).
+- [x] Finish completion review and preserve PR/check evidence.
 
 ## Acceptance criteria and evidence
 
@@ -38,7 +38,7 @@ Show SAM in a new main mobile tab when the global assistant is enabled, with the
 | Account changes do not reuse private state | `signed_out_view_model_cannot_read_or_mutate_a_private_conversation`; scoped transport |
 | Voice entry fills the draft | `voice_upload_uses_authenticated_multipart_and_returns_a_draft`; bounded native recorders |
 | Native layouts remain usable on phone/tablet | Six renders in `apps/native/verification/assistant/` |
-| Builds pass | Rust: 38 tests, Clippy clean; Android assembleDebug passed; Xcode Cloud #31 succeeded; final revision pending |
+| Builds pass | Rust: 38 tests, Clippy clean; Android assembleDebug passed; Xcode Cloud #33 succeeded on final code |
 
 ## Verification limits
 
@@ -46,3 +46,16 @@ Native wire tests use a scripted server. Layout renders use mock state. Physical
 permission prompts and signed-in device navigation have not been exercised in this Linux workspace.
 The implementation changes no server endpoints. Native progress uses two-second snapshot polling,
 while web can also use SSE. Settings stays in the existing web UI.
+
+## Completion evidence
+
+PR: https://github.com/zebra-pig/simple-agent-manager/pull/30
+
+Verified code commit: `fd33761d757602b695db805b85920fded2685520`. Xcode Cloud run #33
+(`55d86c89-3b8e-479a-86c3-23842e6295d0`) succeeded for iOS archive, macOS archive and the
+TestFlight internal action. GitHub preflight, specialist evidence, UI compliance and secret scan
+passed on that commit. Android `assembleDebug lintDebug`, 38 Rust tests and Clippy passed.
+
+The final evidence commit only archives this task and records verification; native runtime sources
+are unchanged from the code commit verified by Xcode Cloud. The in-session completion audit report
+is in `apps/native/verification/assistant/completion-review.md`.

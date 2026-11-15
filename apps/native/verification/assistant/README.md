@@ -32,3 +32,20 @@ The native client uses the web API unchanged. `AssistantViewModel::refresh_inner
 live snapshots carried by `/api/sam/turns` (every two seconds while a turn runs); it does not open the
 web SSE stream. Settings and links open the signed-in deployment's web UI; project chat destinations
 open natively. Microphone permission and physical-device audio capture require device verification.
+
+## Build results
+
+Verified code commit: `fd33761d757602b695db805b85920fded2685520`.
+
+- `cargo test`: 38 tests passed, zero failed; eight are assistant capability/security tests.
+- `cargo clippy --all-targets -- -D warnings`: passed.
+- Android `assembleDebug lintDebug`: passed after removal of the temporary screenshot harness.
+- Xcode Cloud #33 (`55d86c89-3b8e-479a-86c3-23842e6295d0`): iOS archive, macOS archive
+  and TestFlight internal action all succeeded. The original main-only workflow conditions were restored.
+- GitHub preflight, specialist review evidence, UI compliance and secret scan passed.
+
+The Apple build reports a deprecation warning for the iOS microphone-permission API, which remains
+supported on the target OS versions. Android lint retains existing dependency/asset warnings, including
+JNA's x86_64 16 KB alignment warning (tracked separately in the backlog).
+
+See [completion review](completion-review.md) for the in-session acceptance audit.
