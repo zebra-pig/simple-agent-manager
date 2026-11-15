@@ -72,7 +72,7 @@ struct ResourceHistoryRender {
             guard let measured = renderer.cgImage else { fatalError("Chart measurement failed") }
             // ImageRenderer substitutes a warning symbol for AppKit-backed
             // controls. Snapshot a real hosting view to include the native picker.
-            let size = NSSize(width: width, height: Double(measured.height) / renderer.scale)
+            let size = NSSize(width: CGFloat(width), height: CGFloat(measured.height) / renderer.scale)
             let host = NSHostingView(rootView: view)
             host.frame = NSRect(origin: .zero, size: size)
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)

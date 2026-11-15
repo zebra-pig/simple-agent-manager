@@ -23,7 +23,7 @@ struct ResourceHistoryView: View {
         VStack(alignment: .leading, spacing: 20) {
             Picker("Resource", selection: $metric) {
                 ForEach(ResourceMetric.allCases) { metric in Text(metric.title).tag(metric) }
-            }.pickerStyle(.segmented)
+            }.pickerStyle(.segmented).labelsHidden()
 
             if samples.isEmpty {
                 ContentUnavailableView {
