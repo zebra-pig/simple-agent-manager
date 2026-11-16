@@ -14,6 +14,10 @@ Validated on an Apple silicon Mac with Xcode 27:
   failure restoration, and preservation of newer drafts on success and failure.
 - The same executable mounted a SwiftUI editor in navigation, reopened its draft,
   and confirmed it clears while the request is pending and restores after failure.
+- Deployed the production Composer fixture to an isolated iPhone 18 Pro simulator.
+  Reviewed [ready](ready.png) and [sending](sending.png): the pending composer
+  is empty with a spinner in place of Send. No clipping or overlap observed.
+  The simulator was shut down and deleted after verification.
 - Reused generated bindings from an identical Rust source tree; no core/API change.
 
 Run from the repository root on macOS:
@@ -25,4 +29,13 @@ swiftc apps/native/ios/SAM/ChatDraft.swift apps/native/ios/tests/chat-draft.swif
 
 Task-completion review: requested clear/lock behavior, existing send propagation,
 and failure/newer-draft protection are covered. Full Composer wiring was reviewed
-and both targets compiled; no live-account send was performed.
+and both targets compiled; no live-account send was performed. The fixture uses
+local delayed completion, so the simulator run performs no network writes.
+
+To reproduce the simulator run, copy `ios/` including `Generated` to an isolated
+directory and replace its `SAM/SAMApp.swift` with `ComposerHandoff.swift`. Build
+the copied target with its own bundle identifier and install it on an isolated
+simulator. After the view appears, the draft clears at eight seconds, remains
+busy for six seconds, then restores. Capture relative to view appearance rather
+than process launch, which includes simulator startup time. Delete the simulator
+when finished.

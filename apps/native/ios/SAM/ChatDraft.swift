@@ -30,8 +30,6 @@ struct ChatDraft: DynamicProperty {
             store.set(content, forKey: key)
         }
     }
-
-
 }
 
 /// Owns the synchronous composer handoff, before the core observer can publish.
