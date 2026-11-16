@@ -32,7 +32,7 @@ class ChatProgressRenderTest {
         notificationsError = null, attachments = emptyList(),
         provisioning = ProvisioningState(1u, ProvisioningStep.WORKSPACE_CREATION, 0),
         reportEnabled = false, loading = false, sending = false, error = null, loadingHistory = false, historyError = null,
-    )
+        steeringSupported = null, deliveryIntent = org.simpleagentmanager.core.DeliveryIntent.STEER, interrupting = false, interruptError = null, deliveries = emptyList())
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Test fun progressIsHiddenUntilOpenedFromSessionMenu() {

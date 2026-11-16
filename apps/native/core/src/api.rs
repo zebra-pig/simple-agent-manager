@@ -145,7 +145,10 @@ pub(crate) struct SessionDetail {
 
 /// The session's live state (`SessionStateSnapshot`); only what the chat uses.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SessionSnapshot {
+    #[serde(default)]
+    pub steering_supported: Option<bool>,
     /// idle, prompting, recovering, error, stopped.
     #[serde(default)]
     pub activity: Option<String>,
@@ -156,7 +159,7 @@ impl SessionDetail {
     /// active session that isn't idle is.
     pub fn working(&self) -> bool {
         match self.state.as_ref().and_then(|s| s.activity.as_deref()) {
-            Some(activity) => matches!(activity, "prompting" | "recovering"),
+            Some(activity) => matches!(activity, "prompting" | "responding" | "recovering"),
             None => self.session.status == SessionStatus::Active && !self.session.is_idle,
         }
     }
@@ -182,6 +185,8 @@ pub struct SubmittedTask {
 /// `POST /api/projects/:id/sessions/:sessionId/prompt`.
 #[derive(Serialize)]
 pub(crate) struct Prompt<'a> {
+    #[serde(rename = "deliveryIntent")]
+    pub delivery_intent: &'a str,
     pub content: &'a str,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub attachments: &'a [TaskAttachment],

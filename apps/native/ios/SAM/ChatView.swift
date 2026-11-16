@@ -20,13 +20,13 @@ struct ChatView: View {
     @State private var ending = false
     @Environment(\.openURL) private var openURL
 
-    init(app: App, ref: SessionRef) {
+    init(app: App, ref: SessionRef, model: ChatModel? = nil) {
         self.app = app
         self.ref = ref
         let account = app.state()
         _draft = ChatDraft(server: account.serverUrl, user: account.viewer?.id ?? "",
                            project: ref.projectId, session: ref.sessionId)
-        _chat = State(initialValue: ChatModel(app: app))
+        _chat = State(initialValue: model ?? ChatModel(app: app))
     }
 
     var body: some View {
@@ -48,7 +48,12 @@ struct ChatView: View {
                                 if case let .document(document) = message.content {
                                     DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
                                 } else if case let .user(text, attachments) = message.content {
-                                    UserMessageView(text: text, attachments: attachments, core: chat.core)
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        UserMessageView(text: text, attachments: attachments, core: chat.core)
+                                        if let delivery = chat.state.deliveries.first(where: { $0.messageId == message.id }) {
+                                            MessageDeliveryLabel(status: delivery.status)
+                                        }
+                                    }
                                 } else { TimelineItemView(item: message) }
                             }.id(message.id)
                                 .background(GeometryReader { geometry in
@@ -59,7 +64,8 @@ struct ChatView: View {
                         ForEach(chat.state.outbox, id: \.id) { message in
                             VStack(alignment: .trailing, spacing: 4) {
                                 UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
-                                Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary)
+                                if message.deliveryIntent == .steer { MessageDeliveryLabel(status: "steering") }
+                                else { Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary) }
                             }.frame(maxWidth: .infinity, alignment: .trailing)
                         }
                         ForEach(chat.state.requests, id: \.id) { request in
@@ -175,10 +181,22 @@ struct ChatView: View {
         } message: { Text("This ends the task and stops its agent.") }
         .safeAreaInset(edge: .bottom) {
             if canReply {
-                Composer(placeholder: "Reply to the agent…", text: $draft, busy: submission.sending || chat.state.sending, files: chat.files) {
-                    guard !chat.state.sending else { return }
-                    submission.send(draft: _draft) { content in
-                        await chat.core.send(content: content)
+                VStack(spacing: 0) {
+                    if chat.state.working {
+                        ChatSteeringControls(intent: chat.state.deliveryIntent,
+                            hasFiles: !chat.state.attachments.isEmpty,
+                            steeringSupported: chat.state.steeringSupported,
+                            interrupting: chat.state.interrupting, error: chat.state.interruptError?.message,
+                            select: { chat.core.setDeliveryIntent(intent: $0) },
+                            interrupt: { Task { await chat.core.interrupt() } })
+                    } else if let error = chat.state.interruptError {
+                        Text(error.message).font(.caption).foregroundStyle(.red)
+                    }
+                    Composer(placeholder: composerPlaceholder, text: $draft, busy: submission.sending || chat.state.sending, files: chat.files) {
+                        guard !chat.state.sending else { return }
+                        submission.send(draft: _draft) { content in
+                            await chat.core.send(content: content)
+                        }
                     }
                 }
             }
@@ -192,6 +210,12 @@ struct ChatView: View {
                 await chat.core.refresh()
             }
         }
+    }
+
+    private var composerPlaceholder: LocalizedStringKey {
+        guard chat.state.working else { return "Reply to the agent…" }
+        return chat.state.deliveryIntent == .steer && chat.state.attachments.isEmpty && chat.state.steeringSupported != false
+            ? "Steer the agent…" : "Queue next…"
     }
 
     private func webTool(_ title: LocalizedStringKey, icon: String, action: WebChatTool) -> some View {

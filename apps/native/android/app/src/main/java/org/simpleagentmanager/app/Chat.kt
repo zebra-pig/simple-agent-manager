@@ -53,6 +53,8 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
         ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach,
             toolsMenu = { ChatToolsMenu(model, state, openUrl) }, documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
             attachmentCard = { document -> DocumentCard(document, state.items.flatMap { (it.content as? Content.User)?.attachments ?: emptyList() } + state.outbox.flatMap { it.attachments }, model.vm, compactImage = true) },
+            onDeliveryIntent = { model.vm.setDeliveryIntent(it) },
+            onInterrupt = { scope.launch { model.vm.interrupt() } },
             onLoadOlder = { scope.launch { model.vm.loadOlder() } },
             serverUrl = model.app.state().serverUrl, requestCard = { request -> RequestCard(model.app, route.projectId, request.sessionId ?: route.sessionId, request.id, request.secret, request.approval, hideResolved = true) }) {
             val sent = draft
@@ -70,6 +72,8 @@ fun ChatContent(
     onAttach: (List<Uri>) -> Unit, onRemove: (String) -> Unit,
     attachmentCard: @Composable (ChatDocument) -> Unit = { SquareImageTile(null, it.filename, 120.dp) },
     listState: LazyListState = rememberLazyListState(),
+    onDeliveryIntent: (DeliveryIntent) -> Unit = {},
+    onInterrupt: () -> Unit = {},
     onLoadOlder: () -> Unit = {},
     toolsMenu: @Composable () -> Unit = {}, documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
@@ -104,7 +108,30 @@ fun ChatContent(
         topBar = { BackBar(session?.topic ?: stringResource(R.string.session), onBack) { session?.let { StatusDot(it); Spacer(Modifier.width(16.dp)) }; toolsMenu() } },
         bottomBar = {
             if (session != null && (session.viewerAccess in listOf("owner", "grantee") || (session.viewerAccess == null && session.isMine)) && session.status in listOf(SessionStatus.ACTIVE, SessionStatus.SLEEPING))
-                Composer(stringResource(R.string.reply_to_agent), draft, onDraft, state.sending, state.attachments, onAttach, onRemove, onSend = onSend)
+                Column {
+                    if (state.working) {
+                        val locked = state.attachments.isNotEmpty() || state.steeringSupported == false
+                        val queued = locked || state.deliveryIntent == DeliveryIntent.QUEUE
+                        Column(Modifier.padding(horizontal = 20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(R.string.agent_working), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                                TextButton(onClick = onInterrupt, enabled = !state.interrupting) {
+                                    Text(if (state.interrupting) stringResource(R.string.agent_interrupting) else stringResource(R.string.agent_interrupt), color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                SegmentedButton(selected = !queued, enabled = !locked, onClick = { onDeliveryIntent(DeliveryIntent.STEER) }, shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text(stringResource(R.string.steer_now)) }
+                                SegmentedButton(selected = queued, enabled = !locked, onClick = { onDeliveryIntent(DeliveryIntent.QUEUE) }, shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text(stringResource(R.string.queue_next)) }
+                            }
+                            Text(if (state.attachments.isNotEmpty()) stringResource(R.string.files_queue_detail)
+                                else if (state.steeringSupported == false) stringResource(R.string.unsupported_steering_detail)
+                                else if (queued) stringResource(R.string.queue_detail)
+                                else stringResource(R.string.steer_detail), style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    state.interruptError?.let { ErrorRow(it.message()) }
+                    Composer(if (!state.working) stringResource(R.string.reply_to_agent) else if (state.deliveryIntent == DeliveryIntent.STEER && state.attachments.isEmpty() && state.steeringSupported != false) stringResource(R.string.steer_placeholder) else stringResource(R.string.queue_placeholder), draft, onDraft, state.sending, state.attachments, onAttach, onRemove, onSend = onSend)
+                }
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
@@ -126,13 +153,16 @@ fun ChatContent(
                     val document = (item.content as? Content.Document)?.document
                     val user = item.content as? Content.User
                     if (document != null) documentCard(document)
-                    else if (user != null) UserBubble(user.text, user.attachments, attachmentCard)
+                    else if (user != null) Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
+                        UserBubble(user.text, user.attachments, attachmentCard)
+                        state.deliveries.firstOrNull { it.messageId == item.id }?.let { Text(deliveryLabel(it.status), style = MaterialTheme.typography.labelSmall) }
+                    }
                     else TimelineItem(item, openUrl)
                 }
                 items(state.outbox, key = { it.id }) {
                     Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
                         UserBubble(it.text, it.attachments, attachmentCard)
-                        Text(stringResource(if (it.accepted) R.string.message_queued else R.string.message_sending), style = MaterialTheme.typography.labelSmall)
+                        Text(if (it.deliveryIntent == DeliveryIntent.STEER) stringResource(R.string.message_steering) else stringResource(if (it.accepted) R.string.message_queued else R.string.message_sending), style = MaterialTheme.typography.labelSmall)
                     }
                 }
                 items(state.requests, key = { "request-${it.id}" }) { requestCard(it) }
@@ -255,4 +285,13 @@ internal fun LatestArrow(onClick: () -> Unit, modifier: Modifier = Modifier) {
             Icon(painterResource(R.drawable.ic_arrow_down), contentDescription = stringResource(R.string.jump_latest))
         }
     }
+}
+
+@Composable
+private fun deliveryLabel(status: String): String = when (status) {
+    "steered" -> stringResource(R.string.message_steered)
+    "queued_instead" -> stringResource(R.string.message_queued_instead)
+    "unconfirmed" -> stringResource(R.string.message_unconfirmed)
+    "not_delivered" -> stringResource(R.string.message_not_delivered)
+    else -> stringResource(R.string.message_steering)
 }

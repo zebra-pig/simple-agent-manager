@@ -124,7 +124,7 @@ async fn a_follow_up_waits_for_every_file() {
     let prompt = log.lock().unwrap().iter().find(|r| r.1.ends_with("/prompt")).unwrap().4.clone();
     assert_eq!(
         json_body(&prompt),
-        json!({"content": "Here is the log", "attachments": [
+        json!({"content": "Here is the log", "deliveryIntent": "queue", "attachments": [
             {"uploadId": "up1", "filename": "log.txt", "size": 2, "contentType": "text/plain"},
         ]})
     );
@@ -133,7 +133,7 @@ async fn a_follow_up_waits_for_every_file() {
     // Without files the body stays as before.
     assert!(chat.send("thanks".into()).await);
     let last = log.lock().unwrap().iter().rev().find(|r| r.1.ends_with("/prompt")).unwrap().4.clone();
-    assert_eq!(json_body(&last), json!({"content": "thanks"}));
+    assert_eq!(json_body(&last), json!({"content": "thanks", "deliveryIntent": "steer"}));
 }
 
 #[tokio::test]

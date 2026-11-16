@@ -327,4 +327,20 @@
     <string name="tool_progress">Progress</string>
     <string name="no_progress_updates">No progress updates yet.</string>
     <string name="retry_earlier_messages">Retry earlier messages</string>
+    <string name="agent_working">Agent working</string>
+    <string name="agent_interrupting">Interrupting…</string>
+    <string name="agent_interrupt">Interrupt</string>
+    <string name="steer_now">Steer now</string>
+    <string name="queue_next">Queue next</string>
+    <string name="files_queue_detail">Messages with files are sent when this turn ends.</string>
+    <string name="unsupported_steering_detail">This agent takes messages when this turn ends.</string>
+    <string name="queue_detail">Sent when this turn ends.</string>
+    <string name="steer_detail">Joins this turn if the agent can take it; otherwise sent next.</string>
+    <string name="steer_placeholder">Steer the agent…</string>
+    <string name="queue_placeholder">Queue next…</string>
+    <string name="message_steering">Steering…</string>
+    <string name="message_steered">Steered</string>
+    <string name="message_queued_instead">Queued instead · sent next</string>
+    <string name="message_unconfirmed">Delivery unconfirmed</string>
+    <string name="message_not_delivered">Not delivered</string>
 </resources>
