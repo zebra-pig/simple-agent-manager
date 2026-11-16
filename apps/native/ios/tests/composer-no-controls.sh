@@ -38,10 +38,14 @@ cat "$output_dir/mac-result.txt"
 selection=$(xcrun simctl list runtimes --json | python3 -c '
 import json,sys
 runtimes=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable") and r["name"].startswith("iOS")]
+if not runtimes: raise SystemExit("Composer regression requires an available iOS simulator runtime")
 runtime=max(runtimes,key=lambda r:tuple(map(int,r["version"].split("."))))
-print(runtime["identifier"])
+phone=next(d for d in runtime["supportedDeviceTypes"] if d["name"].startswith("iPhone"))
+print(runtime["identifier"]+" "+phone["identifier"])
 ')
-simulator=$(xcrun simctl create SAMComposerNoControls com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro "$selection")
+runtime=${selection%% *}
+device_type=${selection#* }
+simulator=$(xcrun simctl create "SAMComposerNoControls-$$" "$device_type" "$runtime")
 xcrun simctl boot "$simulator"
 xcrun simctl bootstatus "$simulator" -b > "$output_dir/boot.log" 2>&1
 xcodebuild -project "$fixture_dir/ios/SAM.xcodeproj" -scheme SAM -configuration Debug \
