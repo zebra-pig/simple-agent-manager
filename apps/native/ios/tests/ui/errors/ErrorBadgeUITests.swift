@@ -17,7 +17,8 @@ final class ErrorBadgeUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         if inSheet { app.buttons["Open settings"].tap() }
-        let trigger = app.buttons["Fail request"]
+        let scope = inSheet ? "sheet" : "root"
+        let trigger = app.buttons[scope + "-fail"]
         XCTAssertTrue(trigger.waitForExistence(timeout: 5))
         trigger.tap()
         let text = app.staticTexts[message]
@@ -25,17 +26,17 @@ final class ErrorBadgeUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts.matching(identifier: message).count, 1, "Duplicate error badges")
         XCTAssertTrue(app.frame.contains(text.frame))
         XCTAssertLessThan(text.frame.maxY, trigger.frame.minY, "Error should float above the request controls")
-        XCTAssertTrue(app.staticTexts["Request details stay visible."].isHittable)
+        XCTAssertTrue(app.staticTexts[scope + "-details"].isHittable)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = inSheet ? "sheet-error" : "nested-error"
         screenshot.lifetime = .keepAlways
         add(screenshot)
         app.buttons["Dismiss error"].tap()
         XCTAssertTrue(text.waitForNonExistence(timeout: 5))
-        app.buttons["Resolve request"].tap()
+        app.buttons[scope + "-resolve"].tap()
         trigger.tap()
         XCTAssertTrue(text.waitForExistence(timeout: 5), "A resolved error must be able to recur")
-        app.buttons["Resolve request"].tap()
+        app.buttons[scope + "-resolve"].tap()
         XCTAssertTrue(text.waitForNonExistence(timeout: 5))
         if inSheet {
             app.buttons["Done"].tap()
