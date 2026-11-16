@@ -9,10 +9,12 @@ final class ComposerUITests: XCTestCase {
     }
 
     override func tearDown() {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        if app.state != .notRunning {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         app.terminate()
     }
 
@@ -66,7 +68,7 @@ final class ComposerUITests: XCTestCase {
     func testBusyReplacesSendAndKeepsEditorInBounds() {
         launch("busy")
         XCTAssertFalse(app.buttons["Send"].exists)
-        let progress = app.progressIndicators.firstMatch
+        let progress = app.activityIndicators.firstMatch
         XCTAssertTrue(progress.waitForExistence(timeout: 5))
         assertContained(progress)
         assertContained(app.textViews.firstMatch)
