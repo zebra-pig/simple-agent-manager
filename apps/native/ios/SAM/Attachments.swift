@@ -195,22 +195,48 @@ struct AttachButton: View {
     @State private var choosingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
 
+    #if os(iOS)
+    @State private var choosingSource = false
+    @State private var pendingSource: Source?
+    private enum Source { case files, photos }
+    #endif
+
     var body: some View {
-        // Keep both pickers on a persistent host outside Menu so dismissing
-        // the transient menu does not remove their presentation context.
+        // Keep the source chooser separate from the system picker host.
         HStack(spacing: 0) {
+            #if os(iOS)
+            Button {
+                pendingSource = nil
+                choosingSource = true
+            } label: { paperclip }
+            .glassButton()
+            .buttonBorderShape(.circle)
+            .accessibilityLabel(Text("Attach files"))
+            .sheet(isPresented: $choosingSource, onDismiss: presentPendingSource) {
+                List {
+                    Button("Photo Library", systemImage: "photo.on.rectangle") {
+                        pendingSource = .photos
+                        choosingSource = false
+                    }
+                    Button("Choose Files…", systemImage: "folder") {
+                        pendingSource = .files
+                        choosingSource = false
+                    }
+                }
+                .tint(.primary)
+                .presentationDetents([.height(180)])
+                .presentationDragIndicator(.visible)
+            }
+            #else
             Menu {
                 Button("Choose Files…", systemImage: "folder") { importing = true }
                 Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }
-            } label: {
-                Image(systemName: "paperclip")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 22, height: 22)
-            }
+            } label: { paperclip }
             .menuIndicator(.hidden)
             .glassButton()
             .buttonBorderShape(.circle)
             .accessibilityLabel(Text("Attach files"))
+            #endif
         }
         .photosPicker(isPresented: $choosingPhotos, selection: $photos,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
@@ -224,6 +250,28 @@ struct AttachButton: View {
             Task { await AttachmentIntake.add(photos: picked, to: files) }
         }
     }
+
+    private var paperclip: some View {
+        Image(systemName: "paperclip")
+            .font(.body.weight(.semibold))
+            .frame(width: 22, height: 22)
+    }
+
+    #if os(iOS)
+    private func presentPendingSource() {
+        // Native Menu can swallow source selections after returning from a picker.
+        // Use the sheet's dismissal completion for an explicit presentation handoff,
+        // keeping UIKit presentations separate without a timing delay.
+        let source = pendingSource
+        pendingSource = nil
+        switch source {
+        case .files: importing = true
+        case .photos: choosingPhotos = true
+        case nil: break
+        }
+    }
+    #endif
+
 }
 
 /// The attached files, above the text field.

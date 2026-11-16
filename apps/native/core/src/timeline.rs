@@ -190,7 +190,22 @@ pub(crate) fn build(mut rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
     crate::documents::resolve(&mut rows);
     let mut items: Vec<Positioned> = Vec::with_capacity(rows.len());
     let mut calls_by_id: std::collections::HashMap<String, usize> = Default::default();
-    for row in rows {
+    for mut row in rows {
+        // Only trusted injected user rows may lose the bootstrap prefix. Keep
+        // historical context appended by the server as its own visible notice.
+        if row.role == "user" && row.origin.as_deref() == Some("system") {
+            if let Some(rest) = row.content.trim().strip_prefix(crate::documents::SAM_BOOTSTRAP) {
+                if rest.is_empty() {
+                    continue;
+                }
+                if rest.starts_with("\n\n") {
+                    row.content = rest.trim_start().to_owned();
+                    if row.content.is_empty() {
+                        continue;
+                    }
+                }
+            }
+        }
         if let Some(document) = row.document {
             items.push(Item::Document(document).at(row.id, row.created_at));
             continue;
@@ -610,6 +625,23 @@ mod tests {
                 ChatContent::Notice { .. } => "notice",
             })
             .collect()
+    }
+
+    #[test]
+    fn hides_only_tagged_bootstrap_and_keeps_context() {
+        let bootstrap = crate::documents::SAM_BOOTSTRAP;
+        let mut injected = row("b", "user", bootstrap, 1, Value::Null);
+        injected.origin = Some("system".into());
+        assert!(build(vec![injected.clone()], false).is_empty());
+        assert_eq!(kinds(&build(vec![row("u", "user", bootstrap, 1, Value::Null)], false)), vec!["user"]);
+        injected.content = format!("{bootstrap}\n\nEarlier conversation context");
+        let items = build(vec![injected.clone()], false);
+        assert!(matches!(&items[0].content, ChatContent::Notice { notice } if notice.headline.as_deref() == Some("Earlier conversation context")));
+        injected.content = "A different system notification".into();
+        assert_eq!(kinds(&build(vec![injected.clone()], false)), vec!["notice"]);
+        injected.content = format!("{bootstrap} quoted by a user");
+        let items = build(vec![injected], false);
+        assert!(matches!(&items[0].content, ChatContent::Notice { notice } if notice.headline.as_deref() == Some(format!("{bootstrap} quoted by a user").as_str())));
     }
 
     #[test]
