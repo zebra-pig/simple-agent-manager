@@ -61,7 +61,9 @@ xcrun simctl bootstatus "$simulator" -b > "$output/boot.log" 2>&1
 xcrun simctl spawn "$simulator" defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
 xcrun simctl spawn "$simulator" defaults write com.apple.keyboard.preferences DidShowGestureKeyboardIntroduction -bool true
 bundle="org.simpleagentmanager.validation.$(basename "$(cd "$1" && pwd)")"
-xcodebuild test -project "$output/project/ios/SAM.xcodeproj" -scheme NativeTests \
+build_action=(test)
+if [ -n "${SAM_TEST_ONLY:-}" ]; then build_action+=("-only-testing:$SAM_TEST_ONLY"); fi
+xcodebuild "${build_action[@]}" -project "$output/project/ios/SAM.xcodeproj" -scheme NativeTests \
     -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath "$output/build" \
     -resultBundlePath "$output/results.xcresult" -parallel-testing-enabled NO \
     -collect-test-diagnostics never -test-timeouts-enabled YES \

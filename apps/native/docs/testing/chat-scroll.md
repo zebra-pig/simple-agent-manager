@@ -25,7 +25,7 @@ The Xcode Cloud post-clone hook runs this suite and exports its PNG attachments.
 ## Twelve real UI tests
 
 - Opening and polling at latest without fetching earlier pages.
-- Jumping after multiple pages, with intermediate rendered animation offsets.
+- Jumping after multiple pages, with an observed intermediate rendered position.
 - Response arrival while an actual swipe is moving: overlapping visible row
   identities and no discontinuity between adjacent display samples.
 - A held history response completing during the jump animation, before arrival.
@@ -45,6 +45,10 @@ HTTP completion is asserted before insertion checks. A read-only display-link
 probe samples the last layout, native presentation offset, content size and
 insets. Raw layout callbacks are also logged: they can include intermediate
 passes that never reach the display, so they are not sufficient evidence alone.
+Probe batches are acknowledged in order. Tests wait for delivery through the
+measured interval before evaluating captured frames, with a failure deadline.
+The animation check requires nonzero travel and a rendered intermediate position;
+it does not impose a minimum frame rate on a shared build machine.
 XCTest screenshot attachments complement the measurements.
 XCTest waits for quiescence before subsequent commands; the suite does not claim
 an automated finger interruption in the middle of a 0.35-second jump animation.

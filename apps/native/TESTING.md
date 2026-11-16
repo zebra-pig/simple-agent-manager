@@ -62,6 +62,13 @@ and a compatible device, discovered together. Set `SAM_TEST_DEVICE_PREFIX=iPad`
 to run the shared UI runner on a tablet. They create/delete their own simulator
 and start/stop their own loopback server with an OS-assigned port.
 
+For a focused shared UI case, set `SAM_TEST_ONLY`, for example:
+
+```sh
+SAM_TEST_ONLY=NativeUITests/ChatScrollUITests/testActualJumpAfterMultiplePagesStaysAtBottom \
+  bash apps/native/scripts/test.sh apple-ui .tmp/native-jump chat-scroll
+```
+
 `apple-ui` without a suite runs composer, errors, chat-scroll and gallery.
 `apple-all` also runs host, integration, project-loading and slash-commands.
 Attachment-picker tests require a seeded photo library and Files content; follow
