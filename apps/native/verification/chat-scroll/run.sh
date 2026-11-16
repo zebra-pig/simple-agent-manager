@@ -18,7 +18,7 @@ import json,subprocess
 runtimes=json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j']))['runtimes']
 runtime=next(r for r in reversed(runtimes) if r['isAvailable'] and 'iOS' in r['name'])
 types=json.loads(subprocess.check_output(['xcrun','simctl','list','devicetypes','-j']))['devicetypes']
-device=next(d for d in reversed(types) if d['name'].startswith('iPhone'))
+device=next(d for d in types if d['name']=='iPhone 16 Pro')
 print(device['identifier'],runtime['identifier'])
 PY
 )

@@ -82,3 +82,19 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
     python3 "$repo_dir/apps/native/ios/tests/uploaded-preview-server.py" "$preview_test_dir/preview-test"
     rm -rf "$preview_test_dir"
 fi
+
+# Run real touch-driven chat regressions on the Mac host before the iOS archive.
+# The runner copies the app into an isolated directory and uses only localhost
+# fixture data. No account credentials or provisioning services are involved.
+if [ "$CI_PRODUCT_PLATFORM" = "iOS" ]; then
+    gem install --user-install xcodeproj --version 1.27.0 --no-document
+    scroll_test_dir=$(mktemp -d)
+    "$repo_dir/apps/native/verification/chat-scroll/run.sh" "$scroll_test_dir"
+    xcrun xcresulttool export attachments --path "$scroll_test_dir/scroll-tests.xcresult" \
+        --output-path "$scroll_test_dir/attachments"
+    find "$scroll_test_dir/attachments" -name '*.png' | while IFS= read -r screenshot; do
+        echo "CHAT_SCROLL_SCREENSHOT_BEGIN $(basename "$screenshot")"
+        base64 -b 76 -i "$screenshot"
+        echo "CHAT_SCROLL_SCREENSHOT_END"
+    done
+fi

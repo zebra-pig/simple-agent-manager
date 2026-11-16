@@ -77,8 +77,19 @@ final class ChatScrollUITests: XCTestCase {
         reachOlderPage(2)
         Thread.sleep(forTimeInterval: 1)
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
+        let beforeTap = Date().timeIntervalSince1970
         jump.tap()
         assertAtLatest()
+        Thread.sleep(forTimeInterval: 0.3)
+        let trace = try request("trace?after=\(beforeTap)")["samples"] as! [[String: Any]]
+        XCTAssertGreaterThan(trace.count, 3, "Missing rendered animation samples")
+        if !(trace.first?["reduceMotion"] as? Bool ?? false) {
+            let offsets = trace.compactMap { $0["y"] as? Double }
+            let low = offsets.min()!, high = offsets.max()!
+            XCTAssertGreaterThan(high - low, 100, "Jump did not animate across the conversation")
+            XCTAssertGreaterThan(Set(offsets.filter { $0 > low + 10 && $0 < high - 10 }.map { Int($0) }).count, 2,
+                                 "No intermediate animation frames: jump was instantaneous")
+        }
         let requests = olderRequests
         Thread.sleep(forTimeInterval: 10)
         assertAtLatest()
@@ -89,6 +100,22 @@ final class ChatScrollUITests: XCTestCase {
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.tap()
         assertAtLatest()
+    }
+
+    func testRepeatedTopToBottomJumps() throws {
+        launch()
+        for page in 1...4 {
+            reachOlderPage(page)
+            Thread.sleep(forTimeInterval: 0.5)
+            XCTAssertTrue(jump.waitForExistence(timeout: 5))
+            jump.tap()
+            assertAtLatest()
+            let requests = olderRequests
+            Thread.sleep(forTimeInterval: 1)
+            assertAtLatest()
+            XCTAssertEqual(olderRequests, requests, "History kept loading after jump \(page)")
+        }
+        capture("four-repeated-history-jumps")
     }
 
     func testPollingDoesNotPullAnOlderReadingPositionToBottom() throws {
