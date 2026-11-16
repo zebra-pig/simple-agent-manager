@@ -1,55 +1,51 @@
 import SwiftUI
 
-/// Shared by the live chat and simulator review fixture.
-struct ChatSteeringControls: View {
+/// Occupies the starter composer's profile-menu position.
+struct ChatSteeringSelector: View {
     let intent: DeliveryIntent
     let hasFiles: Bool
     let steeringSupported: Bool?
-    let interrupting: Bool
-    let error: String?
     let select: (DeliveryIntent) -> Void
-    let interrupt: () -> Void
 
     private var locked: Bool { hasFiles || steeringSupported == false }
     private var queued: Bool { locked || intent == .queue }
+    private var detail: LocalizedStringKey {
+        hasFiles ? "Messages with files are sent when this turn ends."
+            : steeringSupported == false ? "This agent takes messages when this turn ends."
+            : queued ? "Sent when this turn ends."
+            : "Joins this turn if the agent can take it; otherwise sent next."
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Label("Agent working", systemImage: "circle.fill")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .labelStyle(WorkingLabelStyle())
-                Spacer(minLength: 0)
-                Button(action: interrupt) {
-                    HStack(spacing: 6) {
-                        if interrupting { ProgressView().controlSize(.mini) }
-                        else { Image(systemName: "stop.fill").font(.caption) }
-                        Text(interrupting ? "Interrupting…" : "Interrupt")
-                    }.font(.subheadline.weight(.medium)).padding(.vertical, 10)
-                }
-                .tint(.red).disabled(interrupting)
-                .accessibilityHint("Stops this turn so the agent can read queued messages.")
+        Menu {
+            Button { select(.steer) } label: {
+                Label("Steer now", systemImage: queued ? "arrow.turn.down.right" : "checkmark")
             }
-            Picker("Message delivery", selection: Binding(get: { queued ? DeliveryIntent.queue : .steer }, set: select)) {
-                Label("Steer now", systemImage: "arrow.turn.down.right").tag(DeliveryIntent.steer)
-                Label("Queue next", systemImage: "text.line.last.and.arrowtriangle.forward").tag(DeliveryIntent.queue)
+            Button { select(.queue) } label: {
+                Label("Queue next", systemImage: queued ? "checkmark" : "text.line.last.and.arrowtriangle.forward")
             }
-            .pickerStyle(.segmented).disabled(locked)
-            Text(hasFiles ? "Messages with files are sent when this turn ends." : steeringSupported == false ? "This agent takes messages when this turn ends." : queued ? "Sent when this turn ends." : "Joins this turn if the agent can take it; otherwise sent next.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if let error { Text(error).font(.caption).foregroundStyle(.red).accessibilityAddTraits(.updatesFrequently) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: queued ? "text.line.last.and.arrowtriangle.forward" : "arrow.turn.down.right")
+                Text(queued ? "Queue next" : "Steer now")
+                    .font(.subheadline.weight(.semibold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 4)
-    }
-}
-
-private struct WorkingLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.font(.system(size: 7)).foregroundStyle(.green)
-            configuration.title
-        }
+        .menuStyle(.button)
+        .glassButton()
+        .buttonBorderShape(.capsule)
+        .tint(.primary)
+        .menuIndicator(.hidden)
+        .fixedSize(horizontal: false, vertical: true)
+        .disabled(locked)
+        .accessibilityLabel("Message delivery")
+        .accessibilityValue(Text(queued ? "Queue next" : "Steer now"))
+        .accessibilityHint(Text(detail))
+        .help(Text(detail))
     }
 }
 

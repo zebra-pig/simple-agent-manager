@@ -42,7 +42,7 @@ echo steer > /tmp/sam-steering-mode
 python3 "$native/ios/tests/steering-server.py" > "$build/server.log" 2>&1 &
 server_pid=$!
 xcrun simctl status_bar "$sim" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
-for mode in steer queue interrupting error unsupported; do
+for mode in steer queue draft interrupting error unsupported; do
     echo "$mode" > /tmp/sam-steering-mode
     xcrun simctl terminate "$sim" dev.sam.steering.review 2>/dev/null || true
     xcrun simctl launch "$sim" dev.sam.steering.review "$mode"

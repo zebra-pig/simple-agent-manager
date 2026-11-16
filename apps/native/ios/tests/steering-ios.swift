@@ -13,6 +13,9 @@ final class FixtureCredentials: CredentialStore, @unchecked Sendable {
     init() {
         let core = App(store: FixtureCredentials(), baseDomain: nil)
         app = core
+        let state = core.state()
+        let draft = ChatDraft(server: state.serverUrl, user: state.viewer?.id ?? "", project: "fixture", session: "chat")
+        draft.wrappedValue = ProcessInfo.processInfo.arguments.last == "draft" ? "Please make the project cards more compact." : ""
         _model = State(initialValue: ChatModel(app: core))
     }
     var body: some Scene {

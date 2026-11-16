@@ -182,22 +182,11 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom) {
             if canReply {
                 VStack(spacing: 0) {
-                    if chat.state.working {
-                        ChatSteeringControls(intent: chat.state.deliveryIntent,
-                            hasFiles: !chat.state.attachments.isEmpty,
-                            steeringSupported: chat.state.steeringSupported,
-                            interrupting: chat.state.interrupting, error: chat.state.interruptError?.message,
-                            select: { chat.core.setDeliveryIntent(intent: $0) },
-                            interrupt: { Task { await chat.core.interrupt() } })
-                    } else if let error = chat.state.interruptError {
+                    if let error = chat.state.interruptError {
                         Text(error.message).font(.caption).foregroundStyle(.red)
+                            .padding(.horizontal).accessibilityAddTraits(.updatesFrequently)
                     }
-                    Composer(placeholder: composerPlaceholder, text: $draft, busy: submission.sending || chat.state.sending, files: chat.files) {
-                        guard !chat.state.sending else { return }
-                        submission.send(draft: _draft) { content in
-                            await chat.core.send(content: content)
-                        }
-                    }
+                    replyComposer
                 }
             }
         }
@@ -209,6 +198,36 @@ struct ChatView: View {
                 if Task.isCancelled { break }
                 await chat.core.refresh()
             }
+        }
+    }
+
+    private var replyComposer: some View {
+        let stopping = chat.state.working
+            && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && chat.state.attachments.isEmpty
+        var composer = Composer(placeholder: composerPlaceholder, text: $draft,
+            busy: submission.sending || chat.state.sending || chat.state.interrupting,
+            files: chat.files) {
+                if stopping { Task { await chat.core.interrupt() } }
+                else { sendReply() }
+            } accessory: {
+                if chat.state.working {
+                    ChatSteeringSelector(intent: chat.state.deliveryIntent,
+                        hasFiles: !chat.state.attachments.isEmpty,
+                        steeringSupported: chat.state.steeringSupported,
+                        select: { chat.core.setDeliveryIntent(intent: $0) })
+                }
+            }
+        composer.allowsEmpty = stopping
+        composer.sendLabel = stopping ? "Stop agent" : "Send"
+        composer.sendIcon = stopping ? "stop.fill" : "arrow.up"
+        return composer
+    }
+
+    private func sendReply() {
+        guard !chat.state.sending else { return }
+        submission.send(draft: _draft) { content in
+            await chat.core.send(content: content)
         }
     }
 

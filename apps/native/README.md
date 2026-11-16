@@ -65,7 +65,11 @@ SAM queues it and the transcript shows **Queued instead**. Messages with files, 
 runtimes that report steering unsupported, always queue. The message’s delivery label
 also distinguishes confirmed steering, unconfirmed delivery, and failed delivery.
 
-**Interrupt** stops the current turn through the same session cancel endpoint as web,
+On Apple platforms, the delivery menu occupies the starter composer’s profile-selector
+position below the text. With an empty draft, the send-position button becomes a
+monochrome Stop icon; entering text or adding files switches it back to Send.
+
+**Interrupt / Stop** stops the current turn through the same session cancel endpoint as web,
 so the agent can read pending messages. It preserves the task. The control stays disabled
 with progress while cancellation is in flight; errors remain visible with retry available.
 It is available only to viewers who can drive the session.
