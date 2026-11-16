@@ -16,3 +16,11 @@ It makes no network requests and does not submit a real agent task.
 
 Also manually check the project flow: type a task, tap Send, wait for its agent
 view, then go back. The keyboard should close on Send and stay closed on return.
+
+Verified on an isolated iPhone 18 Pro simulator with iOS 27 / Xcode 27:
+
+- Fixed production editor: `PASS: native focus dismissal, navigation return, and explicit refocus`.
+- Same fixture with the first-responder dismissal removed: `FAIL: focus dismissal retained first responder`.
+- Production iOS Simulator and macOS targets compiled successfully. Generated
+  bindings were reused from an identical Rust source tree. Simulator deleted
+  after verification. A live-account agent submission was not performed.
