@@ -23,10 +23,30 @@ struct ChatDraft: DynamicProperty {
     }
     var projectedValue: Binding<String> { $saved }
 
-    /// A response for an older send must never discard a newly edited draft.
-    func clear(ifUnchanged sent: String) {
-        if store.string(forKey: key) == sent {
-            store.set("", forKey: key)
+    /// Read durable storage directly: another window may have edited the draft
+    /// before this property wrapper receives its AppStorage notification.
+    func restore(ifEmpty content: String) {
+        if (store.string(forKey: key) ?? "").isEmpty {
+            store.set(content, forKey: key)
+        }
+    }
+}
+
+/// Owns the synchronous composer handoff, before the core observer can publish.
+@MainActor @Observable final class ChatSubmission {
+    private(set) var sending = false
+
+    func send(draft: ChatDraft, operation: @escaping (String) async -> Bool) {
+        guard !sending else { return }
+        sending = true
+        let content = draft.wrappedValue
+        draft.wrappedValue = ""
+        Task {
+            let accepted = await operation(content)
+            // A failed request must not overwrite text entered in another window
+            // or after navigating back into this conversation.
+            if !accepted { draft.restore(ifEmpty: content) }
+            sending = false
         }
     }
 }

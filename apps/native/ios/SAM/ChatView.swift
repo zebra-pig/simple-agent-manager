@@ -7,6 +7,7 @@ struct ChatView: View {
     let ref: SessionRef
     @State private var chat: ChatModel
     @ChatDraft private var draft: String
+    @State private var submission = ChatSubmission()
     @State private var historyAnchor: [String] = []
     @State private var visibleMessage: String?
     @State private var messageFrames: [String: CGRect] = [:]
@@ -174,10 +175,10 @@ struct ChatView: View {
         } message: { Text("This ends the task and stops its agent.") }
         .safeAreaInset(edge: .bottom) {
             if canReply {
-                Composer(placeholder: "Reply to the agent…", text: $draft, busy: chat.state.sending, files: chat.files) {
-                    let content = draft
-                    Task {
-                        if await chat.core.send(content: content) { _draft.clear(ifUnchanged: content) }
+                Composer(placeholder: "Reply to the agent…", text: $draft, busy: submission.sending || chat.state.sending, files: chat.files) {
+                    guard !chat.state.sending else { return }
+                    submission.send(draft: _draft) { content in
+                        await chat.core.send(content: content)
                     }
                 }
             }

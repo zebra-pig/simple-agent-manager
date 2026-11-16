@@ -23,17 +23,6 @@ import AppKit
         precondition(draft(project: "other-project").wrappedValue.isEmpty)
         precondition(draft(user: "bob").wrappedValue.isEmpty)
         precondition(draft(server: "https://other.example").wrappedValue.isEmpty)
-        // A delayed successful send may complete after navigating away and
-        // editing the same conversation through a newly created composer.
-        let reopened = draft()
-        reopened.wrappedValue = "Newer edit"
-        original.clear(ifUnchanged: text)
-        precondition(draft().wrappedValue == "Newer edit", "Old completion must preserve newer edits")
-        original.clear(ifUnchanged: "Newer edit")
-        precondition(draft().wrappedValue.isEmpty, "Accepted unchanged text must clear durably")
-        original.wrappedValue = "Not sent"
-        // A failed send never calls clear. Reopening must retain the text.
-        precondition(draft().wrappedValue == "Not sent")
         original.projectedValue.wrappedValue = "Edited through composer binding"
         precondition(draft().wrappedValue == "Edited through composer binding")
         original.wrappedValue = ""
@@ -42,6 +31,47 @@ import AppKit
         let b = ChatDraft(server: "a", user: "b/c", project: "p", session: "s", store: store)
         a.wrappedValue = "Separated scope"
         precondition(b.wrappedValue.isEmpty, "Scope component boundaries must not collide")
+        // A suspended request models a slow server/history refresh. The handoff
+        // must finish synchronously, and duplicate taps must never start work.
+        let submission = ChatSubmission()
+        var complete: CheckedContinuation<Bool, Never>?
+        var requests = 0
+        original.wrappedValue = text
+        submission.send(draft: original) { sent in
+            requests += 1
+            precondition(sent == text)
+            return await withCheckedContinuation { complete = $0 }
+        }
+        precondition(original.wrappedValue.isEmpty, "Tap must clear before async work starts")
+        precondition(submission.sending, "Tap must lock before observer delivery")
+        submission.send(draft: original) { _ in fatalError("Duplicate send") }
+        func waitForRequest() {
+            while complete == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        }
+        func finish(_ accepted: Bool) {
+            complete!.resume(returning: accepted)
+            complete = nil
+            while submission.sending { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        }
+        waitForRequest()
+        precondition(requests == 1)
+        finish(false)
+        precondition(draft().wrappedValue == text, "Failure must restore durable draft")
+        submission.send(draft: original) { _ in
+            await withCheckedContinuation { complete = $0 }
+        }
+        waitForRequest()
+        draft().wrappedValue = "New draft during request"
+        finish(false)
+        precondition(draft().wrappedValue == "New draft during request", "Failure must preserve newer input")
+        submission.send(draft: original) { _ in
+            await withCheckedContinuation { complete = $0 }
+        }
+        waitForRequest()
+        draft().wrappedValue = "Next message"
+        finish(true)
+        precondition(draft().wrappedValue == "Next message", "Success must preserve next message")
+        original.wrappedValue = ""
         // Exercise the production property wrapper in real SwiftUI navigation,
         // including destroying and reopening the composer view.
         _ = NSApplication.shared
@@ -68,13 +98,21 @@ import AppKit
         settle()
         precondition(editor?.wrappedValue == text, "Navigating back into a chat must restore its input")
         let pending = ChatDraft(server: "fixture", user: "alice", project: "project", session: "chat", store: store)
-        editor!.wrappedValue = "Edited after reopening"
-        pending.clear(ifUnchanged: text)
+        editor!.wrappedValue = text
         settle()
-        precondition(editor?.wrappedValue == "Edited after reopening")
-        pending.clear(ifUnchanged: "Edited after reopening")
+        let mountedSubmission = ChatSubmission()
+        mountedSubmission.send(draft: pending) { _ in
+            await withCheckedContinuation { complete = $0 }
+        }
         settle()
-        precondition(editor?.wrappedValue == "", "Successful send must clear the mounted editor too")
+        precondition(editor?.wrappedValue == "", "Sending must clear the mounted editor while request is pending")
+        precondition(mountedSubmission.sending)
+        precondition(complete != nil)
+        complete!.resume(returning: false)
+        complete = nil
+        settle()
+        precondition(editor?.wrappedValue == text, "Failed send must restore mounted editor")
+        precondition(!mountedSubmission.sending)
         window.orderOut(nil)
         print("CHAT_DRAFT_TESTS_PASS")
     }
