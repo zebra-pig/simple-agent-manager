@@ -50,6 +50,7 @@ struct AssistantView: View {
     @State private var model: AssistantModel
     @State private var draft = ""
     @State private var followsLatest = true
+    @State private var visibleMessage: String?
     @State private var scrollControl = ChatScrollControl()
     @State private var voice = AssistantVoice()
     @State private var earlierOpen = false
@@ -95,15 +96,14 @@ struct AssistantView: View {
                         }
                         ForEach(model.state.turns, id: \.id) { turn in turnCard(turn) }
                         Color.clear.frame(height: 1).id("bottom")
-                            .onAppear { followsLatest = true }
-                            .onDisappear { followsLatest = false }
-                    }.padding().frame(maxWidth: 760).frame(maxWidth: .infinity)
-                    .background(ChatScrollProbe(control: scrollControl))
+                            .modifier(ChatBottomTracking(followsLatest: $followsLatest))
+                    }.scrollTargetLayout().padding().frame(maxWidth: 760).frame(maxWidth: .infinity)
                 }
                 .initialLoading(model.state.loading && !model.state.loaded)
                 .interactiveKeyboardDismiss()
                 .refreshable { await model.core.refresh() }
                 .defaultScrollAnchor(.bottom)
+                .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage, followsLatest: $followsLatest))
                 .overlay(alignment: .bottom) {
                     if !followsLatest {
                         ChatJumpButton {
@@ -112,7 +112,7 @@ struct AssistantView: View {
                     }
                 }
                 .onChange(of: model.state.turns.count) { old, new in
-                    if old == 0 || (followsLatest && new == old + 1) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                    if old == 0 || (followsLatest && new == old + 1) { scrollControl.jump(using: proxy, to: "bottom", animated: false) }
                 }
                 .safeAreaInset(edge: .bottom) { composer }
             }

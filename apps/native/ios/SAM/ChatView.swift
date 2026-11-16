@@ -70,18 +70,16 @@ struct ChatView: View {
                             Text(error.message).foregroundStyle(.red).font(.callout)
                         }
                         Color.clear.frame(height: 1).id("latest")
-                            .onAppear { followsLatest = true }
-                            .onDisappear { followsLatest = false }
+                            .modifier(ChatBottomTracking(followsLatest: $followsLatest))
                     }
                     .scrollTargetLayout()
                     .padding()
-                    .background(ChatScrollProbe(control: scrollControl))
                 }
                 .defaultScrollAnchor(.bottom)
-                .scrollPosition(id: $visibleMessage, anchor: .top)
+                .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage, followsLatest: $followsLatest))
                 .interactiveKeyboardDismiss()
                 .onChange(of: chat.state.items) {
-                    if followsLatest && !chat.state.loadingHistory { proxy.scrollTo("latest", anchor: .bottom) }
+                    if followsLatest && !chat.state.loadingHistory { scrollControl.jump(using: proxy, to: "latest", animated: false) }
                 }
                 .onChange(of: chat.state.loadingHistory) {
                     guard !chat.state.loadingHistory, !historyAnchor.isEmpty else { return }
@@ -90,16 +88,17 @@ struct ChatView: View {
                     // prefer the first previously visible stable message ID.
                     let retained = visibleMessage.map { historyAnchor.contains($0) && ids.contains($0) } ?? false
                     if !retained, let anchor = historyAnchor.first(where: { ids.contains($0) }) {
-                        var transaction = Transaction(animation: nil)
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) { proxy.scrollTo(anchor, anchor: .top) }
+                        scrollControl.restore(using: proxy, to: anchor)
                     }
                     historyAnchor = []
                     followsLatest = false
                 }
-                .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
+                .onChange(of: chat.state.outbox) { scrollControl.jump(using: proxy, to: "latest", animated: false) }
                 if !followsLatest {
                     ChatJumpButton {
+                        // An in-flight history page must not restore its old
+                        // reading anchor after the user explicitly leaves it.
+                        historyAnchor = []
                         scrollControl.jump(using: proxy, to: "latest")
                     }
                 }
