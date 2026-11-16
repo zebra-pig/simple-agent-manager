@@ -84,3 +84,13 @@ Scope: native presentation and intake only. Live authenticated upload, physical
 hardware, and interactive macOS picker behavior are not covered. Web deployment
 cannot execute this SwiftUI change; native simulator installation is the staging
 artifact for this PR.
+
+## Source action text color
+
+The chooser List uses `.tint(.primary)` so both action labels and symbols use
+standard semantic text color. Verified on the Mac iPhone 17 Pro / iOS 27
+simulator: [light](evidence/source-chooser.png) and
+[dark](evidence/source-chooser-dark.png). The production AttachButton compiled in
+the existing composer fixture; a temporary scratch-only onAppear opened its
+sheet for capture. Local swiftui-pro design/accessibility review passed. No new
+behavioral tests were added for this cosmetic modifier.
