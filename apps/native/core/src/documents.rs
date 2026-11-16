@@ -91,6 +91,8 @@ pub(crate) fn resolve(rows: &mut Vec<Row>) {
     }
 }
 
+pub(crate) const SAM_BOOTSTRAP: &str = "IMPORTANT: Before starting any work, you MUST call the `get_instructions` tool from the sam-mcp MCP server. This provides your task context, project information, output branch name, and instructions for reporting progress. Do not proceed until you have called this tool and read its response.";
+
 const ATTACHMENT_HEADER: &str = "\n\n## Attached Files\n\nThe following files have been uploaded to the workspace:\n";
 const ATTACHMENT_FOOTER: &str = "\nThese are absolute paths inside your workspace container, outside the repository. Open the exact paths listed above to read the attachments; do not look for them relative to the repository.";
 
@@ -112,9 +114,8 @@ pub(crate) fn user_message(content: &str) -> (String, Vec<ChatDocument>) {
     }
     if documents.is_empty() { return (content.to_owned(), vec![]) }
     // Preserve any unrelated text after the generated envelope.
-    let bootstrap = "IMPORTANT: Before starting any work, you MUST call the `get_instructions` tool from the sam-mcp MCP server. This provides your task context, project information, output branch name, and instructions for reporting progress. Do not proceed until you have called this tool and read its response.";
     let message = if message == crate::attachments::DEFAULT_ATTACHMENT_MESSAGE { "" } else { message };
-    let text = format!("{message}{}", if suffix.trim().is_empty() || suffix.trim() == bootstrap { "" } else { suffix });
+    let text = format!("{message}{}", if suffix.trim().is_empty() || suffix.trim() == SAM_BOOTSTRAP { "" } else { suffix });
     (text.trim_end().to_owned(), documents)
 }
 
