@@ -8,7 +8,8 @@ production ChatView on an iOS simulator and inspect before/after screenshots.
 
 ## Preflight
 
-- Classification: public-surface-change, docs-sync-change (native scroll behavior).
+- Classification: public-surface-change, docs-sync-change, cross-component-change,
+  business-logic-change (native scrolling and stable shared timeline groups).
 - Target: zebra-pig/simple-agent-manager/apps/native, confirmed by SAM context.
 - Existing path: ChatHistoryPager viewport + drag intent -> ChatView -> Rust
   ChatViewModel::load_older -> HTTP before cursor -> state observer -> lazy rows
@@ -32,8 +33,8 @@ These are hypotheses to verify against real rendered behavior.
 - [x] Reproduce baseline with production app and actual touch gestures.
 - [x] Fix measured position drift and layout-triggered duplicate pagination.
 - [x] Add regression checking consecutive prepends and no chained loads.
-- [ ] Run complete iOS touch suite and inspect screenshots.
-- [ ] Review changes and task completion; push branch, PR and merge gates.
+- [x] Run complete iOS touch suite and inspect screenshots.
+- [x] Review implementation/task completion, push branch and open PR #73.
 
 ## Findings and corrections
 
@@ -55,13 +56,44 @@ These are hypotheses to verify against real rendered behavior.
 
 - Baseline production iOS suite: 10 executed, 7 passed, 3 failed. Expanded checks
   reproduced replacement of an existing card and transient background-poll drift.
-- Shared Rust: 89 tests pass, including two new real HTTP pagination regressions.
-- Release Clippy, all targets, warnings denied: pass.
-- Strict mixed-content + polling rerun: 2/2 pass. Three page loads retain exact
-  final offsets and all display samples within 1pt. Polling continues, the reading
-  snapshot remains fixed, and returning to latest flushes current live content.
-- Final 12-test iOS run currently in progress. Screenshot review, native macOS
-  compilation, task-completion review, push and PR gates remain pending.
+- Shared Rust: 89 tests passed initially; all 88 remaining tests pass after main's
+  independent audio-recording removal. Two new tests use real HTTP pagination.
+- Release Clippy, all targets, warnings denied: pass on both bases.
+- Final viewport-clipped production iOS suite: 12 executed, 12 passed, 0 skipped,
+  473.958 seconds. All six controlled page loads have zero final drift and every
+  display sample remains within 1pt. Background polling remains fixed and catches
+  up on return to latest. Real moving responses, animation, repeated jumps,
+  rotation, provisioning and the exact held-response top→arrow sequence pass.
+- Current-main integration UI: 4/4 pass (plain/mixed pagination, initial polling,
+  stable background polling and live catch-up), 129.271 seconds.
+- Native macOS build passes on current main; all Apple core libraries regenerated.
+- Mac ScrollView pager behavioral regression passes, including baseline red/green.
+- Sixteen final simulator screenshots reviewed; no title/composer overlap remains.
+  Pixel checks confirm matching mixed/polling regions and unchanged plain glyphs.
+- Evidence: `apps/native/ios/tests/evidence/pagination-stability/verification.md`.
+
+## Completion validation
+
+| Check | Verdict | Evidence |
+| --- | --- | --- |
+| A: Findings → checklist | PASS | All five measured findings have code and regression coverage. |
+| B: Checklist → diff | PASS | Pager, layout, model snapshot and core grouping changes are substantive. |
+| C: Criteria → verification | PASS | Real iOS touch/frame checks, exact offsets and reviewed screenshots. |
+| D: UI → backend | PASS | Pager/retry/accessibility load action uses the existing core HTTP intent; reading state is deliberately local. |
+| E: Multiple resources | N/A | No provider/auth/resource selection change. |
+| F: Vertical slice | PASS | Actual SwiftUI → UniFFI → Rust → loopback HTTP → rendered frame outcomes. |
+
+No uncovered research findings, acceptance criteria or critical/high review
+findings remain. SwiftUI/API, state lifetime, accessibility order, shared grouping
+and tool-update resolution were self-reviewed using swiftui-pro and the
+repository task-completion-validator procedure.
+
+## Release tracking
+
+[PR #73](https://github.com/zebra-pig/simple-agent-manager/pull/73) is the source
+of truth for current GitHub checks, the required CodeRabbit observation window,
+and merge status. The task's implementation and native verification are complete;
+SAM task completion is recorded only after the release gates and merge.
 
 ## Limits
 

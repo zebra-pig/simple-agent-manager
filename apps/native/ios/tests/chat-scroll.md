@@ -87,8 +87,9 @@ mixed-content test also exposed the replacement of the visible `m-60` thought by
 an older activity group. The new Rust pagination tests cover that regression,
 reply chunks, tool-update identity, polling persistence and continued live merging.
 
-All 89 shared-core tests and release-mode Clippy with warnings denied pass.
-The final complete iOS run and reviewed screenshots are recorded in
+All 88 shared-core tests on current main and release-mode Clippy with warnings
+denied pass (89 tests before main's independent audio-recording removal).
+The final complete iOS run passes 12/12. Reviewed screenshots are recorded in
 `evidence/pagination-stability/verification.md` after completion.
 
 Runtime validation uses iPhone 16 Pro / iOS 27.0 / Xcode 27.0. Older runtime
