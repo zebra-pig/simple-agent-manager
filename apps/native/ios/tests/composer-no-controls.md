@@ -42,3 +42,9 @@ Xcode Cloud prevents that gap from recurring.
 Task-completion review: crash finding → fix/fixture/CI coverage PASS; planned
 changes → diff PASS; acceptance → native render/simulator/negative-control tests
 PASS. UI-to-backend and multi-resource selection are unchanged (N/A).
+
+The runner selects an iPhone from the chosen runtime's `supportedDeviceTypes`,
+matching the existing project-loading runner. Build 121 on Xcode Cloud (Xcode
+27.2) rejected the originally hardcoded iPhone 17 Pro with `Incompatible device`
+after macOS rendering passed; the locally installed iOS 27.0 runtime had supported
+it. Runtime/device pairing must be discovered rather than assumed.
