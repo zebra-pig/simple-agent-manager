@@ -47,3 +47,29 @@ Validated with Xcode 27 on the Mac:
 ![Filtered commands](iphone-filtered.png)
 ![Dark command picker](iphone-dark.png)
 ![Desktop layout render](macos-render.png)
+
+## Inside an agent chat
+
+`ios/tests/slash-commands-chat-ios.swift` mounts the actual `ChatView`, including
+its transcript, tools menu, durable reply draft and production reply composer.
+`chat-server.py` serves an offline authenticated session and custom command cache;
+command discovery passes through the real Rust HTTP client and generated Swift
+bindings. All POST requests are rejected so the screenshot run cannot start work.
+
+Start `chat-server.py <port-file>` on the Mac, then run `slash-commands.sh` with:
+
+- `SAM_TEST_SERVER=http://127.0.0.1:<port>`
+- `SAM_TEST_APP_SOURCE=<absolute-path>/ios/tests/slash-commands-chat-ios.swift`
+- `SAM_TEST_PHASES="chat-light chat-inserted chat-dark"`
+
+Stop the fixture server afterward. The run checks filtering in the real chat,
+command insertion into its durable draft, arguments, and retained editor focus.
+The light and dark images show sample conversation data, not a live account.
+
+PASS: the actual ChatView loaded its transcript and command cache through
+Rust HTTP/UniFFI; keyboard selection updated its durable draft with the command
+and arguments while retaining focus. No prompt was submitted.
+
+![Agent chat, light](agent-chat-light.png)
+![Agent chat, dark](agent-chat-dark.png)
+![Command inserted in reply](agent-chat-inserted.png)

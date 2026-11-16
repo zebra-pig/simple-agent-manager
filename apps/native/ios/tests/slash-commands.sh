@@ -18,7 +18,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 cp -R "$native_dir/ios" "$fixture_dir/ios"
-cp "$native_dir/ios/tests/slash-commands-ios.swift" "$fixture_dir/ios/SAM/SAMApp.swift"
+cp "${SAM_TEST_APP_SOURCE:-$native_dir/ios/tests/slash-commands-ios.swift}" "$fixture_dir/ios/SAM/SAMApp.swift"
 xcodebuild -project "$fixture_dir/ios/SAM.xcodeproj" -scheme SAM \
     -destination 'generic/platform=iOS Simulator' -derivedDataPath "$fixture_dir/dd" \
     PRODUCT_BUNDLE_IDENTIFIER="$bundle" CODE_SIGNING_ALLOWED=NO build > "$output_dir/build.log" 2>&1
@@ -39,8 +39,8 @@ xcrun simctl spawn "$simulator" defaults write com.apple.keyboard.preferences Di
 xcrun simctl status_bar "$simulator" override --time '9:41' --batteryState charged --batteryLevel 100
 xcrun simctl install "$simulator" "$fixture_dir/dd/Build/Products/Debug-iphonesimulator/SAM.app"
 container=$(xcrun simctl get_app_container "$simulator" "$bundle" data)
-SIMCTL_CHILD_SAM_SCREENSHOT_HANDSHAKE=1 xcrun simctl launch "$simulator" "$bundle"
-for phase in all-light filtered-light inserted-light all-dark; do
+SIMCTL_CHILD_SAM_FIXTURE_SERVER="${SAM_TEST_SERVER:-}" SIMCTL_CHILD_SAM_SCREENSHOT_HANDSHAKE=1 xcrun simctl launch "$simulator" "$bundle"
+for phase in ${SAM_TEST_PHASES:-all-light filtered-light inserted-light all-dark}; do
     tries=0
     while [ ! -f "$container/Documents/$phase.ready" ]; do
         tries=$((tries+1))
