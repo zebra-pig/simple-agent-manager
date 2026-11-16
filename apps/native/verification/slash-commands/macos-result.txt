@@ -1,0 +1,1 @@
+PASS: macOS production composer arrow/Return selection inserts a command without sending

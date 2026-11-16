@@ -1,0 +1,1 @@
+PASS: real ChatView loaded transcript and cached commands through Rust HTTP/UniFFI; reply autocomplete filtered, inserted a command and arguments, and retained focus without sending

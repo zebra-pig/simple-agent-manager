@@ -40,6 +40,15 @@ flowchart LR
   S -- Cookie --> API["SAM API /api/*"]
 ```
 
+## Project chat search (Apple)
+
+Use the standard search field in a project's chat list to find chats by title or
+session ID. `ProjectViewModel::search_sessions` trims whitespace and matches
+case-insensitively; clearing the query restores the list. `fetch_sessions` follows
+all session-list pages, so older chats are included. A failed refresh preserves
+the previous list and shows an error instead of replacing it with partial results.
+Search filters chat metadata locally; it does not search message bodies.
+
 ## Sign-in
 
 The app uses SAM's device flow, the same one `sam login` uses (`apps/api/src/routes/device-flow.ts`):
@@ -167,6 +176,26 @@ Apple tool surfaces use Liquid Glass with the existing material fallback. Androi
 neutral translucent surfaces, a light rim and a subtle gradient. File/diff parsing and API
 logic stay in Rust; the shells use Swift Charts and Compose drawing for the plots, without
 adding a platform-specific viewer dependency.
+
+## Slash commands on Apple platforms
+
+Type `/` at the beginning of a new-task or reply draft to open the Liquid Glass
+command picker. Keep typing to filter command names. Tap a command, or use the
+arrow keys and Return/Tab, to insert it with a trailing space. Add any arguments
+and press Send when ready. Escape or the close button dismisses the picker
+without changing the draft. Arguments, ordinary prose, and unknown commands
+keep the normal editor behavior.
+
+`CommandsViewModel` reads `/api/projects/:id/cached-commands`, the same project
+cache as web, whenever the project or chat opens. Cached custom commands override
+the built-in Claude Code registry. Cache failure leaves the registry available
+without blocking chat. This is autocomplete for agent commands; web-only local
+clear/copy/export actions are not advertised. Android currently retains its plain
+composer; the discovery model is shared and exported through UniFFI.
+
+Run `ios/tests/slash-commands.sh <output-directory>` on a Mac after building the
+core to verify the production composer in an isolated iOS simulator and capture
+screenshots. See [slash command verification](verification/slash-commands/README.md).
 
 ## Attachments
 

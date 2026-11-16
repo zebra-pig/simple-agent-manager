@@ -1,48 +1,110 @@
-# Chat jump regression (iOS simulator on a Mac)
+# Native chat scrolling regression
 
-`chat-scroll-ios.swift` compiles with the production `ChatScrollControl.swift` and
-`ChatScrollProbe`. It uses variable-height messages, `LazyVStack`,
-`scrollTargetLayout`, `scrollPosition`, and the production bottom anchor.
-It prepends and visits two older 100-message chunks, then invokes the same
-controller action as Jump to latest. Assertions check intermediate animated
-movement, the final measured bottom, and repeated jumps. A failure crashes the
-fixture; success writes `Documents/result.txt` in its simulator data container.
+The regression runner builds production `ChatView` and Rust bindings, serves
+loopback-only HTTP fixture data, and uses XCUITest touch gestures and the actual
+Jump to latest button. It replaces only the isolated preview's app entry point;
+it never reads account credentials or provisions a VM.
 
-Build on the Mac from the repository root (use an isolated temporary directory):
+Run on an Apple silicon Mac with Xcode 26+ and an installed iOS runtime:
 
 ```sh
-fixture_dir=$(mktemp -d)
-mkdir "$fixture_dir/ScrollFixture.app"
-xcrun --sdk iphonesimulator swiftc -parse-as-library \
-  -target arm64-apple-ios17.0-simulator \
-  -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
-  apps/native/ios/SAM/ChatScrollControl.swift \
-  apps/native/ios/tests/chat-scroll-ios.swift \
-  -o "$fixture_dir/ScrollFixture.app/ScrollFixture"
-/usr/libexec/PlistBuddy \
-  -c 'Add :CFBundleIdentifier string dev.zebrapig.scrollfixture' \
-  -c 'Add :CFBundleExecutable string ScrollFixture' \
-  -c 'Add :CFBundleName string ScrollFixture' \
-  -c 'Add :CFBundlePackageType string APPL' \
-  -c 'Add :UILaunchScreen dict' "$fixture_dir/ScrollFixture.app/Info.plist"
-xcrun simctl install booted "$fixture_dir/ScrollFixture.app"
-xcrun simctl launch booted dev.zebrapig.scrollfixture
-# After the fixture finishes (~12 seconds):
-fixture_data=$(xcrun simctl get_app_container booted dev.zebrapig.scrollfixture data)
-cat "$fixture_data/Documents/result.txt"
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
+gem install --user-install xcodeproj -v 1.27.0 --no-document
+apps/native/scripts/build-ios.sh
+apps/native/verification/chat-scroll/run.sh /tmp/sam-scroll-regression
 ```
 
-Verified on 2026-11-15 on the build Mac's iPhone 18 Pro / iOS 27 simulator:
+The runner creates and deletes a dedicated iPhone simulator. The results are in
+`scroll-tests.xcresult`, `xcodebuild.log`, `server.log` and `interaction.mov`.
+The iOS Xcode Cloud post-clone hook runs this suite on its Mac host and exports
+XCTest PNG screenshots into the build log even on failure.
 
-- Full SAM simulator build with freshly generated Rust bindings: BUILD SUCCEEDED.
-- Regression fixture: `PASS: 3 chunks · animated · reached latest · repeated taps`.
-- Production `ChatView` launched with offline HTTP fixture credentials and a queued
-  task at `workspace_creation`: the inline provisioning card displayed “Cloning
-  repository · 2 of 4”, elapsed time, detail, and the four-stage indicator above
-  the composer. Only the temporary preview entry point and mock server differed;
-  production ChatView, Rust core, and provisioning component were unchanged.
-- Screenshots: [scroll result](evidence/scroll-bottom/scroll-result.png) and
-  [inline provisioning](evidence/scroll-bottom/provisioning.png).
+## Coverage
 
-The fixture exercises the controller action programmatically, not a physical tap.
-It does not connect to a user's live conversation or provision a paid VM.
+Nine real UI tests cover:
+
+- Opening/polling at the bottom without fetching earlier pages.
+- Jumping after multiple pages and staying at the latest message through two
+  poll cycles with changing message height. A read-only display-link probe
+  requires intermediate rendered offsets to prove the button actually animates.
+- Mixed Markdown/code/tool/thinking messages across three pages and rotation.
+- Four repeated top-to-bottom jumps without recursive pagination.
+- Preserving an older reading position through polling.
+- Preserving a partially visible message's position when an earlier page arrives,
+  after explicitly asserting that the HTTP response completed.
+- All four inline provisioning stages and disappearance when the agent starts.
+- A response completing during the actual jump animation after leaving and
+  reentering the pager, without starting a canceled request or restoring the top.
+- The user's exact top → tap sequence: hold an earlier-page HTTP response, swipe
+  to the top, tap the real down-arrow, release the response and observe two polls.
+
+The suite uses fixture conversations rather than the user's authenticated chat.
+It does not automate a finger interrupting an animation during its 0.35-second
+transition; XCTest waits for quiescence before subsequent commands. It verifies
+that subsequent real gestures and jumps work and that no background scroll loop
+continues after settling.
+
+## Implementation
+
+SwiftUI owns one semantic scroll position and the animation to its bottom edge.
+There is no underlying UIScrollView offset-writing/retry loop. The actual bottom
+sentinel's viewport visibility controls following. The history pager uses native viewport visibility on current OS versions (frame
+geometry on older versions) and requests one page per visibility transition, never on
+loading completion alone. Main's `ChatHistoryAnchor` preserves the original row
+and pixel offset through insertion; restoration uses the same position owner as
+the button. An explicit jump invalidates both pending history anchors.
+
+## Mac execution history
+
+The earlier programmatic scroll-controller fixture missed the real interaction.
+Its historical screenshots are not evidence for this correction.
+
+| Xcode Cloud build | Source | Result |
+| --- | --- | --- |
+| 91 | 9b2f2ba0f | Harness failed before UI execution; fixed generated test PRODUCT_NAME and missing Loading.swift in the existing macOS render compile. |
+| 93 | 9ec7f2ad4 | macOS archive passed; six UI tests ran and failed. Fixed bottom visibility, String-ID pager tracking and an XCTest label-query limit. |
+| 99 | a83c4ecbf | macOS archive passed; seven UI tests ran, four passed and three failed. Exact top→tap with held response, four repeated jumps, bottom polling and older-position polling passed. Consecutive pagination and prepend position failed. |
+| 101 | de42ba06a | macOS archive passed; eight UI tests ran, five passed and three failed. Provisioning passed. Prepend now retains the row but shifts 24pt; consecutive page entry can be dropped during loading. |
+
+Build 103 (784daaa5a) ran eight UI tests: six passed, two failed. Updating the
+reading anchor while the response waited fixed the 24pt shift. Consecutive pages
+still stalled when the pager stayed visible through repeated swipes. The next
+correction admits a new downward finger swipe at the continuously visible top,
+without treating completion as new intent. A cancellation generation invalidates
+pending entries when the arrow is tapped. A ninth UI test releases and completes
+history during the actual animation and checks the remaining distance at both
+points. Test-only layout/inset measurements remain available in the logs.
+
+Build 105 (7309e9055) ran nine tests: eight passed. Consecutive pagination,
+intermediate animation frames, response completion during animation (2230pt
+remaining), both reading-position tests, provisioning and repeated jumps passed.
+The mixed-content case passed its portrait jump, then lost bottom position on
+landscape rotation. The next correction applies the bottom size-change anchor
+only while the actual bottom sentinel says the user is following latest.
+Build 106 (8ffce4060) passed rotation but introduced a cold-launch/history
+admission failure and an instant jump in the during-animation test (seven of nine
+passed). The broad size-change anchor was removed. The next correction reissues
+the same semantic bottom destination only when the container dimensions change,
+when already following latest or holding an explicit bottom destination. Content
+height changes do not trigger this correction.
+
+Build 110 and its duplicate 111 were interrupted during the third test (SIGINT 130),
+so neither is a full-suite result. The partial log exposed premature history
+admission from provisional geometry; the animation fixture had already fetched
+two pages after one swipe. The modern pager now uses native viewport visibility;
+geometry is retained only for older OS versions. The host regression uses a real
+ScrollView, retaining pending-entry, gesture deduplication and cancellation checks.
+
+No passing full-suite result is claimed until all results and screenshots have
+been inspected.
+
+The latest pager correction (`5748f450e`, integrated with main at `e51c16815`)
+has not completed Mac verification. Two manual Xcode Cloud starts returned
+HTTP 500 `UNEXPECTED_ERROR`. Automatic build 112 selected the correct integrated
+commit but was canceled before starting, with no actions or cancellation reason.
+The default workflow's automatic-main condition was restored. Apple’s public
+status feed listed no Xcode Cloud incident at the time; the cause is unconfirmed.
+A GitHub-hosted Mac fallback workflow could not be pushed because the installed
+GitHub App lacks `workflows` permission. Direct private-Mac access cannot be
+renewed while this session's SAM MCP token is expired. PR #54 remains a draft
+and must not merge until the complete suite and screenshot review pass.

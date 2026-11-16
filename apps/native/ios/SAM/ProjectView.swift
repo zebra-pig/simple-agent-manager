@@ -8,7 +8,9 @@ struct ProjectView: View {
     let project: Project
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
+    @State private var search = ""
     @State private var draft = ""
+    @State private var commands: CommandsModel
     @State private var submitting = false
     @State private var settings = false
     @State private var editing: ProfileEditing?
@@ -19,6 +21,7 @@ struct ProjectView: View {
         self.project = project
         self.open = open
         _model = State(initialValue: ProjectModel(app: app))
+        _commands = State(initialValue: CommandsModel(app: app))
     }
 
     var body: some View {
@@ -26,7 +29,7 @@ struct ProjectView: View {
             if let error = model.state.error {
                 Text(error.message).foregroundStyle(.red)
             }
-            ForEach(model.state.sessions, id: \.id) { session in
+            ForEach(model.state.matchingSessions, id: \.id) { session in
                 Button {
                     open(SessionRef(projectId: project.id, sessionId: session.id))
                 } label: {
@@ -36,12 +39,17 @@ struct ProjectView: View {
             }
         }
         .overlay {
-            if model.state.sessions.isEmpty && model.state.error == nil {
+            if !model.state.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               model.state.matchingSessions.isEmpty, model.state.error == nil, !model.state.loading {
+                ContentUnavailableView.search
+            } else if model.state.sessions.isEmpty && model.state.error == nil {
                 ContentUnavailableView("No sessions yet", systemImage: "bubble.left.and.bubble.right",
                                        description: Text("Describe a task below and an agent picks it up."))
             }
         }
         .initialLoading(model.state.loading)
+        .searchable(text: $search, prompt: "Search chat titles or IDs")
+        .onChange(of: search) { _, query in model.core.searchSessions(query: query) }
         .navigationTitle(project.name)
         .inlineTitle()
         #if os(iOS)
@@ -50,8 +58,9 @@ struct ProjectView: View {
         .refreshable { await model.core.load(projectId: project.id) }
         .interactiveKeyboardDismiss()
         .task { await model.core.load(projectId: project.id) }
+        .task { await commands.core.load(projectId: project.id) }
         .safeAreaInset(edge: .bottom) {
-            Composer(placeholder: "Describe a task…", text: $draft, busy: submitting || model.state.submitting, files: model.files, dismissFocusOnSend: true) {
+            Composer(placeholder: "Describe a task…", text: $draft, busy: submitting || model.state.submitting, files: model.files, commands: commands.state.commands, dismissFocusOnSend: true) {
                 guard !submitting && !model.state.submitting else { return }
                 submitting = true
                 let message = draft
@@ -111,6 +120,7 @@ struct Composer<Accessory: View>: View {
     @Binding var text: String
     let busy: Bool
     let files: ComposerFiles?
+    var commands: [SlashCommand] = []
     var inputEnabled = true
     var sendEnabled = true
     var allowsEmpty = false
@@ -122,14 +132,21 @@ struct Composer<Accessory: View>: View {
     let accessory: Accessory
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
     @State private var dropTargeted = false
+    @State private var dismissedCommandDraft: String?
+    @State private var selectedCommand: String?
+    #if os(iOS)
+    @State private var focused = false
+    #else
     @FocusState private var focused: Bool
+    #endif
 
-    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles?,
+    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles?, commands: [SlashCommand] = [],
          dismissFocusOnSend: Bool = false, send: @escaping () -> Void, @ViewBuilder accessory: () -> Accessory) {
         self.placeholder = placeholder
         _text = text
         self.busy = busy
         self.files = files
+        self.commands = commands
         self.dismissFocusOnSend = dismissFocusOnSend
         self.send = send
         self.accessory = accessory()
@@ -141,43 +158,114 @@ struct Composer<Accessory: View>: View {
 
     var body: some View {
         GlassGroup {
-            VStack(alignment: .leading, spacing: 0) {
-                if let files, !files.items.isEmpty {
-                    AttachmentStrip(files: files)
+            VStack(spacing: 8) {
+                if showsCommands {
+                    SlashCommandPicker(commands: matchingCommands, selected: selectedCommand,
+                                       select: insertCommand, dismiss: dismissCommands)
                 }
-                if Accessory.self == EmptyView.self {
-                    ComposerInputLayout(lineHeight: lineHeight) {
-                        composerInput
-                        attachmentControl.frame(width: 44, height: 44)
-                        sendControl.frame(width: 44, height: 44)
-                    }
-                } else {
-                    composerInput
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 8)
-                    HStack(alignment: .bottom, spacing: 8) {
-                        attachmentControl.frame(width: 44, height: 44)
-                        accessory.padding(.vertical, 4)
-                        Spacer(minLength: 0)
-                        sendControl.frame(width: 44, height: 44)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
-                }
+                composerIsland
             }
-            .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), interactive: true)
-            .overlay {
-                if dropTargeted {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .strokeBorder(Color.primary, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                        .allowsHitTesting(false)
-                }
-            }
-            .onDrop(of: [.item], delegate: AttachmentDrop(files: files, targeted: $dropTargeted))
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+        .onChange(of: text) { _, _ in
+            dismissedCommandDraft = nil
+            selectedCommand = matchingCommands.first?.name
+        }
+        .onChange(of: commands) { _, _ in selectedCommand = matchingCommands.first?.name }
+        .onKeyPress(.escape) {
+            guard showsCommands else { return .ignored }
+            dismissCommands()
+            return .handled
+        }
+        .onKeyPress(.downArrow) { moveCommand(1) }
+        .onKeyPress(.upArrow) { moveCommand(-1) }
+        .onKeyPress(.tab) {
+            guard showsCommands, let command = activeCommand else { return .ignored }
+            insertCommand(command)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            guard showsCommands, let command = activeCommand else { return .ignored }
+            insertCommand(command)
+            return .handled
+        }
+    }
+
+    private var composerIsland: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let files, !files.items.isEmpty {
+                AttachmentStrip(files: files)
+            }
+            if Accessory.self == EmptyView.self {
+                ComposerInputLayout(lineHeight: lineHeight) {
+                    composerInput
+                    attachmentControl.frame(width: 44, height: 44)
+                    sendControl.frame(width: 44, height: 44)
+                }
+            } else {
+                composerInput
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
+                HStack(alignment: .bottom, spacing: 8) {
+                    attachmentControl.frame(width: 44, height: 44)
+                    accessory.padding(.vertical, 4)
+                    Spacer(minLength: 0)
+                    sendControl.frame(width: 44, height: 44)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+            }
+        }
+        .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), interactive: true)
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(Color.primary, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.item], delegate: AttachmentDrop(files: files, targeted: $dropTargeted))
+    }
+
+    private var matchingCommands: [SlashCommand] {
+        guard let query = SlashCommandQuery(draft: text) else { return [] }
+        return query.matches(commands)
+    }
+
+    private var showsCommands: Bool {
+        focused && inputEnabled && !busy && dismissedCommandDraft != text && !matchingCommands.isEmpty
+    }
+
+    private var activeCommand: SlashCommand? {
+        matchingCommands.first { $0.name == selectedCommand } ?? matchingCommands.first
+    }
+
+    private func commandKey(_ action: String) -> Bool {
+        guard showsCommands else { return false }
+        switch action {
+        case "next": _ = moveCommand(1)
+        case "previous": _ = moveCommand(-1)
+        case "dismiss": dismissCommands()
+        default: if let command = activeCommand { insertCommand(command) }
+        }
+        return true
+    }
+
+    private func insertCommand(_ command: SlashCommand) {
+        text = "/" + command.name + " "
+        focused = true
+    }
+
+    private func dismissCommands() { dismissedCommandDraft = text }
+
+    private func moveCommand(_ offset: Int) -> KeyPress.Result {
+        guard showsCommands else { return .ignored }
+        let items = matchingCommands
+        let current = items.firstIndex { $0.name == selectedCommand } ?? 0
+        selectedCommand = items[(current + offset + items.count) % items.count].name
+        return .handled
     }
 
     @ViewBuilder
@@ -210,7 +298,7 @@ struct Composer<Accessory: View>: View {
     private var composerInput: some View {
         #if os(iOS)
         ComposerTextInput(text: $text, focused: Binding(get: { focused }, set: { focused = $0 }),
-                          files: files)
+                          files: files, commandKey: showsCommands ? commandKey : nil)
             .disabled(!inputEnabled || (dismissFocusOnSend && busy))
             .accessibilityLabel(Text(placeholder))
             .overlay(alignment: .topLeading) {
@@ -259,9 +347,9 @@ private struct ComposerInputLayout: Layout {
 }
 
 extension Composer where Accessory == EmptyView {
-    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles?,
+    init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles?, commands: [SlashCommand] = [],
          send: @escaping () -> Void) {
-        self.init(placeholder: placeholder, text: text, busy: busy, files: files, send: send) { EmptyView() }
+        self.init(placeholder: placeholder, text: text, busy: busy, files: files, commands: commands, send: send) { EmptyView() }
     }
 }
 
