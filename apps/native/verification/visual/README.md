@@ -12,4 +12,5 @@ Composer layout/actions and error presentation have real simulator tests; use
 The remaining Swift render entry points compile with the production sources named
 by their imports/types (exclude the shipping SAMApp.swift). Steering's shell
 runner requires generated Apple bindings and runs an offline API. It is a manual
-capture utility, not part of CI's test count. See [TESTING.md](../../TESTING.md).
+capture utility, not part of CI's test count. Pass an ignored output directory,
+for example `bash apps/native/verification/visual/render-steering-ios.sh .tmp/steering-visual`. See [TESTING.md](../../TESTING.md).

@@ -1,9 +1,9 @@
 #!/bin/bash
 # Run on the Tailscale Mac from the repository root. Uses an isolated simulator.
 set -euo pipefail
-root=$(pwd)
+root=$(cd "$(dirname "$0")/../../../.." && pwd)
 native="$root/apps/native"
-build="$root/steering-simulator"
+build="${1:?Pass a scratch output directory, for example .tmp/steering-visual}"
 mkdir -p "$build/SteeringReview.app" "$build/screenshots"
 generated="$native/ios/Generated"
 sim=$(xcrun simctl create SAM-Steering-Review com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)
@@ -49,3 +49,5 @@ for mode in steer queue draft interrupting error unsupported; do
     sleep 5
     xcrun simctl io "$sim" screenshot "$build/screenshots/$mode.png"
 done
+
+printf 'Manual captures: %s/screenshots\n' "$build"
