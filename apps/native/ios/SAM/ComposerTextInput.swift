@@ -31,7 +31,12 @@ struct ComposerTextInput: UIViewRepresentable {
         context.coordinator.parent = self
         // Clear the UIKit responder as well as SwiftUI focus before navigation.
         // Otherwise the retained project editor can restore its keyboard on return.
-        if !focused, view.isFirstResponder { view.resignFirstResponder() }
+        // UIKit can request an update while becoming first responder, before
+        // textViewDidBeginEditing publishes focus. Only a true -> false binding
+        // transition is a dismissal intent; an unchanged false must allow taps.
+        let dismiss = context.coordinator.lastFocused && !focused
+        context.coordinator.lastFocused = focused
+        if dismiss, view.isFirstResponder { view.resignFirstResponder() }
         view.isEditable = context.environment.isEnabled
         view.commandKey = commandKey
         view.attach = files.map { files in { AttachmentIntake.add(providers: $0, to: files) } }
@@ -50,7 +55,11 @@ struct ComposerTextInput: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextInput
-        init(_ parent: ComposerTextInput) { self.parent = parent }
+        var lastFocused: Bool
+        init(_ parent: ComposerTextInput) {
+            self.parent = parent
+            lastFocused = parent.focused
+        }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             if text == "\n", textView.markedTextRange == nil, parent.commandKey?("select") == true { return false }
@@ -60,8 +69,12 @@ struct ComposerTextInput: UIViewRepresentable {
             parent.text = textView.text
             textView.invalidateIntrinsicContentSize()
         }
-        func textViewDidBeginEditing(_ textView: UITextView) { parent.focused = true }
-        func textViewDidEndEditing(_ textView: UITextView) { parent.focused = false }
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            if !parent.focused { parent.focused = true }
+        }
+        func textViewDidEndEditing(_ textView: UITextView) {
+            if parent.focused { parent.focused = false }
+        }
     }
 }
 

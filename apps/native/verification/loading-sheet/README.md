@@ -52,7 +52,7 @@ with it; the resulting Files/Git render fixture also runs successfully.
 
 ## Reproduce on a Mac
 
-Run `sh apps/native/ios/tests/project-loading.sh /absolute/evidence/directory`.
+Run `sh apps/native/ios/tests/ui/project-loading/project-loading.sh /absolute/evidence/directory`.
 It selects an installed iOS runtime and a supported iPhone model, creates an
 isolated simulator, compiles production `ProjectSettings.swift`, `Loading.swift`
 and `Platform.swift` with the scripted boundary, and captures all four phases.

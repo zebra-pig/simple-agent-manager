@@ -1,1 +1,0 @@
-PASS: production composer rendered empty, expanded, stop, retry and busy without controls
