@@ -25,19 +25,7 @@ struct ChatHistoryPager: View {
                     .accessibilityLabel("Loading earlier messages")
             }
         }.frame(maxWidth: .infinity)
-            .background(GeometryReader { geometry in
-                let frame = geometry.frame(in: .named("chatViewport"))
-                Color.clear
-                    .onChange(of: frame, initial: true) { _, frame in
-                        if let viewportHeight {
-                            visible = viewportHeight > 0 && frame.maxY > 0 && frame.minY < viewportHeight
-                        }
-                    }
-                    .onChange(of: viewportHeight) { _, height in
-                        if let height { visible = height > 0 && frame.maxY > 0 && frame.minY < height }
-                    }
-            })
-            .onAppear { if viewportHeight == nil { visible = true } }
+            .modifier(HistoryViewportVisibility(viewportHeight: viewportHeight, visible: $visible))
             .onDisappear { visible = false }
             .onChange(of: visible) { _, visible in
                 pendingEntry = visible ? cancellation : nil
@@ -61,5 +49,30 @@ struct ChatHistoryPager: View {
         pendingEntry = nil
         admittedInteraction = interaction
         load()
+    }
+}
+
+private struct HistoryViewportVisibility: ViewModifier {
+    let viewportHeight: CGFloat?
+    @Binding var visible: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18, macOS 15, *) {
+            content.onScrollVisibilityChange(threshold: 0.1) { visible = $0 }
+        } else {
+            content.background(GeometryReader { geometry in
+                let frame = geometry.frame(in: .named("chatViewport"))
+                Color.clear
+                    .onChange(of: frame, initial: true) { _, frame in
+                        if let viewportHeight {
+                            visible = viewportHeight > 0 && frame.maxY > 0 && frame.minY < viewportHeight
+                        }
+                    }
+                    .onChange(of: viewportHeight) { _, height in
+                        if let height { visible = height > 0 && frame.maxY > 0 && frame.minY < height }
+                    }
+            })
+            .onAppear { if viewportHeight == nil { visible = true } }
+        }
     }
 }

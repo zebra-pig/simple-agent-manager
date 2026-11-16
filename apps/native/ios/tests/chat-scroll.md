@@ -88,5 +88,12 @@ the same semantic bottom destination only when the container dimensions change,
 when already following latest or holding an explicit bottom destination. Content
 height changes do not trigger this correction.
 
+Build 110 and its duplicate111 were interrupted during the third test (SIGINT130),
+so neither is a full-suite result. The partial log exposed premature history
+admission from provisional geometry; the animation fixture had already fetched
+two pages after one swipe. The modern pager now uses native viewport visibility;
+geometry is retained only for older OS versions. The host regression uses a real
+ScrollView, retaining pending-entry, gesture deduplication and cancellation checks.
+
 No passing full-suite result is claimed until all results and screenshots have
 been inspected.

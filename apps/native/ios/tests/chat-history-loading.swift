@@ -15,13 +15,15 @@ import SwiftUI
 struct HistoryFixtureView: View {
     let fixture: HistoryFixture
     var body: some View {
-        VStack {
+        ScrollView {
+          VStack {
             if fixture.shown {
                 ChatHistoryPager(loading: fixture.loading, error: fixture.error, viewportHeight: 200, cancellation: fixture.cancellation, interaction: fixture.interaction, load: fixture.load)
                     .offset(y: fixture.offset)
             }
             Text("Previously loaded conversation")
-        }.padding().frame(width: 375, height: 200)
+          }.padding().frame(width: 375, height: 200)
+        }.frame(width: 375, height: 200)
             .coordinateSpace(name: "chatViewport")
     }
 }
