@@ -32,11 +32,12 @@ import SwiftUI
 
 struct ChatScrollTracking: ViewModifier {
     let control: ChatScrollControl
+    let followsLatest: Bool
     @Binding var visibleMessage: String?
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 18, macOS 15, *) {
             content.modifier(SemanticChatScrollTracking(control: control,
-                visibleMessage: $visibleMessage))
+                visibleMessage: $visibleMessage, followsLatest: followsLatest))
         } else {
             content.defaultScrollAnchor(.bottom).scrollPosition(id: $visibleMessage, anchor: .top)
         }
@@ -47,6 +48,7 @@ struct ChatScrollTracking: ViewModifier {
 private struct SemanticChatScrollTracking: ViewModifier {
     let control: ChatScrollControl
     @Binding var visibleMessage: String?
+    let followsLatest: Bool
     @State private var position = ScrollPosition(idType: String.self)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -54,6 +56,7 @@ private struct SemanticChatScrollTracking: ViewModifier {
         content
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .defaultScrollAnchor(.bottom, for: .alignment)
+            .defaultScrollAnchor(followsLatest ? .bottom : nil, for: .sizeChanges)
             .scrollPosition($position)
             .onChange(of: position.viewID(type: String.self)) { _, id in
                 visibleMessage = id

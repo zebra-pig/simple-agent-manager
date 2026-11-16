@@ -103,7 +103,7 @@ struct ChatView: View {
                     }
                 }
                 .onPreferenceChange(ChatViewportHeight.self) { viewportHeight = $0 }
-                .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage))
+                .modifier(ChatScrollTracking(control: scrollControl, followsLatest: followsLatest, visibleMessage: $visibleMessage))
                 .interactiveKeyboardDismiss()
                 .simultaneousGesture(DragGesture()
                     .updating($historyDragging) { _, dragging, _ in dragging = true }

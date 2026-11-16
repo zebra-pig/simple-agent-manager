@@ -73,5 +73,13 @@ correction admits a new downward finger swipe at the continuously visible top,
 without treating completion as new intent. A cancellation generation invalidates
 pending entries when the arrow is tapped. A ninth UI test releases and completes
 history during the actual animation and checks the remaining distance at both
-points. Test-only layout/inset measurements remain available in the logs. No passing full-suite result
+points. Test-only layout/inset measurements remain available in the logs.
+
+Build 105 (7309e9055) ran nine tests: eight passed. Consecutive pagination,
+intermediate animation frames, response completion during animation (2230pt
+remaining), both reading-position tests, provisioning and repeated jumps passed.
+The mixed-content case passed its portrait jump, then lost bottom position on
+landscape rotation. The next correction applies the bottom size-change anchor
+only while the actual bottom sentinel says the user is following latest.
+No passing full-suite result
 is claimed until all test results and screenshots have been inspected.
