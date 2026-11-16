@@ -8,6 +8,7 @@ struct ProjectView: View {
     let project: Project
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
+    @State private var search = ""
     @State private var draft = ""
     @State private var submitting = false
     @State private var settings = false
@@ -26,7 +27,7 @@ struct ProjectView: View {
             if let error = model.state.error {
                 Text(error.message).foregroundStyle(.red)
             }
-            ForEach(model.state.sessions, id: \.id) { session in
+            ForEach(model.state.matchingSessions, id: \.id) { session in
                 Button {
                     open(SessionRef(projectId: project.id, sessionId: session.id))
                 } label: {
@@ -36,12 +37,17 @@ struct ProjectView: View {
             }
         }
         .overlay {
-            if model.state.sessions.isEmpty && model.state.error == nil {
+            if !model.state.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               model.state.matchingSessions.isEmpty, model.state.error == nil, !model.state.loading {
+                ContentUnavailableView.search
+            } else if model.state.sessions.isEmpty && model.state.error == nil {
                 ContentUnavailableView("No sessions yet", systemImage: "bubble.left.and.bubble.right",
                                        description: Text("Describe a task below and an agent picks it up."))
             }
         }
         .initialLoading(model.state.loading)
+        .searchable(text: $search, prompt: "Search chat titles or IDs")
+        .onChange(of: search) { _, query in model.core.searchSessions(query: query) }
         .navigationTitle(project.name)
         .inlineTitle()
         #if os(iOS)
