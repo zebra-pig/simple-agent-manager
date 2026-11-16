@@ -81,5 +81,12 @@ remaining), both reading-position tests, provisioning and repeated jumps passed.
 The mixed-content case passed its portrait jump, then lost bottom position on
 landscape rotation. The next correction applies the bottom size-change anchor
 only while the actual bottom sentinel says the user is following latest.
-No passing full-suite result
-is claimed until all test results and screenshots have been inspected.
+Build 106 (8ffce4060) passed rotation but introduced a cold-launch/history
+admission failure and an instant jump in the during-animation test (seven of nine
+passed). The broad size-change anchor was removed. The next correction reissues
+the same semantic bottom destination only when the container dimensions change,
+when already following latest or holding an explicit bottom destination. Content
+height changes do not trigger this correction.
+
+No passing full-suite result is claimed until all results and screenshots have
+been inspected.

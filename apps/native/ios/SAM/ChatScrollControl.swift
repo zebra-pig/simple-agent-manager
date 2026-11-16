@@ -56,8 +56,15 @@ private struct SemanticChatScrollTracking: ViewModifier {
         content
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .defaultScrollAnchor(.bottom, for: .alignment)
-            .defaultScrollAnchor(followsLatest ? .bottom : nil, for: .sizeChanges)
             .scrollPosition($position)
+            .onScrollGeometryChange(for: CGSize.self, of: { $0.containerSize }) { old, new in
+                // Rotation/resizing is separate from content-height changes.
+                // Retain the explicit bottom destination without anchoring
+                // every lazy-layout refinement or interrupting its animation.
+                guard old.width > 0, old.height > 0, old != new,
+                      position.edge == .bottom || followsLatest else { return }
+                withAnimation(nil) { position.scrollTo(edge: .bottom) }
+            }
             .onChange(of: position.viewID(type: String.self)) { _, id in
                 visibleMessage = id
             }
