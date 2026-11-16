@@ -8,12 +8,21 @@ from urllib.parse import parse_qs, urlsplit
 lock = threading.Lock()
 state = {"older": 0, "completedOlder": 0, "inFlight": 0, "polls": 0, "delay": 0.1, "generation": 0, "mixed": False}
 scroll_samples = []
+layout_samples = []
 history_gate = threading.Event()
 history_gate.set()
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        if self.path == "/layout-samples":
+            sample = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            with lock:
+                layout_samples.append(sample)
+                del layout_samples[:-1000]
+            self.send_response(204)
+            self.end_headers()
+            return
         if self.path != "/scroll-samples":
             self.send_error(404)
             return
@@ -31,6 +40,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/reset":
             with lock:
                 scroll_samples.clear()
+                layout_samples.clear()
                 history_gate.set()
                 history_gate = threading.Event()
                 if query.get("hold", ["false"])[0] != "true":
@@ -52,6 +62,9 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/release-history":
             history_gate.set()
             body = {"released": True}
+        elif url.path == "/layout":
+            with lock:
+                body = {"samples": layout_samples[-4:]}
         elif url.path == "/trace":
             after = float(query.get("after", [0])[0])
             with lock:

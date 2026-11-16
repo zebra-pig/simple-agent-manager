@@ -179,6 +179,7 @@ final class ChatScrollUITests: XCTestCase {
             .allElementsBoundByIndex.first { $0.isHittable }!
         let label = row.label
         let y = row.frame.minY
+        print("CHAT_SCROLL_PREPEND_BEFORE \(try request("layout"))")
         _ = try request("release-history")
         for _ in 0..<50 {
             if try request("stats")["completedOlder"] as? Int == 1 { break }
@@ -189,6 +190,7 @@ final class ChatScrollUITests: XCTestCase {
         XCTAssertEqual(completed["inFlight"] as? Int, 0)
         Thread.sleep(forTimeInterval: 1)
         let retained = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
+        print("CHAT_SCROLL_PREPEND_AFTER \(try request("layout"))")
         capture("history-prepend-reading-position")
         XCTAssertTrue(retained.isHittable, "Earlier-page insertion displaced the message being read")
         XCTAssertEqual(retained.frame.minY, y, accuracy: 4)

@@ -46,18 +46,27 @@ struct HistoryFixtureView: View {
         fixture.offset = 0
         settle()
         precondition(fixture.requests == 2, "Re-entering the viewport must load another page")
+        // A new viewport entry during a request is serviced once it finishes.
+        fixture.offset = -400
+        settle()
+        fixture.offset = 0
+        settle()
+        precondition(fixture.requests == 2, "Do not overlap requests")
+        fixture.loading = false
+        settle()
+        precondition(fixture.requests == 3, "Do not lose a viewport entry during loading")
         fixture.error = "Connection interrupted"
         fixture.loading = false
         settle()
-        precondition(fixture.requests == 2, "Errors must stop automatic retries")
+        precondition(fixture.requests == 3, "Errors must stop automatic retries")
         fixture.shown = false
         settle()
         fixture.error = nil
         settle()
-        precondition(fixture.requests == 2, "Hidden history must not load")
+        precondition(fixture.requests == 3, "Hidden history must not load")
         fixture.shown = true
         settle()
-        precondition(fixture.requests == 3, "Returning to history must resume automatic loading")
+        precondition(fixture.requests == 4, "Returning to history must resume automatic loading")
         window.orderOut(nil)
         print("CHAT_HISTORY_LOADING_PASS: appearance, in-flight guard, no chained loads, error stop, visibility")
     }

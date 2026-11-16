@@ -88,7 +88,16 @@ struct ChatView: View {
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: ChatViewportHeight.self, value: geometry.size.height)
                 })
-                .onPreferenceChange(ChatMessageFrames.self) { messageFrames = $0 }
+                .onPreferenceChange(ChatMessageFrames.self) { frames in
+                    messageFrames = frames
+                    // The request may begin during a swipe/bounce. Retain the
+                    // user's latest reading position while that response waits.
+                    if chat.state.loadingHistory, !historyAnchor.isEmpty,
+                       frames.keys.allSatisfy({ historyAnchor.contains($0) }),
+                       let anchor = ChatHistoryAnchor.capture(frames: frames, viewportHeight: viewportHeight) {
+                        readingAnchor = anchor
+                    }
+                }
                 .onPreferenceChange(ChatViewportHeight.self) { viewportHeight = $0 }
                 .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage))
                 .interactiveKeyboardDismiss()

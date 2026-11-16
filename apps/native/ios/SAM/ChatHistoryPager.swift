@@ -6,6 +6,7 @@ struct ChatHistoryPager: View {
     var viewportHeight: CGFloat? = nil
     let load: () -> Void
     @State private var visible = false
+    @State private var pendingEntry = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -35,9 +36,18 @@ struct ChatHistoryPager: View {
             })
             .onAppear { if viewportHeight == nil { visible = true } }
             .onDisappear { visible = false }
-            .task(id: visible) {
-                guard visible, !loading, error == nil else { return }
-                load()
+            .onChange(of: visible) { _, visible in
+                pendingEntry = visible
+                requestIfReady()
             }
+            .onChange(of: loading) { _, _ in requestIfReady() }
+    }
+
+    private func requestIfReady() {
+        // An entry during the previous request must not be dropped. Consume it
+        // once; completion alone never creates another entry or starts a loop.
+        guard pendingEntry, visible, !loading, error == nil else { return }
+        pendingEntry = false
+        load()
     }
 }

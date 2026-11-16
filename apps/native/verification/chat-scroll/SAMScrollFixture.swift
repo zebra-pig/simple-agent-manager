@@ -12,12 +12,26 @@ private final class ScrollFixtureCredentials: CredentialStore, @unchecked Sendab
 // Only the app entry point is replaced in an isolated build copy. The UI tests
 // navigate the production ChatView, Rust model, HTTP transport, pager and button.
 @main struct SAMScrollFixture: SwiftUI.App {
+    @State private var viewportHeight: CGFloat = 0
     private let app = App(store: ScrollFixtureCredentials(), baseDomain: nil)
     var body: some Scene {
         WindowGroup {
             NavigationStack {
                 ChatView(app: app, ref: SessionRef(projectId: "fixture", sessionId: "fixture"))
                     .background(ScrollSamples().allowsHitTesting(false))
+                    .onPreferenceChange(ChatViewportHeight.self) { viewportHeight = $0 }
+                    .onPreferenceChange(ChatMessageFrames.self) { frames in
+                        let visible = frames.filter { $0.value.maxY > 0 && $0.value.minY < viewportHeight }
+                            .sorted { $0.value.minY < $1.value.minY }.prefix(2)
+                        let anchor = ChatHistoryAnchor.capture(frames: frames, viewportHeight: viewportHeight)
+                        let payload: [String: Any] = ["time": Date().timeIntervalSince1970,
+                            "height": viewportHeight, "id": anchor?.id ?? "none", "point": anchor?.point.y ?? 0,
+                            "rows": visible.map { ["id": $0.key, "y": $0.value.minY, "height": $0.value.height] as [String: Any] }]
+                        var request = URLRequest(url: URL(string: "http://127.0.0.1:18874/layout-samples")!)
+                        request.httpMethod = "POST"
+                        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+                        URLSession.shared.dataTask(with: request).resume()
+                    }
             }
         }
     }
@@ -64,6 +78,10 @@ private struct ScrollSamples: UIViewRepresentable {
                 "y": scroll.layer.presentation()?.bounds.origin.y ?? scroll.contentOffset.y,
                 "bottom": max(-scroll.adjustedContentInset.top,
                     scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom),
+                "height": scroll.bounds.height,
+                "contentHeight": scroll.contentSize.height,
+                "insetTop": scroll.adjustedContentInset.top,
+                "insetBottom": scroll.adjustedContentInset.bottom,
                 "reduceMotion": UIAccessibility.isReduceMotionEnabled
             ])
             if samples.count >= 8 {

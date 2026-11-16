@@ -109,7 +109,7 @@ if [ "$CI_PRODUCT_PLATFORM" = "iOS" ]; then
             --output-path "$scroll_test_dir/attachments" || true
         find "$scroll_test_dir/attachments" -name '*.png' 2>/dev/null | while IFS= read -r screenshot; do
             echo "CHAT_SCROLL_SCREENSHOT_BEGIN $(basename "$screenshot")"
-            base64 -b 76 -i "$screenshot"
+            base64 -b 4096 -i "$screenshot"
             echo "CHAT_SCROLL_SCREENSHOT_END"
         done
     fi
