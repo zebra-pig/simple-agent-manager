@@ -23,7 +23,9 @@ request completion, session refresh, and the UI handoff. After `submit_task`
 returns a session, each shell clears its draft and opens that session before
 calling `finish_submission(session_id)`. Only the matching accepted session can
 release the lock; failed requests unlock for retry. Apple also sets a local busy
-flag synchronously on tap, before observer delivery.
+flag synchronously on tap, before observer delivery. The project composer dismisses
+keyboard focus when submitting and prevents editing during the handoff, so returning
+from the new agent leaves the keyboard closed. Chat reply composers keep their focus.
 
 ```mermaid
 flowchart LR
