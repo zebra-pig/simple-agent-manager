@@ -69,8 +69,12 @@ struct ComposerTextInput: UIViewRepresentable {
             parent.text = textView.text
             textView.invalidateIntrinsicContentSize()
         }
-        func textViewDidBeginEditing(_ textView: UITextView) { parent.focused = true }
-        func textViewDidEndEditing(_ textView: UITextView) { parent.focused = false }
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            if !parent.focused { parent.focused = true }
+        }
+        func textViewDidEndEditing(_ textView: UITextView) {
+            if parent.focused { parent.focused = false }
+        }
     }
 }
 
