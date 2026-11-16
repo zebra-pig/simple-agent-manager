@@ -72,6 +72,14 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
         "$repo_dir/apps/native/ios/tests/chat-history-position.swift" \
         -o "$render_dir/chat-history-position"
     "$render_dir/chat-history-position"
+    # Exercise the production New project view as a sheet, including the
+    # loading-to-loaded transition and repeated repository loads.
+    sh "$repo_dir/apps/native/ios/tests/project-loading.sh" "$render_dir/project-loading-images"
+    for loading_image in "$render_dir/project-loading-images/"*.png; do
+        echo "PROJECT_LOADING_RENDER_BEGIN $(basename "$loading_image")"
+        base64 -b 76 -i "$loading_image"
+        echo "PROJECT_LOADING_RENDER_END"
+    done
     rm -rf "$render_dir"
 fi
 

@@ -51,7 +51,7 @@ struct ProjectView: View {
         .interactiveKeyboardDismiss()
         .task { await model.core.load(projectId: project.id) }
         .safeAreaInset(edge: .bottom) {
-            Composer(placeholder: "Describe a task…", text: $draft, busy: submitting || model.state.submitting, files: model.files) {
+            Composer(placeholder: "Describe a task…", text: $draft, busy: submitting || model.state.submitting, files: model.files, dismissFocusOnSend: true) {
                 guard !submitting && !model.state.submitting else { return }
                 submitting = true
                 let message = draft
@@ -117,6 +117,7 @@ struct Composer<Accessory: View>: View {
     var sendLabel: LocalizedStringKey = "Send"
     var sendIcon = "arrow.up"
     var leadingControl: AnyView?
+    let dismissFocusOnSend: Bool
     let send: () -> Void
     let accessory: Accessory
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
@@ -124,11 +125,12 @@ struct Composer<Accessory: View>: View {
     @FocusState private var focused: Bool
 
     init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles?,
-         send: @escaping () -> Void, @ViewBuilder accessory: () -> Accessory) {
+         dismissFocusOnSend: Bool = false, send: @escaping () -> Void, @ViewBuilder accessory: () -> Accessory) {
         self.placeholder = placeholder
         _text = text
         self.busy = busy
         self.files = files
+        self.dismissFocusOnSend = dismissFocusOnSend
         self.send = send
         self.accessory = accessory()
     }
@@ -183,7 +185,10 @@ struct Composer<Accessory: View>: View {
         if busy {
             ProgressView().frame(width: 36, height: 36)
         } else {
-            Button(action: send) {
+            Button {
+                if dismissFocusOnSend { focused = false }
+                send()
+            } label: {
                 Image(systemName: sendIcon).font(.body.weight(.semibold)).frame(width: 22, height: 22)
             }
             .glassButton()
@@ -206,7 +211,7 @@ struct Composer<Accessory: View>: View {
         #if os(iOS)
         ComposerTextInput(text: $text, focused: Binding(get: { focused }, set: { focused = $0 }),
                           files: files)
-            .disabled(!inputEnabled)
+            .disabled(!inputEnabled || (dismissFocusOnSend && busy))
             .accessibilityLabel(Text(placeholder))
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
@@ -216,7 +221,7 @@ struct Composer<Accessory: View>: View {
         #else
         TextField(placeholder, text: $text, axis: .vertical)
             .lineLimit(1...6)
-            .disabled(!inputEnabled)
+            .disabled(!inputEnabled || (dismissFocusOnSend && busy))
             .textFieldStyle(.plain)
             .submitLabel(.send)
             .focused($focused)
