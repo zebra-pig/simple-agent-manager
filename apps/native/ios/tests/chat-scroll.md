@@ -48,8 +48,8 @@ continues after settling.
 
 SwiftUI owns one semantic scroll position and the animation to its bottom edge.
 There is no underlying UIScrollView offset-writing/retry loop. The actual bottom
-sentinel's viewport visibility controls following. The history pager uses its
-frame in the viewport and requests one page per visibility transition, never on
+sentinel's viewport visibility controls following. The history pager uses native viewport visibility on current OS versions (frame
+geometry on older versions) and requests one page per visibility transition, never on
 loading completion alone. Main's `ChatHistoryAnchor` preserves the original row
 and pixel offset through insertion; restoration uses the same position owner as
 the button. An explicit jump invalidates both pending history anchors.
@@ -67,7 +67,7 @@ Its historical screenshots are not evidence for this correction.
 | 101 | de42ba06a | macOS archive passed; eight UI tests ran, five passed and three failed. Provisioning passed. Prepend now retains the row but shifts 24pt; consecutive page entry can be dropped during loading. |
 
 Build 103 (784daaa5a) ran eight UI tests: six passed, two failed. Updating the
-reading anchor while the response waited fixed the24pt shift. Consecutive pages
+reading anchor while the response waited fixed the 24pt shift. Consecutive pages
 still stalled when the pager stayed visible through repeated swipes. The next
 correction admits a new downward finger swipe at the continuously visible top,
 without treating completion as new intent. A cancellation generation invalidates
@@ -88,7 +88,7 @@ the same semantic bottom destination only when the container dimensions change,
 when already following latest or holding an explicit bottom destination. Content
 height changes do not trigger this correction.
 
-Build 110 and its duplicate111 were interrupted during the third test (SIGINT130),
+Build 110 and its duplicate 111 were interrupted during the third test (SIGINT 130),
 so neither is a full-suite result. The partial log exposed premature history
 admission from provisional geometry; the animation fixture had already fetched
 two pages after one swipe. The modern pager now uses native viewport visibility;
@@ -97,3 +97,14 @@ ScrollView, retaining pending-entry, gesture deduplication and cancellation chec
 
 No passing full-suite result is claimed until all results and screenshots have
 been inspected.
+
+The latest pager correction (`5748f450e`, integrated with main at `e51c16815`)
+has not completed Mac verification. Two manual Xcode Cloud starts returned
+HTTP 500 `UNEXPECTED_ERROR`. Automatic build 112 selected the correct integrated
+commit but was canceled before starting, with no actions or cancellation reason.
+The default workflow's automatic-main condition was restored. Apple’s public
+status feed listed no Xcode Cloud incident at the time; the cause is unconfirmed.
+A GitHub-hosted Mac fallback workflow could not be pushed because the installed
+GitHub App lacks `workflows` permission. Direct private-Mac access cannot be
+renewed while this session's SAM MCP token is expired. PR #54 remains a draft
+and must not merge until the complete suite and screenshot review pass.
