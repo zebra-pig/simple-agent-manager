@@ -6,17 +6,29 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 lock = threading.Lock()
-state = {"older": 0, "polls": 0, "delay": 0.1}
+state = {"older": 0, "completedOlder": 0, "inFlight": 0, "polls": 0, "delay": 0.1, "generation": 0}
+history_gate = threading.Event()
+history_gate.set()
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        global history_gate
         url = urlsplit(self.path)
         query = parse_qs(url.query)
         if url.path == "/reset":
             with lock:
-                state.update(older=0, polls=0, delay=float(query.get("delay", [0.1])[0]))
+                history_gate.set()
+                history_gate = threading.Event()
+                if query.get("hold", ["false"])[0] != "true":
+                    history_gate.set()
+                state.update(older=0, completedOlder=0, inFlight=0, polls=0,
+                             generation=state["generation"] + 1,
+                             delay=float(query.get("delay", [0.1])[0]))
             body = state.copy()
+        elif url.path == "/release-history":
+            history_gate.set()
+            body = {"released": True}
         elif url.path == "/stats":
             with lock:
                 body = state.copy()
@@ -26,11 +38,18 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 if "before" in query:
                     state["older"] += 1
+                    state["inFlight"] += 1
                 else:
                     state["polls"] += 1
                 snapshot = state.copy()
+                gate = history_gate
             if "before" in query:
+                gate.wait(timeout=30)
                 time.sleep(snapshot["delay"])
+                with lock:
+                    if state["generation"] == snapshot["generation"]:
+                        state["inFlight"] -= 1
+                        state["completedOlder"] += 1
             first = max(0, before - 12) if after is None else after + 1
             rows = []
             for index in range(first, before):

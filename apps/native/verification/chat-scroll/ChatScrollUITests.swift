@@ -6,7 +6,13 @@ final class ChatScrollUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication(bundleIdentifier: "org.simpleagentmanager.validation.scroll")
+        app.terminate()
         _ = try request("reset")
+    }
+
+    override func tearDownWithError() throws {
+        _ = try request("release-history")
+        app.terminate()
     }
 
     private func request(_ path: String) throws -> [String: Any] {
@@ -101,16 +107,24 @@ final class ChatScrollUITests: XCTestCase {
         capture("older-position-after-polling")
     }
 
-    func testJumpWhileHistoryIsInFlightDoesNotRestoreOldAnchor() throws {
-        _ = try request("reset?delay=3")
+    func testScrollToTopThenTapJumpBeforeHistoryReturns() throws {
+        // Hold the real older-history HTTP response until after the actual
+        // button tap. This reproduces the user's top -> down-arrow sequence
+        // deterministically, rather than hoping a delay overlaps the tap.
+        _ = try request("reset?hold=true")
         launch()
         reachOlderPage(1)
+        XCTAssertEqual(try request("stats")["inFlight"] as? Int, 1)
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.tap()
         assertAtLatest()
-        Thread.sleep(forTimeInterval: 5)
+        _ = try request("release-history")
+        Thread.sleep(forTimeInterval: 10)
         assertAtLatest()
-        XCTAssertEqual(olderRequests, 1)
-        capture("jump-during-pending-history")
+        let stats = try request("stats")
+        XCTAssertEqual(stats["older"] as? Int, 1)
+        XCTAssertEqual(stats["completedOlder"] as? Int, 1)
+        XCTAssertEqual(stats["inFlight"] as? Int, 0)
+        capture("top-then-jump-before-history-returns")
     }
 }

@@ -9,13 +9,17 @@ The replacement is in `apps/native/verification/chat-scroll/`:
 
 - Builds the full production app and Rust bindings. Only the isolated preview's
   app entry point changes to open the real `ChatView` with offline credentials.
-- Uses real HTTP pagination, a delayed older-page response, and changing message
+- Uses real HTTP pagination, a held older-page response, and changing message
   heights on each production polling cycle.
 - XCUITest performs touch swipes and taps the actual Jump to latest button.
 - Checks that opening/polling at the bottom does not fetch history, a jump after
   multiple pages stays at the latest message across polling cycles, another
-  gesture and jump work, polling preserves an older reading position, and an in-flight history response cannot pull the user
-  back to the old anchor.
+  gesture and jump work, polling preserves an older reading position, and an
+  in-flight history response cannot pull the user
+  back to the old anchor. The user’s exact reproduction is scroll to the top of
+  this project chat and tap the down-arrow. The pending-response test holds the
+  older-history response until after that actual tap, then releases it and checks
+  that neither history completion nor two polling cycles restart scrolling.
 
 Run on an Apple silicon Mac with Xcode 26+ and an installed iOS runtime:
 
