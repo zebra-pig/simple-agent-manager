@@ -126,7 +126,6 @@ struct Composer<Accessory: View>: View {
     var allowsEmpty = false
     var sendLabel: LocalizedStringKey = "Send"
     var sendIcon = "arrow.up"
-    var leadingControl: AnyView?
     let dismissFocusOnSend: Bool
     let send: () -> Void
     let accessory: Accessory
@@ -290,8 +289,7 @@ struct Composer<Accessory: View>: View {
 
     @ViewBuilder
     private var attachmentControl: some View {
-        if let leadingControl { leadingControl }
-        else if let files { AttachButton(files: files) }
+        if let files { AttachButton(files: files) }
     }
 
     @ViewBuilder

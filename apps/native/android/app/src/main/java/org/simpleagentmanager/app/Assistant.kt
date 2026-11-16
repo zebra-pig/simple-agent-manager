@@ -74,8 +74,6 @@ fun AssistantScreen(app: App, openUrl: (String) -> Unit, openChat: (String, Stri
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var draft by rememberSaveable { mutableStateOf("") }
-    var voiceBusy by remember { mutableStateOf(false) }
-    val active = state.turns.any { it.state == "running" || it.state == "accepted" }
     DisposableEffect(vm) {
         vm.setObserver(object : AssistantObserver {
             override fun onStateChanged(state: AssistantState) { scope.launch { snapshot.value = state } }
@@ -93,7 +91,7 @@ fun AssistantScreen(app: App, openUrl: (String) -> Unit, openChat: (String, Stri
             openChat(android.net.Uri.decode(parts[1]), android.net.Uri.decode(parts[3]))
         } else notificationUrl(app.state().serverUrl, link)?.let(openUrl)
     }
-    AssistantContent(state, draft, onDraft = { draft = it }, voiceBusy = voiceBusy, open = ::open, openChat = openChat,
+    AssistantContent(state, draft, onDraft = { draft = it }, open = ::open, openChat = openChat,
         onRefresh = { scope.launch { vm.refresh() } }, onStop = { scope.launch { vm.stop() } },
         onSend = { scope.launch {
             val message = state.pending?.message ?: draft
@@ -101,19 +99,17 @@ fun AssistantScreen(app: App, openUrl: (String) -> Unit, openChat: (String, Stri
         } },
         onSeen = { scope.launch { vm.markSeen(it) } }, onEarlier = { scope.launch { vm.loadEarlier() } },
         onOlder = { scope.launch { vm.loadOlder() } }, onConfirm = { id, approved -> scope.launch { vm.confirm(id, approved) } },
-        onReconcile = { scope.launch { vm.reconcile(it) } },
-        voice = { AssistantVoiceButton(vm, enabled = !state.busy && state.loaded && state.enabled && state.pending == null && !active,
-            onText = { draft += (if (draft.isBlank()) "" else " ") + it }, onBusy = { voiceBusy = it }) })
+        onReconcile = { scope.launch { vm.reconcile(it) } })
 }
 
 /** Pure screen, also used by host-rendered phone and tablet previews. */
 @Composable
 internal fun AssistantContent(
     state: AssistantState, draft: String, onDraft: (String) -> Unit,
-    voiceBusy: Boolean = false, open: (String) -> Unit = {}, openChat: (String, String) -> Unit = { _, _ -> },
+    open: (String) -> Unit = {}, openChat: (String, String) -> Unit = { _, _ -> },
     onRefresh: () -> Unit = {}, onStop: () -> Unit = {}, onSend: () -> Unit = {}, onSeen: (String) -> Unit = {},
     onEarlier: () -> Unit = {}, onOlder: () -> Unit = {}, onConfirm: (String, Boolean) -> Unit = { _, _ -> },
-    onReconcile: (String) -> Unit = {}, voice: @Composable () -> Unit = {},
+    onReconcile: (String) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
@@ -134,8 +130,8 @@ internal fun AssistantContent(
                 placeholder = stringResource(R.string.ask_sam), text = draft, onChange = onDraft,
                 busy = state.busy, attachments = emptyList(), onAttach = {}, onRemove = {}, onSend = onSend,
                 inputEnabled = state.pending == null && !state.busy,
-                sendEnabled = !voiceBusy && state.enabled && state.loaded && (state.error == null || state.pending != null),
-                allowsEmpty = state.pending != null, leadingControl = voice,
+                sendEnabled = state.enabled && state.loaded && (state.error == null || state.pending != null),
+                allowsEmpty = state.pending != null, showAttachments = false,
                 sendDescription = stringResource(if (state.pending != null) R.string.retry else R.string.send),
                 actionControl = if (active) ({
                     IconButton(onClick = onStop, enabled = !state.busy) {

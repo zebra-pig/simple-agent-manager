@@ -18,7 +18,7 @@ private fun PreviewShell(state: AssistantState, draft: String = "") {
     MaterialTheme {
         Scaffold(bottomBar = { MainTabs(false, {}, {}, assistant = true, assistantEnabled = true) }) { padding ->
             Box(Modifier.padding(padding)) {
-                AssistantContent(state, draft, onDraft = {}, voice = { IconButton({}) { Icon(AssistantIcons.Microphone, "Record voice message") } })
+                AssistantContent(state, draft, onDraft = {})
             }
         }
     }
