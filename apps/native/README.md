@@ -61,8 +61,8 @@ app-specific OAuth client.
 
 ## Steering a running agent
 
-While a turn is running, chat offers **Steer now** (the default for each turn) and
-**Queue next**. Steering joins the current turn if the runtime accepts it; otherwise
+While a turn is running, chat offers **Steer** (the default for each turn) and
+**Queue**. Steering joins the current turn if the runtime accepts it; otherwise
 SAM queues it and the transcript shows **Queued instead**. Messages with files, and
 runtimes that report steering unsupported, always queue. The message’s delivery label
 also distinguishes confirmed steering, unconfirmed delivery, and failed delivery.

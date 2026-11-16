@@ -29,3 +29,12 @@ The Apple composer uses the same accessory row as the agent starter: attachment,
 delivery menu, then the icon-only action. No separate agent-working row or delivery
 hint row remains. iOS/macOS builds and the macOS CI post-clone checks were rerun
 after this UI revision; shared Rust and Android code did not change in this revision.
+
+## Final merge validation
+
+The branch was merged with current main before final native tests, CI post-clone
+validation and iOS/macOS app builds were rerun successfully. `desktop.png` is a
+1000×800 AppKit capture of the production ChatView using `steering-macos.swift`
+and the same offline fixture API. It confirms wide layout; AppKit bitmap capture
+omits window/material backdrops. iOS images preserve the approved layout before
+the last copy-only shortening of the selector labels to Steer and Queue.
