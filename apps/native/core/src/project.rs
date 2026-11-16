@@ -39,6 +39,8 @@ pub struct ProjectState {
 observable!(ProjectViewModel, ProjectState, ProjectObserver);
 observable_attachments!(ProjectViewModel);
 
+const SESSION_PAGE_SIZE: usize = 50;
+
 #[uniffi::export(async_runtime = "tokio")]
 impl ProjectViewModel {
     /// Intent: show `project_id` and (re)load its sessions and profiles.
@@ -217,12 +219,14 @@ impl ProjectViewModel {
         let mut seen = std::collections::HashSet::new();
         loop {
             let path = if offset == 0 {
-                format!("/api/projects/{}/sessions?limit=50", seg(project_id))
+                format!("/api/projects/{}/sessions?limit={SESSION_PAGE_SIZE}", seg(project_id))
             } else {
-                format!("/api/projects/{}/sessions?limit=50&offset={offset}", seg(project_id))
+                format!("/api/projects/{}/sessions?limit={SESSION_PAGE_SIZE}&offset={offset}", seg(project_id))
             };
             let page: SessionPage = self.app.get(&path).await?;
-            offset += page.sessions.len();
+            // The server may skip malformed rows after applying LIMIT/OFFSET.
+            // Advance by the requested window, not the valid row count.
+            offset += SESSION_PAGE_SIZE;
             let before = sessions.len();
             sessions.extend(page.sessions.into_iter().filter(|s| seen.insert(s.id.clone())));
             if !page.has_more {

@@ -16,6 +16,7 @@ async fn searches_all_pages_and_preserves_query_on_refresh() {
         assert_eq!(r.header("cookie").as_deref(), Some("session=test"));
         log.lock().unwrap().push(r.path.clone());
         match r.path.as_str() {
+            // Only two valid rows survive the first 50-row server window.
             "/api/projects/p1/sessions?limit=50" => (
                 200,
                 json!({
@@ -24,7 +25,7 @@ async fn searches_all_pages_and_preserves_query_on_refresh() {
                 })
                 .to_string(),
             ),
-            "/api/projects/p1/sessions?limit=50&offset=2" => {
+            "/api/projects/p1/sessions?limit=50&offset=50" => {
                 if *fail_route.lock().unwrap() {
                     return (500, json!({"message":"Try again"}).to_string());
                 }
@@ -64,7 +65,7 @@ async fn searches_all_pages_and_preserves_query_on_refresh() {
     assert!(vm.state().error.is_some());
     assert!(!vm.state().loading);
     assert_eq!(vm.state().matching_sessions.len(), 3, "failed refresh retains the full list");
-    assert!(requests.lock().unwrap().iter().any(|p| p.ends_with("offset=2")));
+    assert!(requests.lock().unwrap().iter().any(|p| p.ends_with("offset=50")));
 }
 
 #[tokio::test]

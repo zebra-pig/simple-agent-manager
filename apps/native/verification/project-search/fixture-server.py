@@ -14,7 +14,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/projects/p1/sessions?limit=50':
             body = {'sessions': [{'id': 'recent', 'topic': 'Fix login screen', 'status': 'active', 'startedAt': 1794828000000},
                                  {'id': 'untitled', 'topic': None, 'status': 'sleeping', 'startedAt': 1794827000000}], 'hasMore': True}
-        elif self.path == '/api/projects/p1/sessions?limit=50&offset=2':
+        elif self.path == '/api/projects/p1/sessions?limit=50&offset=50':
             body = {'sessions': [{'id': 'old-session', 'topic': 'Café release — 日本語', 'status': 'stopped', 'startedAt': 1794000000000}], 'hasMore': False}
         elif self.path.endswith('/agent-profiles'):
             body = {'items': []}
