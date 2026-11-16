@@ -28,6 +28,9 @@ struct ComposerTextInput: UIViewRepresentable {
 
     func updateUIView(_ view: AttachmentTextView, context: Context) {
         context.coordinator.parent = self
+        // Clear the UIKit responder as well as SwiftUI focus before navigation.
+        // Otherwise the retained project editor can restore its keyboard on return.
+        if !focused, view.isFirstResponder { view.resignFirstResponder() }
         view.isEditable = context.environment.isEnabled
         view.attach = files.map { files in { AttachmentIntake.add(providers: $0, to: files) } }
         // Do not reset the selection or an in-progress IME composition.
