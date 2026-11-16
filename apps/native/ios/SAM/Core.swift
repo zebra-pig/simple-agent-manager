@@ -157,3 +157,18 @@ extension Relay: ChatToolsObserver where State == ChatToolsState {
 extension Relay: ProjectManagementObserver where State == ProjectManagementState {
     func onStateChanged(state: ProjectManagementState) { send(state) }
 }
+
+@MainActor @Observable final class CommandsModel {
+    let core: CommandsViewModel
+    private(set) var state: CommandsState
+
+    init(app: App) {
+        core = CommandsViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+
+extension Relay: CommandsObserver where State == CommandsState {
+    func onStateChanged(state: CommandsState) { send(state) }
+}
