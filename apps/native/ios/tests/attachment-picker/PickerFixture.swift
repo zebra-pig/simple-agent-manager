@@ -10,7 +10,9 @@ private struct Fixture: View {
     @State private var picked = ""
     @State private var project = false
     private var files: ComposerFiles {
-        ComposerFiles(items: [], add: { name, _, _, _ in picked = name }, remove: { _ in })
+        ComposerFiles(items: [], add: { name, _, size, source in
+            picked = source.read()?.count == Int(size) ? name : "Unreadable selection"
+        }, remove: { _ in })
     }
     var body: some View {
         NavigationStack {

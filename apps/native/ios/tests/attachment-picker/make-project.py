@@ -11,6 +11,9 @@ source = pathlib.Path(__file__).resolve().parent
 ios = source.parents[1]
 output = pathlib.Path(sys.argv[1]).resolve()
 objects = {}
+output.parent.mkdir(parents=True, exist_ok=True)
+info = output.parent / 'PickerInfo.plist'
+info.write_bytes(plistlib.dumps(dict(UIFileSharingEnabled=True, LSSupportsOpeningDocumentsInPlace=True)))
 
 
 def obj(isa, **values):
@@ -42,7 +45,7 @@ app_product = obj('PBXFileReference', path='PickerFixture.app', sourceTree='BUIL
 app_target = obj('PBXNativeTarget', name='PickerFixture', productName='PickerFixture', productReference=app_product,
                  productType='com.apple.product-type.application', dependencies=[], buildRules=[],
                  buildConfigurationList=configs(dict(common, PRODUCT_BUNDLE_IDENTIFIER='dev.zebrapig.pickerfixture',
-                   INFOPLIST_KEY_UIFileSharingEnabled='YES', INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace='YES',
+                   INFOPLIST_FILE=str(info),
                    INFOPLIST_KEY_UILaunchScreen_Generation='YES', INFOPLIST_KEY_UIApplicationSceneManifest_Generation='YES')),
                  buildPhases=[obj('PBXSourcesBuildPhase', files=[obj('PBXBuildFile', fileRef=r) for r in references], buildActionMask=2147483647),
                               obj('PBXFrameworksBuildPhase', files=[obj('PBXBuildFile', fileRef=framework)], buildActionMask=2147483647)])
