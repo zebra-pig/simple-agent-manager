@@ -26,9 +26,6 @@ struct ProjectView: View {
 
     var body: some View {
         List {
-            if let error = model.state.error {
-                Text(error.message).foregroundStyle(.red)
-            }
             ForEach(model.state.matchingSessions, id: \.id) { session in
                 Button {
                     open(SessionRef(projectId: project.id, sessionId: session.id))
@@ -83,6 +80,7 @@ struct ProjectView: View {
         }
         .sheet(isPresented: $settings) { ProjectSettings(app: app, projectId: project.id, saved: changed) }
         .sheet(item: $editing) { ProfileEditor(model: model, profile: $0.profile) }
+        .floatingErrors([model.state.error?.message])
     }
 }
 

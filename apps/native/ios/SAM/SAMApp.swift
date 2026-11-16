@@ -107,12 +107,6 @@ struct SignInView: View {
                         .urlKeyboard()
                         .onSubmit { signIn() }
                 }
-                if let error = app.state.error {
-                    Text(error.message)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                }
                 Button(action: signIn) {
                     Text("Sign in").frame(maxWidth: .infinity)
                 }
@@ -134,6 +128,7 @@ struct SignInView: View {
         }
         .padding(24)
         .frame(maxWidth: 480)
+        .floatingErrors([app.state.error?.message])
     }
 
     private func signIn() {

@@ -16,9 +16,6 @@ struct AccountView: View {
                 Section {
                     LabeledContent("Server", value: app.state.serverUrl)
                 }
-                if let error = app.state.error {
-                    Section { Text(error.message).foregroundStyle(.red) }
-                }
                 Section {
                     Button("Sign out", role: .destructive) {
                         Task { await app.core.signOut() }
@@ -36,5 +33,6 @@ struct AccountView: View {
             }
             .task { if app.state.viewer == nil { await app.core.refreshViewer() } }
         }
+        .floatingErrors([app.state.error?.message])
     }
 }

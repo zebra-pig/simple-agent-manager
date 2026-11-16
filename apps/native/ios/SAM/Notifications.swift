@@ -34,7 +34,6 @@ struct NotificationsView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    if let error = model.state.error { Text(error.message).foregroundStyle(.red) }
                     if !model.state.loading && model.state.items.isEmpty && model.state.error == nil {
                         ContentUnavailableView("No notifications", systemImage: "bell")
                     }
@@ -59,6 +58,7 @@ struct NotificationsView: View {
                 }.padding()
             }
             .initialLoading(model.state.loading)
+            .floatingErrors([model.state.error?.message])
             .navigationTitle("Notifications")
             .refreshable { await model.core.load(projectId: "", sessionId: "") }
             .task {
@@ -104,7 +104,7 @@ struct RequestCard: View {
             if !model.state.title.isEmpty { Text(approval ? approvalTitle(model.state.title) : model.state.title).font(.headline) }
             Text(model.state.reason).textSelection(.enabled)
             if model.state.irreversible && model.state.canRespond { Text("Approving permanently deletes this resource. This cannot be undone.").foregroundStyle(.red) }
-            if let error = model.state.error { Text(error.message).foregroundStyle(.red) }
+            if let error = model.state.error { ErrorNotice(message: error.message) }
             if model.state.canRespond {
                 if secret {
                     SecureField("Secret value", text: $value).autocorrectionDisabled()
