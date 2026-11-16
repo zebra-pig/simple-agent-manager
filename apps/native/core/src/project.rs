@@ -6,13 +6,15 @@
 use crate::agent_profiles::{self, AgentList, AgentOption, AgentProfile, PickerState, ProfileDraft, ProfileList};
 use crate::api::{ChatSession, SessionPage, SubmitTask, SubmittedTask};
 use crate::attachments::{self, Attachment};
-use crate::error::{Result, UserError};
+use crate::error::{CoreError, Result, UserError};
 use crate::session::seg;
 
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
 pub struct ProjectState {
     pub project_id: String,
     pub sessions: Vec<ChatSession>,
+    pub search_query: String,
+    pub matching_sessions: Vec<ChatSession>,
     /// Files for the next task.
     pub attachments: Vec<Attachment>,
     /// The profiles a new chat can start with: the user's recent ones first,
@@ -47,8 +49,7 @@ impl ProjectViewModel {
             }
             s.loading = true;
         });
-        let sessions_path = format!("/api/projects/{}/sessions?limit=50", seg(&project_id));
-        let (sessions, profiles) = tokio::join!(self.app.get::<SessionPage>(&sessions_path), self.fetch_profiles(&project_id));
+        let (sessions, profiles) = tokio::join!(self.fetch_sessions(&project_id), self.fetch_profiles(&project_id));
         self.update(|s| {
             if s.project_id != project_id {
                 return; // another project was opened meanwhile
@@ -56,9 +57,9 @@ impl ProjectViewModel {
             s.loading = false;
             s.error = None;
             match sessions {
-                Ok(mut page) => {
-                    page.sessions.sort_by_key(|x| std::cmp::Reverse(x.last_activity()));
-                    s.sessions = page.sessions;
+                Ok(sessions) => {
+                    s.sessions = sessions;
+                    s.filter_sessions();
                 }
                 Err(e) => s.error = Some(UserError::from(&e)),
             }
@@ -66,6 +67,14 @@ impl ProjectViewModel {
                 Ok(profiles) => s.set_profiles(profiles),
                 Err(e) => s.error = s.error.take().or(Some(UserError::from(&e))),
             }
+        });
+    }
+
+    /// Search titles and session IDs without discarding the complete list.
+    pub fn search_sessions(&self, query: String) {
+        self.update(|s| {
+            s.search_query = query;
+            s.filter_sessions();
         });
     }
 
@@ -200,6 +209,37 @@ impl ProjectViewModel {
 }
 
 impl ProjectViewModel {
+    /// Read every recency page so older chats remain searchable. Commit the
+    /// snapshot only after all pages succeed, preserving visible data on error.
+    async fn fetch_sessions(&self, project_id: &str) -> Result<Vec<ChatSession>> {
+        let mut sessions = Vec::new();
+        let mut offset = 0;
+        let mut seen = std::collections::HashSet::new();
+        loop {
+            let path = if offset == 0 {
+                format!("/api/projects/{}/sessions?limit=50", seg(project_id))
+            } else {
+                format!("/api/projects/{}/sessions?limit=50&offset={offset}", seg(project_id))
+            };
+            let page: SessionPage = self.app.get(&path).await?;
+            offset += page.sessions.len();
+            let before = sessions.len();
+            sessions.extend(page.sessions.into_iter().filter(|s| seen.insert(s.id.clone())));
+            if !page.has_more {
+                break;
+            }
+            if sessions.len() == before {
+                return Err(CoreError::Unexpected("session pagination made no progress".into()));
+            }
+            // Stop work if the model has moved to another project.
+            if self.state().project_id != project_id {
+                return Ok(Vec::new());
+            }
+        }
+        sessions.sort_by(|a, b| b.last_activity().cmp(&a.last_activity()).then_with(|| a.id.cmp(&b.id)));
+        Ok(sessions)
+    }
+
     /// The project's profiles in picker order. The picker state (recent,
     /// hidden) is a nicety: without it the server's order stands.
     async fn fetch_profiles(&self, project_id: &str) -> Result<Vec<AgentProfile>> {
@@ -254,6 +294,20 @@ impl ProjectViewModel {
 }
 
 impl ProjectState {
+    fn filter_sessions(&mut self) {
+        let query = self.search_query.trim().to_lowercase();
+        self.matching_sessions = self
+            .sessions
+            .iter()
+            .filter(|session| {
+                query.is_empty()
+                    || session.topic.as_deref().unwrap_or("").to_lowercase().contains(&query)
+                    || session.id.to_lowercase().contains(&query)
+            })
+            .cloned()
+            .collect();
+    }
+
     fn set_profiles(&mut self, profiles: Vec<AgentProfile>) {
         self.selected_profile_id = agent_profiles::preselect(self.selected_profile_id.as_deref(), &profiles);
         self.profiles = profiles;

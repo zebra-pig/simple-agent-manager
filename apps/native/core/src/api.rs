@@ -127,6 +127,8 @@ impl ChatSession {
 #[derive(Deserialize)]
 pub(crate) struct SessionPage {
     pub sessions: Vec<ChatSession>,
+    #[serde(default, rename = "hasMore")]
+    pub has_more: bool,
 }
 
 /// `GET /api/projects/:id/sessions/:sessionId`: the newest page of rows.

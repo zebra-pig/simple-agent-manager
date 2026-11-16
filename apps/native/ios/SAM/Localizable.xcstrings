@@ -1,6 +1,10 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Search chat titles or IDs" : {
+      "comment" : "Search field in a project’s chat list. Searches titles and session identifiers.",
+      "extractionState" : "manual"
+    },
     "File" : {
       "extractionState" : "manual"
     },

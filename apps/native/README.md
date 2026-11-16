@@ -40,6 +40,15 @@ flowchart LR
   S -- Cookie --> API["SAM API /api/*"]
 ```
 
+## Project chat search (Apple)
+
+Use the standard search field in a project's chat list to find chats by title or
+session ID. `ProjectViewModel::search_sessions` trims whitespace and matches
+case-insensitively; clearing the query restores the list. `fetch_sessions` follows
+all session-list pages, so older chats are included. A failed refresh preserves
+the previous list and shows an error instead of replacing it with partial results.
+Search filters chat metadata locally; it does not search message bodies.
+
 ## Sign-in
 
 The app uses SAM's device flow, the same one `sam login` uses (`apps/api/src/routes/device-flow.ts`):
