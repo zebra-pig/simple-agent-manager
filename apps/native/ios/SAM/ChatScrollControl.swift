@@ -1,102 +1,98 @@
 import SwiftUI
-#if os(iOS)
-import UIKit
-#endif
 
-/// Cancels native gesture/momentum ownership before an explicit chat jump.
-@MainActor final class ChatScrollControl {
-    private var jumpTask: Task<Void, Never>?
-    #if os(iOS)
-    weak var scrollView: UIScrollView?
-    #endif
+/// Requests destinations; SwiftUI owns both animation and lazy-layout correction.
+/// Never drive the underlying UIScrollView while a scrollPosition binding owns it.
+@MainActor @Observable final class ChatScrollControl {
+    fileprivate struct Request: Equatable {
+        let token = UUID()
+        let destination: String?
+        var anchor: UnitPoint = .top
+        let animated: Bool
+    }
+    fileprivate var request: Request?
 
-    func jump(using proxy: ScrollViewProxy, to id: String) {
-        jumpTask?.cancel()
-        #if os(iOS)
-        if let scrollView {
-            let pan = scrollView.panGestureRecognizer
-            if pan.state == .began || pan.state == .changed {
-                pan.isEnabled = false
-                pan.isEnabled = true
+    func jump(using proxy: ScrollViewProxy, to id: String, animated: Bool = true) {
+        if #available(iOS 18, macOS 15, *) {
+            request = Request(destination: nil, animated: animated)
+        } else {
+            withAnimation(animated ? .easeInOut(duration: 0.35) : nil) {
+                proxy.scrollTo(id, anchor: .bottom)
             }
-            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
-            // LazyVStack refines its content height as each chunk is materialized.
-            // Follow that moving destination instead of animating to one estimate.
-            jumpTask = Task { @MainActor [weak scrollView] in
-                var settledFrames = 0
-                for _ in 0..<240 {
-                    guard !Task.isCancelled, let scrollView,
-                          !scrollView.isDragging, !scrollView.isTracking else { return }
-                    scrollView.layoutIfNeeded()
-                    let bottom = max(-scrollView.adjustedContentInset.top,
-                                     scrollView.contentSize.height - scrollView.bounds.height
-                                     + scrollView.adjustedContentInset.bottom)
-                    let distance = bottom - scrollView.contentOffset.y
-                    if abs(distance) <= 0.5 {
-                        settledFrames += 1
-                        if settledFrames >= 4 { return }
+        }
+    }
+
+    func restore(using proxy: ScrollViewProxy, to id: String, anchor: UnitPoint = .top) {
+        if #available(iOS 18, macOS 15, *) {
+            request = Request(destination: id, anchor: anchor, animated: false)
+        } else {
+            proxy.scrollTo(id, anchor: anchor)
+        }
+    }
+}
+
+struct ChatScrollTracking: ViewModifier {
+    let control: ChatScrollControl
+    let followsLatest: Bool
+    @Binding var visibleMessage: String?
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18, macOS 15, *) {
+            content.modifier(SemanticChatScrollTracking(control: control,
+                visibleMessage: $visibleMessage, followsLatest: followsLatest))
+        } else {
+            content.defaultScrollAnchor(.bottom).scrollPosition(id: $visibleMessage, anchor: .top)
+        }
+    }
+}
+
+@available(iOS 18, macOS 15, *)
+private struct SemanticChatScrollTracking: ViewModifier {
+    let control: ChatScrollControl
+    @Binding var visibleMessage: String?
+    let followsLatest: Bool
+    @State private var position = ScrollPosition(idType: String.self)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .alignment)
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: CGSize.self, of: { $0.containerSize }) { old, new in
+                // Rotation/resizing is separate from content-height changes.
+                // Retain the explicit bottom destination without anchoring
+                // every lazy-layout refinement or interrupting its animation.
+                guard old.width > 0, old.height > 0, old != new,
+                      position.edge == .bottom || followsLatest else { return }
+                withAnimation(nil) { position.scrollTo(edge: .bottom) }
+            }
+            .onChange(of: position.viewID(type: String.self)) { _, id in
+                visibleMessage = id
+            }
+            .onChange(of: control.request) { _, request in
+                guard let request else { return }
+                withAnimation(request.animated && !reduceMotion ? .easeInOut(duration: 0.35) : nil) {
+                    if let id = request.destination {
+                        position.scrollTo(id: id, anchor: request.anchor)
                     } else {
-                        settledFrames = 0
-                        let step = UIAccessibility.isReduceMotionEnabled ? distance : distance * 0.22
-                        scrollView.setContentOffset(
-                            CGPoint(x: scrollView.contentOffset.x, y: scrollView.contentOffset.y + step),
-                            animated: false)
+                        position.scrollTo(edge: .bottom)
                     }
-                    do { try await Task.sleep(for: .milliseconds(16)) }
-                    catch { return }
                 }
             }
-            return
-        }
-        #endif
-        withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(id, anchor: .bottom) }
-    }
-
-}
-
-/// Resolve only the ancestor scroll view of the chat content; never a nested image/code scroller.
-struct ChatScrollProbe: View {
-    let control: ChatScrollControl
-    var body: some View {
-        #if os(iOS)
-        Probe(control: control).allowsHitTesting(false).accessibilityHidden(true)
-        #else
-        EmptyView()
-        #endif
     }
 }
 
-#if os(iOS)
-private struct Probe: UIViewRepresentable {
-    let control: ChatScrollControl
-    func makeUIView(context: Context) -> Marker {
-        let view = Marker()
-        view.control = control
-        return view
-    }
-    func updateUIView(_ view: Marker, context: Context) { view.resolveScrollView() }
-
-    final class Marker: UIView {
-        weak var control: ChatScrollControl?
-        override func didMoveToWindow() { super.didMoveToWindow(); resolveScrollView() }
-        override func didMoveToSuperview() { super.didMoveToSuperview(); resolveScrollView() }
-        func resolveScrollView() {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                var ancestor = self.superview
-                while let view = ancestor {
-                    if let scrollView = view as? UIScrollView {
-                        self.control?.scrollView = scrollView
-                        return
-                    }
-                    ancestor = view.superview
-                }
-            }
+/// Lifecycle of a lazy row is not evidence that it is actually on screen.
+/// Only older OS versions without viewport callbacks use the lifecycle fallback.
+struct ChatBottomTracking: ViewModifier {
+    @Binding var followsLatest: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18, macOS 15, *) {
+            content.onScrollVisibilityChange(threshold: 0.1) { followsLatest = $0 }
+        } else {
+            content.onAppear { followsLatest = true }.onDisappear { followsLatest = false }
         }
     }
 }
-#endif
-
 /// Shared floating control for agent chats and the private SAM conversation.
 struct ChatJumpButton: View {
     let jump: () -> Void

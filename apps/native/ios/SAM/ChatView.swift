@@ -10,6 +10,10 @@ struct ChatView: View {
     @ChatDraft private var draft: String
     @State private var submission = ChatSubmission()
     @State private var historyAnchor: [String] = []
+    @State private var historyCancellation = 0
+    @State private var historyInteraction = 0
+    @State private var historyGestureActive = false
+    @GestureState private var historyDragging = false
     @State private var visibleMessage: String?
     @State private var messageFrames: [String: CGRect] = [:]
     @State private var viewportHeight: CGFloat = 0
@@ -37,13 +41,12 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if chat.state.hasMore || chat.state.loadingHistory {
-                            ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message, viewportHeight: viewportHeight) {
-                                followsLatest = false
+                            ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message, viewportHeight: viewportHeight, cancellation: historyCancellation, interaction: historyInteraction) {
                                 historyAnchor = chat.state.items.map(\.id)
                                 // Capture before loading changes either the rows or scroll binding.
                                 readingAnchor = ChatHistoryAnchor.capture(frames: messageFrames, viewportHeight: viewportHeight)
                                 Task { await chat.core.loadOlder() }
-                            }.id("history")
+                            }
                         }
                         ForEach(chat.state.items, id: \.id) { message in
                             Group {
@@ -82,24 +85,41 @@ struct ChatView: View {
                             Text(error.message).foregroundStyle(.red).font(.callout)
                         }
                         Color.clear.frame(height: 1).id("latest")
-                            .onAppear { followsLatest = true }
-                            .onDisappear { followsLatest = false }
+                            .modifier(ChatBottomTracking(followsLatest: $followsLatest))
                     }
                     .scrollTargetLayout()
                     .padding()
-                    .background(ChatScrollProbe(control: scrollControl))
                 }
                 .coordinateSpace(name: "chatViewport")
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: ChatViewportHeight.self, value: geometry.size.height)
                 })
-                .onPreferenceChange(ChatMessageFrames.self) { messageFrames = $0 }
+                .onPreferenceChange(ChatMessageFrames.self) { frames in
+                    messageFrames = frames
+                    // The request may begin during a swipe/bounce. Retain the
+                    // user's latest reading position while that response waits.
+                    if chat.state.loadingHistory, !historyAnchor.isEmpty,
+                       frames.keys.allSatisfy({ historyAnchor.contains($0) }),
+                       let anchor = ChatHistoryAnchor.capture(frames: frames, viewportHeight: viewportHeight) {
+                        readingAnchor = anchor
+                    }
+                }
                 .onPreferenceChange(ChatViewportHeight.self) { viewportHeight = $0 }
-                .defaultScrollAnchor(.bottom)
-                .scrollPosition(id: $visibleMessage, anchor: .top)
+                .modifier(ChatScrollTracking(control: scrollControl, followsLatest: followsLatest, visibleMessage: $visibleMessage))
                 .interactiveKeyboardDismiss()
+                .simultaneousGesture(DragGesture()
+                    .updating($historyDragging) { _, dragging, _ in dragging = true }
+                    .onChanged { gesture in
+                        if !historyGestureActive, gesture.translation.height > abs(gesture.translation.width) {
+                            historyGestureActive = true
+                            historyInteraction += 1
+                        }
+                    })
+                .onChange(of: historyDragging) { _, dragging in
+                    if !dragging { historyGestureActive = false }
+                }
                 .onChange(of: chat.state.items) {
-                    if followsLatest && historyAnchor.isEmpty && !chat.state.loadingHistory { proxy.scrollTo("latest", anchor: .bottom) }
+                    if followsLatest && !chat.state.loadingHistory && historyAnchor.isEmpty { scrollControl.jump(using: proxy, to: "latest", animated: false) }
                 }
                 .onChange(of: chat.state.loadingHistory) {
                     guard !chat.state.loadingHistory, !historyAnchor.isEmpty else { return }
@@ -107,17 +127,25 @@ struct ChatView: View {
                     let anchor = readingAnchor.flatMap { ids.contains($0.id) ? $0 : nil }
                         ?? historyAnchor.first(where: { ids.contains($0) }).map { ChatHistoryAnchor(id: $0, point: .top) }
                     if let anchor {
-                        var transaction = Transaction(animation: nil)
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) { proxy.scrollTo(anchor.id, anchor: anchor.point) }
+                        scrollControl.restore(using: proxy, to: anchor.id, anchor: anchor.point)
                     }
                     readingAnchor = nil
                     historyAnchor = []
-                    followsLatest = false
+                    if #unavailable(iOS 18, macOS 15) { followsLatest = false }
                 }
-                .onChange(of: chat.state.outbox) { proxy.scrollTo("latest", anchor: .bottom) }
+                .onChange(of: chat.state.outbox) {
+                    historyCancellation += 1
+                    historyAnchor = []
+                    readingAnchor = nil
+                    scrollControl.jump(using: proxy, to: "latest", animated: false)
+                }
                 if !followsLatest {
                     ChatJumpButton {
+                        // An in-flight history page must not restore its old
+                        // reading anchor after the user explicitly leaves it.
+                        historyCancellation += 1
+                        historyAnchor = []
+                        readingAnchor = nil
                         scrollControl.jump(using: proxy, to: "latest")
                     }
                 }
