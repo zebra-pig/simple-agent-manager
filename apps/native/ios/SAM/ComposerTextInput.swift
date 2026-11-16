@@ -10,6 +10,7 @@ struct ComposerTextInput: UIViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
     let files: ComposerFiles?
+    var commandKey: ((String) -> Bool)?
 
     func makeUIView(context: Context) -> AttachmentTextView {
         let view = AttachmentTextView()
@@ -32,6 +33,7 @@ struct ComposerTextInput: UIViewRepresentable {
         // Otherwise the retained project editor can restore its keyboard on return.
         if !focused, view.isFirstResponder { view.resignFirstResponder() }
         view.isEditable = context.environment.isEnabled
+        view.commandKey = commandKey
         view.attach = files.map { files in { AttachmentIntake.add(providers: $0, to: files) } }
         // Do not reset the selection or an in-progress IME composition.
         if view.text != text, view.markedTextRange == nil { view.text = text }
@@ -50,6 +52,10 @@ struct ComposerTextInput: UIViewRepresentable {
         var parent: ComposerTextInput
         init(_ parent: ComposerTextInput) { self.parent = parent }
 
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            if text == "\n", textView.markedTextRange == nil, parent.commandKey?("select") == true { return false }
+            return true
+        }
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
             textView.invalidateIntrinsicContentSize()
@@ -60,6 +66,27 @@ struct ComposerTextInput: UIViewRepresentable {
 }
 
 final class AttachmentTextView: UITextView {
+    var commandKey: ((String) -> Bool)?
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard commandKey != nil else { return super.keyCommands }
+        return (super.keyCommands ?? []) + [UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow, UIKeyCommand.inputEscape, "\t", "\r"].map { input in
+            let command = UIKeyCommand(input: input, modifierFlags: [], action: #selector(pickCommand(_:)))
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
+    }
+
+    @objc private func pickCommand(_ command: UIKeyCommand) {
+        let action = switch command.input {
+        case UIKeyCommand.inputUpArrow: "previous"
+        case UIKeyCommand.inputDownArrow: "next"
+        case UIKeyCommand.inputEscape: "dismiss"
+        default: "select"
+        }
+        _ = commandKey?(action)
+    }
+
     var attach: (([NSItemProvider]) -> Void)?
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {

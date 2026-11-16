@@ -14,6 +14,8 @@ mod api;
 mod attachments;
 mod assistant;
 mod chat;
+mod commands;
+pub use commands::*;
 pub use assistant::*;
 mod notifications;
 pub use notifications::*;

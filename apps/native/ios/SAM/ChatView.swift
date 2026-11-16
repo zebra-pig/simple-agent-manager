@@ -6,6 +6,7 @@ struct ChatView: View {
     let app: App
     let ref: SessionRef
     @State private var chat: ChatModel
+    @State private var commands: CommandsModel
     @ChatDraft private var draft: String
     @State private var submission = ChatSubmission()
     @State private var historyAnchor: [String] = []
@@ -27,6 +28,7 @@ struct ChatView: View {
         _draft = ChatDraft(server: account.serverUrl, user: account.viewer?.id ?? "",
                            project: ref.projectId, session: ref.sessionId)
         _chat = State(initialValue: ChatModel(app: app))
+        _commands = State(initialValue: CommandsModel(app: app))
     }
 
     var body: some View {
@@ -175,7 +177,7 @@ struct ChatView: View {
         } message: { Text("This ends the task and stops its agent.") }
         .safeAreaInset(edge: .bottom) {
             if canReply {
-                Composer(placeholder: "Reply to the agent…", text: $draft, busy: submission.sending || chat.state.sending, files: chat.files) {
+                Composer(placeholder: "Reply to the agent…", text: $draft, busy: submission.sending || chat.state.sending, files: chat.files, commands: commands.state.commands) {
                     guard !chat.state.sending else { return }
                     submission.send(draft: _draft) { content in
                         await chat.core.send(content: content)
@@ -183,6 +185,7 @@ struct ChatView: View {
                 }
             }
         }
+        .task(id: ref) { await commands.core.load(projectId: ref.projectId) }
         .task(id: ref) {
             chat.tools.core.load(projectId: ref.projectId, sessionId: ref.sessionId)
             await chat.core.load(projectId: ref.projectId, sessionId: ref.sessionId)
