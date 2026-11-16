@@ -45,6 +45,9 @@ xcrun --sdk iphonesimulator swiftc -parse-as-library -sdk "$sdk" \
     -target "$(uname -m)-apple-ios17.0-simulator" \
     "$native_dir/ios/SAM/Platform.swift" \
     "$native_dir/ios/SAM/Loading.swift" \
+    "$native_dir/ios/SAM/ErrorMessagesKey.swift" \
+    "$native_dir/ios/SAM/FloatingErrorBadge.swift" \
+    "$native_dir/ios/SAM/FloatingErrors.swift" \
     "${SAM_TEST_PROJECT_SETTINGS_SOURCE:-$native_dir/ios/SAM/ProjectSettings.swift}" \
     "$native_dir/ios/tests/project-loading-ios.swift" \
     -o "$app_dir/LoadingSheet"
