@@ -31,14 +31,15 @@ private struct GalleryImageReference: Identifiable {
 }
 
 /// A separate history reader keeps gallery pagination from moving the transcript
-/// behind the sheet. Its collection is fixed once history finishes loading, so
-/// live polling cannot insert pages underneath a swipe in progress.
+/// behind the sheet. Publish each discovered batch immediately and stop as soon
+/// as earlier images are found; the leading page requests the next batch.
 struct ChatGallery: View {
     let source: ChatState
     let initial: String
     @State private var reader: ChatModel
     @State private var documents: [ChatDocument]
-    @State private var loading: Bool
+    @State private var loading = false
+    @State private var initialized = false
     @State private var error: String?
     @State private var retry = 0
 
@@ -47,12 +48,11 @@ struct ChatGallery: View {
         self.source = source; self.initial = initial
         _reader = State(initialValue: ChatModel(app: app))
         _documents = State(initialValue: source.galleryDocuments)
-        _loading = State(initialValue: source.hasMore)
     }
 
     var body: some View {
         DocumentGallery(documents: documents, initial: initial, core: reader.core, fallbackCore: originalCore,
-                        loadingHistory: loading, historyError: error, retryHistory: { retry += 1 })
+                        historyError: error, requestEarlier: requestEarlier)
             .task(id: retry) { await loadHistory() }
     }
 
@@ -60,38 +60,57 @@ struct ChatGallery: View {
     // Retain the original model for images already on screen during that load.
     let originalCore: ChatViewModel
 
+    private func requestEarlier() {
+        guard !loading, source.hasMore, !initialized || reader.core.state().hasMore else { return }
+        retry += 1
+    }
+
     private func loadHistory() async {
         guard source.hasMore else { return }
         loading = true; error = nil
-        await reader.core.load(projectId: source.projectId, sessionId: source.sessionId)
-        guard !Task.isCancelled else { return }
-        if let failure = reader.core.state().error {
-            error = failure.message; loading = false; return
+        defer { loading = false }
+        if !initialized {
+            await reader.core.load(projectId: source.projectId, sessionId: source.sessionId)
+            guard !Task.isCancelled else { return }
+            if let failure = reader.core.state().error { error = failure.message; return }
+            initialized = true
         }
+        let first = documents.first?.fileId
         while reader.core.state().hasMore {
             guard !Task.isCancelled else { return }
             await reader.core.loadOlder()
-            if let failure = reader.core.state().historyError {
-                error = failure.message; loading = false; return
-            }
+            guard !Task.isCancelled else { return }
+            let state = reader.core.state()
+            if let failure = state.historyError { error = failure.message; return }
+            let discovered = state.galleryDocuments(merging: source)
+            if discovered != documents { documents = discovered }
+            // Stop at the next image batch, even if much older history remains.
+            // Paging is never disabled while a page with no images is searched.
+            if documents.first?.fileId != first { return }
         }
-        guard !Task.isCancelled else { return }
-        // Include still-pending uploads, preserving chronological order and IDs.
-        documents = (reader.core.state().galleryDocuments + source.galleryDocuments).uniqueGalleryImages
-        loading = false
     }
 }
 
 extension ChatState {
-    var galleryDocuments: [ChatDocument] {
-        let timeline = items.flatMap { item -> [ChatDocument] in
-            switch item.content {
+    var galleryDocuments: [ChatDocument] { galleryDocuments(merging: nil) }
+
+    func galleryDocuments(merging source: ChatState?) -> [ChatDocument] {
+        // The independent reader starts at the latest page. Keep the source's
+        // already-loaded older images in order until the reader catches up.
+        var seen = Set<String>()
+        let rows = (items + (source?.items ?? [])).filter { seen.insert($0.id).inserted }
+        let ordered = rows.enumerated().sorted {
+            if $0.element.createdAt != $1.element.createdAt { return $0.element.createdAt < $1.element.createdAt }
+            return $0.offset < $1.offset
+        }
+        let timeline = ordered.flatMap { entry -> [ChatDocument] in
+            switch entry.element.content {
             case let .document(document): return [document]
             case let .user(_, attachments): return attachments
             default: return []
             }
         }
-        return (timeline + outbox.flatMap(\.attachments)).uniqueGalleryImages
+        return (timeline + (source?.outbox ?? outbox).flatMap(\.attachments)).uniqueGalleryImages
     }
 }
 

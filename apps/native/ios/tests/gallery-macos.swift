@@ -37,32 +37,33 @@ private final class GalleryCredentials: CredentialStore, @unchecked Sendable {
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
 
-        func capture(_ name: String) throws -> String {
+        func capture(_ name: String, expected: Int) throws {
             host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
             let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
-            var request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            let handler = VNImageRequestHandler(cgImage: bitmap.cgImage!, options: [:])
-            do {
-                for (stage, devices) in try request.supportedComputeStageDevices {
-                    for device in devices {
-                        if case .cpu = device { request.setComputeDevice(device, for: stage); break }
-                    }
-                }
-                try handler.perform([request])
-            } catch {
-                // Headless Cloud runs can fail while configuring or running accurate OCR.
-                // Retry the same screenshot with CPU-only OCR; keep every UI assertion.
-                print("Accurate OCR unavailable: \(error); retrying CPU-only OCR")
-                request = VNRecognizeTextRequest()
-                request.recognitionLevel = .accurate
+            if expected == 6 {
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .fast
                 request.usesCPUOnly = true
-                try handler.perform([request])
+                try VNImageRequestHandler(cgImage: bitmap.cgImage!, options: [:]).perform([request])
+                let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+                precondition(text.contains("Image") && text.contains("Retry"), text)
+            } else {
+                // Verify the decoded pixels of the image actually installed in
+                // the gallery's native zoom view. Screen captures can be tone
+                // mapped by a headless Mac's HDR display profile.
+                func displayedImage(_ view: NSView) -> NSImage? {
+                    if let imageView = view as? NSImageView, let image = imageView.image, image.size.width > 100 { return image }
+                    return view.subviews.compactMap { displayedImage($0) }.first
+                }
+                let cg = displayedImage(host)!.cgImage(forProposedRect: nil, context: nil, hints: nil)!
+                let decoded = NSBitmapImageRep(cgImage: cg)
+                var pixel = [Int](repeating: 0, count: 4)
+                decoded.getPixel(&pixel, atX: decoded.pixelsWide / 2, y: decoded.pixelsHigh / 2)
+                precondition(pixel[0] == expected * 25 && pixel[1] == 120 && pixel[2] == 220 - expected * 20,
+                             "Wrong image pixels for \(expected): \(pixel)")
             }
-            return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-                .joined(separator: " ").replacingOccurrences(of: "of g", with: "of 9")
         }
         func arrow(_ right: Bool) {
             let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
@@ -73,17 +74,13 @@ private final class GalleryCredentials: CredentialStore, @unchecked Sendable {
             pause(0.25)
         }
         pause(2)
-        var text = try capture("opened")
-        print("OPENED:", text)
-        precondition(text.contains("8 of 9"), "Tapped image must survive earlier pages: \(text)")
+        try capture("opened", expected: 8)
         precondition(original.core.state().items == source.items, "Gallery must not prepend the transcript")
         // Traverse every image in both directions, then repeat to detect resets.
         for _ in 0..<2 {
             for _ in 0..<9 { arrow(false) }
             for index in 1...9 {
-                text = try capture("image-\(index)")
-                precondition(text.contains("\(index) of 9"), "Navigation jumped: \(text)")
-                if index == 6 { precondition(text.contains("Image unavailable"), text) }
+                try capture("image-\(index)", expected: index)
                 if index < 9 { arrow(true) }
             }
         }
@@ -102,15 +99,15 @@ private final class GalleryCredentials: CredentialStore, @unchecked Sendable {
             pause(0.3)
         }
         scroll(-70, phase: .began)
-        text = try capture("swipe-next"); precondition(text.contains("2 of 9"), text)
+        try capture("swipe-next", expected: 2)
         scroll(-70) // New page, same gesture: must not advance again.
         scroll(70, momentum: 1) // Reverse bounce: must not go back.
-        text = try capture("swipe-momentum"); precondition(text.contains("2 of 9"), text)
+        try capture("swipe-momentum", expected: 2)
         scroll(0, -100, phase: .began)
-        text = try capture("vertical-scroll"); precondition(text.contains("2 of 9"), text)
+        try capture("vertical-scroll", expected: 2)
         zoomView(host)!.magnification = 2
         scroll(-100, phase: .began)
-        text = try capture("zoom-pan"); precondition(text.contains("2 of 9"), text)
+        try capture("zoom-pan", expected: 2)
         // The shared gesture state survives a page's zoom view being replaced.
         let swipe = GallerySwipeNavigation()
         precondition(swipe.move(delta: -60, began: true, discrete: false, momentum: false, time: 1) == 1)
