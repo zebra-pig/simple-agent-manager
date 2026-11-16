@@ -14,7 +14,7 @@ The replacement is in `apps/native/verification/chat-scroll/`:
 - XCUITest performs touch swipes and taps the actual Jump to latest button.
 - Checks that opening/polling at the bottom does not fetch history, a jump after
   multiple pages stays at the latest message across polling cycles, another
-  gesture and jump work, and an in-flight history response cannot pull the user
+  gesture and jump work, polling preserves an older reading position, and an in-flight history response cannot pull the user
   back to the old anchor.
 
 Run on an Apple silicon Mac with Xcode 26+ and an installed iOS runtime:
@@ -29,7 +29,9 @@ apps/native/verification/chat-scroll/run.sh /tmp/sam-scroll-regression
 The runner creates and deletes a dedicated simulator and starts a loopback-only
 mock server. It never reads account credentials or provisions a paid VM. Results
 and screenshot attachments are recorded in `scroll-tests.xcresult`; HTTP requests
-and page counters are recorded in `server.log`. Run this suite on the Mac before considering the correction verified. No passing
+and page counters are recorded in `server.log`. `interaction.mov` records the
+actual interaction for visual animation review. User interruption during an
+active animation also needs explicit verification before merge. Run this suite on the Mac before considering the correction verified. No passing
 result from the new interaction suite has been recorded yet.
 
 Current correction: native offset-writing loops were removed; a SwiftUI semantic

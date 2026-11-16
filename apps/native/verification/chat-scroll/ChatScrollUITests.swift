@@ -40,7 +40,10 @@ final class ChatScrollUITests: XCTestCase {
     }
 
     private func assertAtLatest() {
-        let visible = NSPredicate { [weak self] _, _ in self?.latest.isHittable == true }
+        let visible = NSPredicate { [weak self] _, _ in
+            guard let self else { return false }
+            return self.latest.isHittable && !self.jump.isHittable
+        }
         expectation(for: visible, evaluatedWith: nil)
         waitForExpectations(timeout: 8)
         XCTAssertFalse(jump.isHittable)
@@ -80,6 +83,22 @@ final class ChatScrollUITests: XCTestCase {
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.tap()
         assertAtLatest()
+    }
+
+    func testPollingDoesNotPullAnOlderReadingPositionToBottom() throws {
+        launch()
+        app.scrollViews.firstMatch.swipeDown()
+        XCTAssertTrue(jump.waitForExistence(timeout: 5))
+        let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Message "))
+            .allElementsBoundByIndex.first { $0.isHittable }!
+        let label = row.label
+        let y = row.frame.minY
+        Thread.sleep(forTimeInterval: 10)
+        let retained = app.staticTexts[label]
+        XCTAssertTrue(retained.isHittable)
+        XCTAssertEqual(retained.frame.minY, y, accuracy: 4)
+        XCTAssertTrue(jump.isHittable)
+        capture("older-position-after-polling")
     }
 
     func testJumpWhileHistoryIsInFlightDoesNotRestoreOldAnchor() throws {
