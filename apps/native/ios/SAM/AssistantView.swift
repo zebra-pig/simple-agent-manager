@@ -52,7 +52,6 @@ struct AssistantView: View {
     @State private var followsLatest = true
     @State private var visibleMessage: String?
     @State private var scrollControl = ChatScrollControl()
-    @State private var voice = AssistantVoice()
     @State private var earlierOpen = false
     @State private var linkedChat: SessionRef?
     @Environment(\.scenePhase) private var phase
@@ -121,9 +120,8 @@ struct AssistantView: View {
                 ToolbarItem { Button("Settings", systemImage: "gearshape") { open("/settings") } }
             }
         }
-        .onDisappear { voice.cancel() }
         .task(id: phase) {
-            guard phase == .active else { voice.cancel(); return }
+            guard phase == .active else { return }
             while !Task.isCancelled {
                 await model.core.refresh()
                 try? await Task.sleep(for: .seconds(active ? 2 : 10))
@@ -139,14 +137,7 @@ struct AssistantView: View {
                 }.disabled(model.state.loading)
             }
             if let pending = model.state.pending { Text(pending.message).font(.footnote).lineLimit(4) }
-            if let error = voice.error { Text(error).foregroundStyle(.red).font(.footnote) }
             assistantComposer
-            if voice.hasRecording {
-                HStack {
-                    Text("Recording… Tap stop when you’re done.").font(.caption)
-                    Button("Cancel") { voice.cancel() }
-                }.padding(.horizontal, 16)
-            }
             if active { Text("Stopping SAM won’t cancel project work it already started.").font(.caption).foregroundStyle(.secondary) }
         }.padding(.top, 8)
     }
@@ -163,36 +154,15 @@ struct AssistantView: View {
             }
         }
         composer.inputEnabled = model.state.pending == nil && !model.state.busy
-        composer.sendEnabled = active || (!voice.hasRecording && model.state.loaded && model.state.enabled
+        composer.sendEnabled = active || (model.state.loaded && model.state.enabled
             && (model.state.error == nil || model.state.pending != nil))
         // A pending receipt retries its original message, even with an empty editor.
         composer.allowsEmpty = active || model.state.pending != nil
         composer.sendLabel = active ? "Stop" : model.state.pending == nil ? "Send" : "Retry"
         composer.sendIcon = active ? "stop.fill" : "arrow.up"
-        composer.leadingControl = AnyView(voiceControl)
         return composer
     }
 
-    private var voiceControl: some View {
-        HStack {
-            Button {
-                if voice.hasRecording {
-                    if let data = voice.finish() {
-                        Task {
-                            if let text = await model.core.transcribe(audio: data), !text.isEmpty {
-                                draft += (draft.isEmpty ? "" : " ") + text
-                            }
-                        }
-                    }
-                } else { Task { await voice.start() } }
-            } label: { Image(systemName: voice.hasRecording ? "stop.circle" : "mic") }
-                .glassButton()
-                .tint(.primary)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(voice.hasRecording ? "Transcribe recording" : "Record voice message")
-                .disabled(model.state.busy || model.state.pending != nil || active)
-        }
-    }
     private func turnCard(_ turn: AssistantTurn) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Spacer(minLength: 30); Text(turn.message).textSelection(.enabled).padding().glass(in: RoundedRectangle(cornerRadius: 20)) }

@@ -15,7 +15,6 @@ import SwiftUI
                 composer.inputEnabled = variant != "retry"
                 composer.sendLabel = variant == "stop" ? "Stop" : variant == "retry" ? "Retry" : "Send"
                 composer.sendIcon = variant == "stop" ? "stop.fill" : "arrow.up"
-                composer.leadingControl = AnyView(Button {} label: { Image(systemName: "mic") }.glassButton().buttonBorderShape(.circle).tint(.primary))
                 let view = VStack {
                     Text("SAM").font(.title2)
                     Spacer()

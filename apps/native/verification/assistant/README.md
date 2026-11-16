@@ -1,3 +1,5 @@
+> Historical verification before microphone recording was removed. The preview fixture now uses the text-only composer; preserved images show the earlier UI.
+
 # SAM assistant verification
 
 Android Compose host renders of the production `AssistantContent` and `MainTabs` composables,

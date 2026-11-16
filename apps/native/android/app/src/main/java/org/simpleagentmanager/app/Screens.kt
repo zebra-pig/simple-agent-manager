@@ -395,7 +395,7 @@ internal fun Composer(
     sendEnabled: Boolean = true,
     allowsEmpty: Boolean = false,
     sendDescription: String? = null,
-    leadingControl: (@Composable () -> Unit)? = null,
+    showAttachments: Boolean = true,
     actionControl: (@Composable () -> Unit)? = null,
     onSend: () -> Unit,
 ) {
@@ -431,7 +431,7 @@ internal fun Composer(
                                 }
                             },
                         )
-                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { if (leadingControl != null) leadingControl() else AttachButton(onAttach) }
+                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { if (showAttachments) AttachButton(onAttach) }
                         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                             if (busy) CircularProgressIndicator(Modifier.size(24.dp), color = colors.onSurfaceVariant)
                             else if (actionControl != null) actionControl()

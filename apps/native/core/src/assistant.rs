@@ -295,41 +295,6 @@ impl AssistantViewModel {
             self.mutate(format!("/api/sam/actions/{}/reconcile", seg(&action_id)), json!({})).await;
         }
     }
-    /// Voice entry fills the draft for review; it never sends a turn automatically.
-    pub async fn transcribe(&self, audio: Vec<u8>) -> Option<String> {
-        let _guard = self.gate.lock().await;
-        if audio.is_empty() || audio.len() > 10_485_760 || !self.state().enabled {
-            return None;
-        }
-        self.update(|s| {
-            s.busy = true;
-            s.error = None;
-        });
-        #[derive(Deserialize)]
-        struct Transcript {
-            text: String,
-        }
-        let result = async {
-            let credentials = self.credentials.clone().ok_or(crate::error::CoreError::Unauthenticated)?;
-            let part = reqwest::multipart::Part::bytes(audio)
-                .file_name("voice.m4a")
-                .mime_str("audio/mp4")
-                .map_err(|e| crate::error::CoreError::Unexpected(e.to_string()))?;
-            let form = reqwest::multipart::Form::new().part("audio", part);
-            self.app.send_scoped::<Transcript>(credentials, |http, base| http.post(format!("{base}/api/transcribe")).multipart(form)).await
-        }
-        .await;
-        match result {
-            Ok(transcript) => {
-                self.finish(Ok(()));
-                Some(transcript.text)
-            }
-            Err(error) => {
-                self.finish(Err(error));
-                None
-            }
-        }
-    }
     pub async fn mark_seen(&self, action_id: String) {
         let _guard = self.gate.lock().await;
         self.mutate(format!("/api/sam/updates/{}/seen", seg(&action_id)), json!({})).await;

@@ -230,9 +230,6 @@
     <string name="sam_uncertain">SAM couldn’t confirm whether this finished. Check the project before asking again.</string>
     <string name="check_outcome">Check outcome</string>
     <string name="retry">Retry</string>
-    <string name="record_voice">Record voice message</string>
-    <string name="transcribe_recording">Transcribe recording</string>
-    <string name="voice_permission_error">Could not record. Allow microphone access in Settings and try again.</string>
     <string name="document_file">File</string>
     <string name="open_gallery">Open gallery</string>
     <string name="open_file">Open file</string>

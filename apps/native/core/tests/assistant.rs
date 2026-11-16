@@ -150,29 +150,6 @@ async fn signed_out_view_model_cannot_read_or_mutate_a_private_conversation() {
     vm.confirm("a1".into(), true).await;
 }
 
-#[tokio::test]
-async fn voice_upload_uses_authenticated_multipart_and_returns_a_draft() {
-    let client = app(Arc::new(|r| match r.path.as_str() {
-        "/api/sam/settings" => (200, json!({"enabled":true,"available":true}).to_string()),
-        "/api/sam/turns" => (200, json!({"conversationId":"private","turns":[]}).to_string()),
-        "/api/transcribe" => {
-            assert_eq!(r.method, "POST");
-            assert_eq!(r.header("cookie").as_deref(), Some("session=sam"));
-            assert!(r.header("content-type").unwrap().starts_with("multipart/form-data; boundary="));
-            let body = String::from_utf8_lossy(&r.body);
-            assert!(body.contains("name=\"audio\"; filename=\"voice.m4a\""));
-            assert!(body.contains("audio/mp4"));
-            (200, json!({"text":"What needs attention?"}).to_string())
-        }
-        unexpected => panic!("transcription must not send a turn: {unexpected}"),
-    }))
-    .await;
-    let vm = AssistantViewModel::new(client, Box::<PendingStore>::default());
-    vm.refresh().await;
-    assert_eq!(vm.transcribe(vec![1, 2, 3]).await.as_deref(), Some("What needs attention?"));
-    assert!(vm.transcribe(vec![]).await.is_none());
-    assert!(vm.state().turns.is_empty() && vm.state().pending.is_none());
-}
 #[test]
 fn markdown_formats_text_without_executing_html_or_unsafe_links() {
     let html = assistant_markdown_html(

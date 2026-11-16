@@ -117,9 +117,6 @@ The shells persist uncertain submissions in Keychain or encrypted private prefer
 retries retain the original request key and message across app restarts. The core binds requests to
 the login that created the view model and clears visible state when that login ends.
 
-Voice entry records at most two minutes and sends audio to the existing `/api/transcribe` endpoint
-(`AssistantViewModel::transcribe`). Transcription fills the draft for review; it never sends a turn.
-Recordings are removed after transcription or cancellation, and when the screen leaves the foreground.
 See [assistant verification](verification/assistant/README.md) for native layout renders and wire tests.
 
 ## Notifications and agent requests
