@@ -223,6 +223,7 @@ struct AttachButton: View {
                         choosingSource = false
                     }
                 }
+                .tint(.primary)
                 .presentationDetents([.height(180)])
                 .presentationDragIndicator(.visible)
             }
