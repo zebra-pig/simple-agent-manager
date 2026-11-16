@@ -34,7 +34,7 @@ struct ChatView: View {
                             ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message) {
                                 historyAnchor = chat.state.items.map(\.id)
                                 Task { await chat.core.loadOlder() }
-                            }.id("history")
+                            }
                         }
                         ForEach(chat.state.items, id: \.id) { message in
                             Group {
@@ -74,8 +74,7 @@ struct ChatView: View {
                     .scrollTargetLayout()
                     .padding()
                 }
-                .defaultScrollAnchor(.bottom)
-                .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage, followsLatest: $followsLatest))
+                .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage))
                 .interactiveKeyboardDismiss()
                 .onChange(of: chat.state.items) {
                     if followsLatest && !chat.state.loadingHistory && historyAnchor.isEmpty { scrollControl.jump(using: proxy, to: "latest", animated: false) }

@@ -32,14 +32,12 @@ import SwiftUI
 struct ChatScrollTracking: ViewModifier {
     let control: ChatScrollControl
     @Binding var visibleMessage: String?
-    @Binding var followsLatest: Bool
-
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 18, macOS 15, *) {
             content.modifier(SemanticChatScrollTracking(control: control,
-                visibleMessage: $visibleMessage, followsLatest: $followsLatest))
+                visibleMessage: $visibleMessage))
         } else {
-            content.scrollPosition(id: $visibleMessage, anchor: .top)
+            content.defaultScrollAnchor(.bottom).scrollPosition(id: $visibleMessage, anchor: .top)
         }
     }
 }
@@ -48,21 +46,16 @@ struct ChatScrollTracking: ViewModifier {
 private struct SemanticChatScrollTracking: ViewModifier {
     let control: ChatScrollControl
     @Binding var visibleMessage: String?
-    @Binding var followsLatest: Bool
     @State private var position = ScrollPosition(idType: String.self)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .alignment)
             .scrollPosition($position)
             .onChange(of: position.viewID(type: String.self)) { _, id in
                 visibleMessage = id
-            }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height
-                    - geometry.contentInsets.bottom >= geometry.contentSize.height - 24
-            } action: { _, atBottom in
-                followsLatest = atBottom
             }
             .onChange(of: control.request) { _, request in
                 guard let request else { return }
@@ -78,12 +71,12 @@ private struct SemanticChatScrollTracking: ViewModifier {
 }
 
 /// Lifecycle of a lazy row is not evidence that it is actually on screen.
-/// Only older OS versions without scroll geometry use this legacy fallback.
+/// Only older OS versions without viewport callbacks use the lifecycle fallback.
 struct ChatBottomTracking: ViewModifier {
     @Binding var followsLatest: Bool
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 18, macOS 15, *) {
-            content
+            content.onScrollVisibilityChange(threshold: 0.1) { followsLatest = $0 }
         } else {
             content.onAppear { followsLatest = true }.onDisappear { followsLatest = false }
         }

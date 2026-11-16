@@ -34,6 +34,8 @@ trap 'kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" 2>/dev/null 
 xcodebuild test -project "$run_dir/ios/SAM.xcodeproj" -scheme ChatScrollRegression \
   -destination "platform=iOS Simulator,id=$simulator" \
   -derivedDataPath "$run_dir/build" -resultBundlePath "$run_dir/scroll-tests.xcresult" \
-  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
+  -parallel-testing-enabled NO -test-timeouts-enabled YES \
+  -default-test-execution-time-allowance 180 -maximum-test-execution-time-allowance 180 \
+  CODE_SIGNING_ALLOWED=NO \
   SAM_BUNDLE_ID=org.simpleagentmanager.validation.scroll \
   | tee "$run_dir/xcodebuild.log"

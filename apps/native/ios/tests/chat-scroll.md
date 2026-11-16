@@ -44,3 +44,31 @@ tracking uses the viewport, and history loading triggers on the pager entering t
 viewport rather than on lazy-row lifecycle or request completion. An explicit
 jump invalidates any pending history anchor restoration. Older OS versions retain
 the ScrollViewReader fallback and an explicit Load earlier messages button.
+
+## Mac execution status
+
+The private Mac cannot be reconnected because the SAM token expired. App Store
+Connect access works, so the suite is being exercised by Xcode Cloud's Mac host.
+The native iOS post-clone hook now runs it before archiving, and exports XCTest
+screenshots to the build log even when tests fail.
+
+Build 91 reached simulator test setup but failed in the generated test target
+(missing PRODUCT_NAME); the parallel macOS hook also exposed a missing Loading.swift
+input in the Files/Git render compile. Both harness issues were corrected. Build 93
+is running commit 9ec7f2ad4e6a6d78293b22d330761ac9bc77c449; no UI success is claimed
+until its results are inspected.
+
+The current suite contains six real ChatView interaction tests. It includes four
+repeated history jumps, mixed Markdown/code/tool/thinking rows, rotation, two poll
+cycles after jumps, older reading-position retention, and a held history response.
+A read-only display-link probe samples presentation offsets; the actual-button
+test requires intermediate animation frames, rather than accepting an instant jump.
+
+Build 93 compiled the app and ran all six UI tests, which failed: bottom visibility
+was misreported despite the latest message being visible, subsequent history
+loading stalled, and one retained-label query exceeded XCTest's 128-character
+identifier limit. These are failures, not validation success. The next correction
+uses the actual bottom sentinel's viewport visibility, excludes the pager from
+String-ID position tracking, restricts the default bottom anchor to initial
+placement/alignment, and uses an explicit label predicate in the tests. It adds
+a seventh case for position retention while older messages actually prepend.

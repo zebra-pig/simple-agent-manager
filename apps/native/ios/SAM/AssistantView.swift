@@ -102,8 +102,7 @@ struct AssistantView: View {
                 .initialLoading(model.state.loading && !model.state.loaded)
                 .interactiveKeyboardDismiss()
                 .refreshable { await model.core.refresh() }
-                .defaultScrollAnchor(.bottom)
-                .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage, followsLatest: $followsLatest))
+                .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage))
                 .overlay(alignment: .bottom) {
                     if !followsLatest {
                         ChatJumpButton {

@@ -12,6 +12,13 @@ final class ChatScrollUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        // XCTest's automatic failure artifact is a video on current Xcode.
+        // Always attach a still image and the final measured state as well.
+        capture("final-" + name)
+        if let stats = try? request("stats") { print("CHAT_SCROLL_FINAL_STATS \(stats)") }
+        if let trace = try? request("trace"), let samples = trace["samples"] as? [[String: Any]] {
+            print("CHAT_SCROLL_FINAL_OFFSETS \(Array(samples.suffix(4)))")
+        }
         _ = try request("release-history")
         app.terminate()
     }
@@ -51,9 +58,13 @@ final class ChatScrollUITests: XCTestCase {
             guard let self else { return false }
             return self.latest.isHittable && !self.jump.isHittable
         }
-        expectation(for: visible, evaluatedWith: nil)
-        waitForExpectations(timeout: 8)
-        XCTAssertFalse(jump.isHittable)
+        let expectation = XCTNSPredicateExpectation(predicate: visible, object: nil)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 8)
+        if result != .completed {
+            print("CHAT_SCROLL_BOTTOM_FAILURE latestVisible=\(latest.isHittable) jumpVisible=\(jump.isHittable)")
+            capture("bottom-detection-failure")
+        }
+        XCTAssertEqual(result, .completed, "Latest must be visible and the jump button must disappear")
     }
 
     private func capture(_ name: String) {
@@ -152,11 +163,32 @@ final class ChatScrollUITests: XCTestCase {
         let label = row.label
         let y = row.frame.minY
         Thread.sleep(forTimeInterval: 10)
-        let retained = app.staticTexts[label]
+        let retained = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
         XCTAssertTrue(retained.isHittable)
         XCTAssertEqual(retained.frame.minY, y, accuracy: 4)
         XCTAssertTrue(jump.isHittable)
         capture("older-position-after-polling")
+    }
+
+    func testPrependingHistoryPreservesVisibleMessagePosition() throws {
+        _ = try request("reset?hold=true")
+        launch()
+        reachOlderPage(1)
+        Thread.sleep(forTimeInterval: 0.5)
+        let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Message "))
+            .allElementsBoundByIndex.first { $0.isHittable }!
+        let label = row.label
+        let y = row.frame.minY
+        _ = try request("release-history")
+        for _ in 0..<50 {
+            if try request("stats")["completedOlder"] as? Int == 1 { break }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        Thread.sleep(forTimeInterval: 1)
+        let retained = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
+        capture("history-prepend-reading-position")
+        XCTAssertTrue(retained.isHittable, "Earlier-page insertion displaced the message being read")
+        XCTAssertEqual(retained.frame.minY, y, accuracy: 4)
     }
 
     func testScrollToTopThenTapJumpBeforeHistoryReturns() throws {
