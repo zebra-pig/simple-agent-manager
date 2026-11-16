@@ -15,18 +15,14 @@ history_gate.set()
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        if self.path == "/layout-samples":
-            sample = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            with lock:
-                layout_samples.append(sample)
-                del layout_samples[:-1000]
-            self.send_response(204)
-            self.end_headers()
-            return
-        if self.path != "/scroll-samples":
+        if self.path != "/measurements":
             self.send_error(404)
             return
-        samples = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        samples = payload["samples"]
+        with lock:
+            layout_samples.extend(payload["layouts"])
+            del layout_samples[:-1000]
         with lock:
             if state.get("releaseArmed"):
                 movement = next((sample for sample in samples if sample["time"] >= state["armedAt"] and sample.get("distanceToLatest", sample["bottom"] - sample["y"]) < state["releaseDistanceAtArm"] - 50), None)

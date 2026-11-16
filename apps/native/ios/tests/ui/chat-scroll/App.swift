@@ -30,10 +30,7 @@ private final class ScrollFixtureCredentials: CredentialStore, @unchecked Sendab
                         let payload: [String: Any] = ["time": Date().timeIntervalSince1970,
                             "height": viewportHeight, "id": anchor?.id ?? "none", "point": anchor?.point.y ?? 0,
                             "rows": visible.map { ["id": $0.key, "y": $0.value.minY, "height": $0.value.height] as [String: Any] }]
-                        var request = URLRequest(url: URL(string: "http://127.0.0.1:SAM_TEST_PORT/layout-samples")!)
-                        request.httpMethod = "POST"
-                        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-                        URLSession.shared.dataTask(with: request).resume()
+                        ScrollRenderedLayout.layouts.append(payload)
                     }
             }
         }
@@ -44,6 +41,7 @@ private final class ScrollFixtureCredentials: CredentialStore, @unchecked Sendab
 // the display. Sample the latest completed layout at display-link cadence too.
 private enum ScrollRenderedLayout {
     static var rows: [[String: Any]] = []
+    static var layouts: [[String: Any]] = []
 }
 
 // Read-only instrumentation of the rendered scroll view. Sampling presentation
@@ -57,6 +55,7 @@ private struct ScrollSamples: UIViewRepresentable {
         private var displayLink: CADisplayLink?
         private weak var chatScroll: UIScrollView?
         private var samples: [[String: Any]] = []
+        private var sending = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -96,13 +95,30 @@ private struct ScrollSamples: UIViewRepresentable {
                 "insetBottom": scroll.adjustedContentInset.bottom,
                 "reduceMotion": UIAccessibility.isReduceMotionEnabled
             ])
-            if samples.count >= 8 {
-                var request = URLRequest(url: URL(string: "http://127.0.0.1:SAM_TEST_PORT/scroll-samples")!)
+            if samples.count >= 8 && !sending {
+                // One ordered batch at a time keeps instrumentation from flooding
+                // URLSession's connection queue and overtaking its own samples.
+                sending = true
+                let batch = samples
+                let layouts = ScrollRenderedLayout.layouts
+                let payload: [String: Any] = ["samples": batch, "layouts": layouts]
+                samples.removeAll(keepingCapacity: true)
+                ScrollRenderedLayout.layouts.removeAll(keepingCapacity: true)
+                var request = URLRequest(url: URL(string: "http://127.0.0.1:SAM_TEST_PORT/measurements")!)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = try? JSONSerialization.data(withJSONObject: samples)
-                URLSession.shared.dataTask(with: request).resume()
-                samples.removeAll(keepingCapacity: true)
+                request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+                URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        if error != nil || (response as? HTTPURLResponse)?.statusCode != 204 {
+                            // A failed transport must not silently discard display frames.
+                            self.samples.insert(contentsOf: batch, at: 0)
+                            ScrollRenderedLayout.layouts.insert(contentsOf: layouts, at: 0)
+                        }
+                        self.sending = false
+                    }
+                }.resume()
             }
         }
     }

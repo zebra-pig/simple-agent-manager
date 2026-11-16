@@ -34,6 +34,20 @@ final class ChatScrollUITests: XCTestCase {
         return try JSONSerialization.jsonObject(with: result.get()) as! [String: Any]
     }
 
+    // Wait for delivery through the end of the measured interval, not just an
+    // arbitrary sleep. The fixture sends ordered batches without dropping frames.
+    private func renderedSamples(after start: Double) throws -> [[String: Any]] {
+        let end = Date().timeIntervalSince1970
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            let samples = try request("trace?after=\(start)")["samples"] as! [[String: Any]]
+            if let latest = samples.last?["time"] as? Double, latest >= end { return samples }
+            Thread.sleep(forTimeInterval: 0.05)
+        } while Date() < deadline
+        XCTFail("Render probe did not deliver samples through the measured interval")
+        return []
+    }
+
     private var latest: XCUIElement { app.staticTexts["LATEST MESSAGE"] }
     private var jump: XCUIElement { app.buttons["Jump to latest"] }
     private var olderRequests: Int { (try! request("stats"))["older"] as! Int }
@@ -93,7 +107,7 @@ final class ChatScrollUITests: XCTestCase {
         jump.tap()
         assertAtLatest()
         Thread.sleep(forTimeInterval: 0.3)
-        let trace = try request("trace?after=\(beforeTap)")["samples"] as! [[String: Any]]
+        let trace = try renderedSamples(after: beforeTap)
         XCTAssertGreaterThan(trace.count, 3, "Missing rendered animation samples")
         if !(trace.first?["reduceMotion"] as? Bool ?? false) {
             let offsets = trace.compactMap { $0["y"] as? Double }
@@ -172,7 +186,7 @@ final class ChatScrollUITests: XCTestCase {
         let retained = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
         XCTAssertTrue(retained.isHittable)
         XCTAssertEqual(retained.frame.minY, y, accuracy: 1)
-        let frames = try request("trace?after=\(started)")["samples"] as! [[String: Any]]
+        let frames = try renderedSamples(after: started)
         XCTAssertGreaterThan(frames.count, 10)
         for frame in frames {
             let rows = frame["rows"] as! [[String: Any]]
@@ -256,10 +270,10 @@ final class ChatScrollUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 1)
             let retained = app.descendants(matching: .any).matching(identifier: "chat-message-\(id)").firstMatch
             capture("page-\(page)-after-prepend")
+            let rendered = try renderedSamples(after: released)
             let layouts = try request("layout?after=\(released)")["samples"] as! [[String: Any]]
             print("CHAT_SCROLL_PAGE_\(page) before=\(y) after=\(retained.frame.minY) layouts=\(layouts)")
             XCTAssertFalse(layouts.isEmpty, "No insertion layout samples were captured")
-            let rendered = try request("trace?after=\(released)")["samples"] as! [[String: Any]]
             XCTAssertGreaterThan(rendered.count, 3, "Missing display-link samples during insertion")
             for sample in rendered {
                 let rows = sample["rows"] as! [[String: Any]]
@@ -292,7 +306,7 @@ final class ChatScrollUITests: XCTestCase {
         let event = events[0]
         let started = event["started"] as! Double
         let completed = event["completed"] as! Double
-        let frames = try request("trace?after=\(started - 0.2)")["samples"] as! [[String: Any]]
+        let frames = try renderedSamples(after: started - 0.2)
         let aroundInsertion = frames.filter { ($0["time"] as! Double) < completed + 0.8 }
         XCTAssertGreaterThan(aroundInsertion.count, 5)
         for (before, after) in zip(aroundInsertion, aroundInsertion.dropFirst()) {
