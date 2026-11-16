@@ -7,6 +7,7 @@ final class ChatScrollUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication(bundleIdentifier: "org.simpleagentmanager.validation.scroll")
         app.terminate()
+        XCUIDevice.shared.orientation = .portrait
         _ = try request("reset")
     }
 
@@ -100,6 +101,30 @@ final class ChatScrollUITests: XCTestCase {
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.tap()
         assertAtLatest()
+    }
+
+    func testMixedChatAcrossThreePagesAndRotation() throws {
+        _ = try request("reset?mixed=true")
+        launch()
+        reachOlderPage(1)
+        reachOlderPage(2)
+        reachOlderPage(3)
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(jump.waitForExistence(timeout: 5))
+        jump.tap()
+        assertAtLatest()
+        let requests = olderRequests
+        XCUIDevice.shared.orientation = .landscapeLeft
+        assertAtLatest()
+        app.scrollViews.firstMatch.swipeDown()
+        XCTAssertTrue(jump.waitForExistence(timeout: 5))
+        jump.tap()
+        assertAtLatest()
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 5)
+        assertAtLatest()
+        XCTAssertEqual(olderRequests, requests)
+        capture("mixed-markdown-tools-three-pages-and-rotation")
     }
 
     func testRepeatedTopToBottomJumps() throws {

@@ -30,7 +30,7 @@ xcrun simctl bootstatus "$simulator" -b
 # the assertions and screenshot attachments in the result bundle.
 xcrun simctl io "$simulator" recordVideo "$run_dir/interaction.mov" > "$run_dir/video.log" 2>&1 &
 video_pid=$!
-trap 'kill -INT "$video_pid" 2>/dev/null || true; kill "$server_pid" 2>/dev/null || true; xcrun simctl delete "$simulator"' EXIT
+trap 'kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" 2>/dev/null || true; kill "$server_pid" 2>/dev/null || true; xcrun simctl delete "$simulator"' EXIT
 xcodebuild test -project "$run_dir/ios/SAM.xcodeproj" -scheme ChatScrollRegression \
   -destination "platform=iOS Simulator,id=$simulator" \
   -derivedDataPath "$run_dir/build" -resultBundlePath "$run_dir/scroll-tests.xcresult" \

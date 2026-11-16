@@ -8,6 +8,7 @@ tests.add_dependency(app)
 tests.source_build_phase.add_file_reference(project.main_group.new_file(source))
 tests.build_configurations.each do |configuration|
   configuration.build_settings['TEST_TARGET_NAME'] = 'SAM'
+  configuration.build_settings['PRODUCT_NAME'] = 'ChatScrollUITests'
   configuration.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'org.simpleagentmanager.validation.scroll.tests'
   configuration.build_settings['GENERATE_INFOPLIST_FILE'] = 'YES'
   configuration.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'

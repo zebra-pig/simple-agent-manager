@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 lock = threading.Lock()
-state = {"older": 0, "completedOlder": 0, "inFlight": 0, "polls": 0, "delay": 0.1, "generation": 0}
+state = {"older": 0, "completedOlder": 0, "inFlight": 0, "polls": 0, "delay": 0.1, "generation": 0, "mixed": False}
 scroll_samples = []
 history_gate = threading.Event()
 history_gate.set()
@@ -37,6 +37,7 @@ class Handler(BaseHTTPRequestHandler):
                     history_gate.set()
                 state.update(older=0, completedOlder=0, inFlight=0, polls=0,
                              generation=state["generation"] + 1,
+                             mixed=query.get("mixed", ["false"])[0] == "true",
                              delay=float(query.get("delay", [0.1])[0]))
             body = state.copy()
         elif url.path == "/release-history":
@@ -75,7 +76,23 @@ class Handler(BaseHTTPRequestHandler):
                     content = f"Streaming update {snapshot['polls']}\n" + "Live detail. " * (snapshot['polls'] % 8 + 1)
                 if index == 95:
                     content = "LATEST MESSAGE"
-                rows.append({"id": f"m-{index}", "createdAt": index, "role": "user", "content": content})
+                role, metadata = "user", None
+                if snapshot["mixed"] and index < 94:
+                    if index % 7 in (1, 5):
+                        role = "assistant"
+                        content = (f"### Assistant response {index}\n\n"
+                                   + "A longer streamed explanation. " * (index % 8 + 1)
+                                   + "\n\n```swift\nfor page in history {\n    print(page.id)\n}\n```\n"
+                                   + "\n| Check | Status |\n| --- | --- |\n| Pagination | Loaded |\n| Scroll | Pending |")
+                    elif index % 7 == 3:
+                        role = "tool"
+                        metadata = {"toolCallId": f"call-{index}", "title": "Read chat history and run tests",
+                                    "kind": "execute", "status": "completed"}
+                        content = "Output line with variable width.\n" * 20
+                    elif index % 7 == 4:
+                        role, content = "thinking", "Checking the page boundary and stable reading position. " * 4
+                rows.append({"id": f"m-{index}", "createdAt": index, "role": role,
+                             "content": content, "toolMetadata": metadata})
             body = {"session": {"id": "fixture", "topic": "Scroll regression", "status": "active", "isMine": True},
                     "messages": rows, "hasMore": first > 0 if after is None else False}
         elif url.path == "/api/notifications":

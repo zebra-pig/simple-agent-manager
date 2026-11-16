@@ -47,6 +47,7 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
         echo "RESOURCE_CHART_RENDER_END"
     done
     xcrun --sdk macosx swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.0" \
+        "$repo_dir/apps/native/ios/SAM/Loading.swift" \
         "$repo_dir/apps/native/ios/SAM/FileBrowserView.swift" \
         "$repo_dir/apps/native/ios/tests/files-git-render.swift" \
         -o "$render_dir/files-git-render"
@@ -89,12 +90,18 @@ fi
 if [ "$CI_PRODUCT_PLATFORM" = "iOS" ]; then
     gem install --user-install xcodeproj --version 1.27.0 --no-document
     scroll_test_dir=$(mktemp -d)
-    "$repo_dir/apps/native/verification/chat-scroll/run.sh" "$scroll_test_dir"
-    xcrun xcresulttool export attachments --path "$scroll_test_dir/scroll-tests.xcresult" \
-        --output-path "$scroll_test_dir/attachments"
-    find "$scroll_test_dir/attachments" -name '*.png' | while IFS= read -r screenshot; do
-        echo "CHAT_SCROLL_SCREENSHOT_BEGIN $(basename "$screenshot")"
-        base64 -b 76 -i "$screenshot"
-        echo "CHAT_SCROLL_SCREENSHOT_END"
-    done
+    scroll_test_status=0
+    "$repo_dir/apps/native/verification/chat-scroll/run.sh" "$scroll_test_dir" || scroll_test_status=$?
+    # A failing test still carries the most useful screenshots. Export them
+    # before returning the original failure to Xcode Cloud.
+    if [ -d "$scroll_test_dir/scroll-tests.xcresult" ]; then
+        xcrun xcresulttool export attachments --path "$scroll_test_dir/scroll-tests.xcresult" \
+            --output-path "$scroll_test_dir/attachments" || true
+        find "$scroll_test_dir/attachments" -name '*.png' 2>/dev/null | while IFS= read -r screenshot; do
+            echo "CHAT_SCROLL_SCREENSHOT_BEGIN $(basename "$screenshot")"
+            base64 -b 76 -i "$screenshot"
+            echo "CHAT_SCROLL_SCREENSHOT_END"
+        done
+    fi
+    exit "$scroll_test_status"
 fi
