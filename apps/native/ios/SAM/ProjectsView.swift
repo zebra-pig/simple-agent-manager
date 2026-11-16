@@ -33,9 +33,6 @@ struct ProjectsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if let error = list.state.error {
-                    Text(error.message).foregroundStyle(.red)
-                }
                 ForEach(projects, id: \.id) { project in
                     NavigationLink(value: project) {
                         ProjectRow(project: project)
@@ -50,6 +47,7 @@ struct ProjectsView: View {
                 }
             }
             .initialLoading(list.state.loading)
+            .floatingErrors([list.state.error?.message])
             .navigationTitle("Projects")
             .searchable(text: $query)
             .refreshable { await list.core.load() }

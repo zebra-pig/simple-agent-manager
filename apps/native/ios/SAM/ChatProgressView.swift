@@ -28,7 +28,7 @@ struct ChatProgressView: View {
                 .padding().frame(maxWidth: .infinity, alignment: .leading)
                 .glass(in: RoundedRectangle(cornerRadius: 20))
             }
-            if let error = state.notificationsError { Text(error.message).foregroundStyle(.red) }
+            if let error = state.notificationsError { ErrorNotice(message: error.message) }
             if state.provisioning == nil && state.session?.task == nil && notifications.isEmpty && !state.working && state.notificationsError == nil {
                 Text("No progress updates yet.").foregroundStyle(.secondary)
             }

@@ -33,7 +33,7 @@ struct ChatToolView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
                             if tool != .progress, let error = state.error {
-                                Text(error.message).foregroundStyle(.red)
+                                ErrorNotice(message: error.message)
                                 Button("Retry") { Task { await refresh() } }.glassButton()
                             }
                             switch tool {
@@ -63,6 +63,7 @@ struct ChatToolView: View {
             .task { if tool != .files && tool != .git { await refresh() } }
         }
         .frame(minWidth: 300, minHeight: 400)
+        .floatingErrors([model.state.error?.message])
     }
 
     private func refresh() async {

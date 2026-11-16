@@ -127,11 +127,12 @@ struct AssistantView: View {
                 try? await Task.sleep(for: .seconds(active ? 2 : 10))
             }
         }
+        .floatingErrors([model.state.error?.message])
     }
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let error = model.state.error {
-                Text(error.message).foregroundStyle(.red).font(.footnote)
+                ErrorNotice(message: error.message)
                 Button { Task { await model.core.refresh() } } label: {
                     LoadingLabel(title: "Refresh", loading: model.state.loading)
                 }.disabled(model.state.loading)

@@ -303,6 +303,7 @@ struct AttachmentChip: View {
                     if case let .failed(error) = attachment.status {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
                             .padding(6).accessibilityLabel(Text(error.message))
+                        ErrorNotice(message: error.message)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
@@ -335,7 +336,7 @@ struct AttachmentChip: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if case let .failed(error) = attachment.status {
-                    Text(error.message).font(.caption2).foregroundStyle(.red).lineLimit(2)
+                    ErrorNotice(message: error.message)
                 } else {
                     Text(verbatim: fileSize(attachment.size))
                         .font(.caption2)

@@ -53,6 +53,7 @@ struct FileBrowserView: View {
             loaded = true
             await refresh()
         }
+        .floatingErrors([model.state.error?.message])
     }
 
     private func refresh() async { await model.core.browse(path: path) }
@@ -108,6 +109,7 @@ struct GitChangesView: View {
             loaded = true
             await refresh()
         }
+        .floatingErrors([model.state.error?.message])
     }
 
     private func matches(_ change: GitChange) -> Bool {
@@ -177,6 +179,7 @@ struct SourceFileView: View {
             loaded = true
             await refresh()
         }
+        .floatingErrors([model.state.error?.message])
     }
 
     private func refresh() async { await model.core.openFile(path: path, diff: diff, staged: staged) }
@@ -189,7 +192,7 @@ private struct ToolLoadStatus: View {
     var body: some View {
         if let error = state.error {
             VStack(alignment: .leading, spacing: 8) {
-                Text(error.message).foregroundStyle(.red)
+                ErrorNotice(message: error.message)
                 Button("Retry") { Task { await retry() } }.disabled(state.loading)
             }.padding(.vertical, 8)
         }

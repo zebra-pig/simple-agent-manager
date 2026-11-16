@@ -32,7 +32,7 @@ struct ProjectSettings: View {
         NavigationStack {
             Form {
                 if let error = model.state.error {
-                    Text(error.message).foregroundStyle(.red)
+                    ErrorNotice(message: error.message)
                     if !model.state.initialized {
                         Button("Retry") { Task { await load() } }.buttonStyle(.borderless)
                     }
@@ -152,6 +152,7 @@ struct ProjectSettings: View {
             .interactiveDismissDisabled(model.state.saving)
             .task { await load() }
         }.macSheet()
+        .floatingErrors([model.state.error?.message])
     }
     private func load() async {
         await model.core.load(projectId: projectId)
