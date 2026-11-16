@@ -203,7 +203,7 @@ struct ChatView: View {
 
     private var replyComposer: some View {
         let stopping = chat.state.working
-            && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && draft.isEmpty
             && chat.state.attachments.isEmpty
         var composer = Composer(placeholder: composerPlaceholder, text: $draft,
             busy: submission.sending || chat.state.sending || chat.state.interrupting,
