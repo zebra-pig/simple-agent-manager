@@ -62,6 +62,16 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
         "$repo_dir/apps/native/ios/tests/chat-draft.swift" \
         -o "$render_dir/chat-draft-tests"
     "$render_dir/chat-draft-tests"
+    xcrun --sdk macosx swiftc -parse-as-library \
+        "$repo_dir/apps/native/ios/SAM/ChatHistoryPager.swift" \
+        "$repo_dir/apps/native/ios/tests/chat-history-loading.swift" \
+        -o "$render_dir/chat-history-loading"
+    "$render_dir/chat-history-loading"
+    xcrun --sdk macosx swiftc -parse-as-library \
+        "$repo_dir/apps/native/ios/SAM/ChatHistoryAnchor.swift" \
+        "$repo_dir/apps/native/ios/tests/chat-history-position.swift" \
+        -o "$render_dir/chat-history-position"
+    "$render_dir/chat-history-position"
     rm -rf "$render_dir"
 fi
 

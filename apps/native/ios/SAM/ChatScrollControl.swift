@@ -6,6 +6,7 @@ import SwiftUI
     fileprivate struct Request: Equatable {
         let token = UUID()
         let destination: String?
+        var anchor: UnitPoint = .top
         let animated: Bool
     }
     fileprivate var request: Request?
@@ -20,11 +21,11 @@ import SwiftUI
         }
     }
 
-    func restore(using proxy: ScrollViewProxy, to id: String) {
+    func restore(using proxy: ScrollViewProxy, to id: String, anchor: UnitPoint = .top) {
         if #available(iOS 18, macOS 15, *) {
-            request = Request(destination: id, animated: false)
+            request = Request(destination: id, anchor: anchor, animated: false)
         } else {
-            proxy.scrollTo(id, anchor: .top)
+            proxy.scrollTo(id, anchor: anchor)
         }
     }
 }
@@ -61,7 +62,7 @@ private struct SemanticChatScrollTracking: ViewModifier {
                 guard let request else { return }
                 withAnimation(request.animated && !reduceMotion ? .easeInOut(duration: 0.35) : nil) {
                     if let id = request.destination {
-                        position.scrollTo(id: id, anchor: .top)
+                        position.scrollTo(id: id, anchor: request.anchor)
                     } else {
                         position.scrollTo(edge: .bottom)
                     }

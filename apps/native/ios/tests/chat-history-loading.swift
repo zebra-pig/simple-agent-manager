@@ -5,6 +5,7 @@ import SwiftUI
     var loading = false
     var error: String?
     var shown = true
+    var offset: CGFloat = 0
     var requests = 0
     func load() { requests += 1; loading = true }
 }
@@ -14,10 +15,12 @@ struct HistoryFixtureView: View {
     var body: some View {
         VStack {
             if fixture.shown {
-                ChatHistoryPager(loading: fixture.loading, error: fixture.error, load: fixture.load)
+                ChatHistoryPager(loading: fixture.loading, error: fixture.error, viewportHeight: 200, load: fixture.load)
+                    .offset(y: fixture.offset)
             }
             Text("Previously loaded conversation")
         }.padding().frame(width: 375, height: 200)
+            .coordinateSpace(name: "chatViewport")
     }
 }
 
@@ -34,10 +37,15 @@ struct HistoryFixtureView: View {
         precondition(fixture.requests == 1, "Appearing must load automatically")
         settle()
         precondition(fixture.requests == 1, "In-flight requests must not repeat")
-        // No rendered-message ID changes: completion alone must continue paging.
+        // Completion while still visible must not start another page.
         fixture.loading = false
         settle()
-        precondition(fixture.requests == 2, "Visible pager must continue after a successful page")
+        precondition(fixture.requests == 1, "Completion must not chain another page")
+        fixture.offset = -400
+        settle()
+        fixture.offset = 0
+        settle()
+        precondition(fixture.requests == 2, "Re-entering the viewport must load another page")
         fixture.error = "Connection interrupted"
         fixture.loading = false
         settle()
@@ -51,6 +59,6 @@ struct HistoryFixtureView: View {
         settle()
         precondition(fixture.requests == 3, "Returning to history must resume automatic loading")
         window.orderOut(nil)
-        print("CHAT_HISTORY_LOADING_PASS: appearance, in-flight guard, continuation, error stop, visibility")
+        print("CHAT_HISTORY_LOADING_PASS: appearance, in-flight guard, no chained loads, error stop, visibility")
     }
 }
