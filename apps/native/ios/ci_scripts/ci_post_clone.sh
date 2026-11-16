@@ -49,6 +49,9 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
     xcrun --sdk macosx swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.0" \
         "$repo_dir/apps/native/ios/SAM/Loading.swift" \
         "$repo_dir/apps/native/ios/SAM/FileBrowserView.swift" \
+        "$repo_dir/apps/native/ios/SAM/ErrorMessagesKey.swift" \
+        "$repo_dir/apps/native/ios/SAM/FloatingErrorBadge.swift" \
+        "$repo_dir/apps/native/ios/SAM/FloatingErrors.swift" \
         "$repo_dir/apps/native/ios/tests/files-git-render.swift" \
         -o "$render_dir/files-git-render"
     "$render_dir/files-git-render" "$render_dir/files-git-images"
