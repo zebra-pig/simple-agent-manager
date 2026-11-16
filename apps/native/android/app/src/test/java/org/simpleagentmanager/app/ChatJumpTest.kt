@@ -34,7 +34,9 @@ class ChatJumpTest {
             scope = rememberCoroutineScope()
             MaterialTheme {
                 val state = ChatState("project", "session", null, messages.value, emptyList(), false, false,
-                    emptyList(), emptyList(), null, emptyList(), null, false, false, false, null, false, null)
+                    emptyList(), emptyList(), null, emptyList(), null, false, false, false, null, false, null,
+           steeringSupported = null, deliveryIntent = org.simpleagentmanager.core.DeliveryIntent.STEER,
+        interrupting = false, interruptError = null, deliveries = emptyList())
                 ChatContent(state, "", {}, {}, {}, {}, {}, listState = list, onSend = {})
             }
         }

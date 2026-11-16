@@ -39,6 +39,11 @@ pub struct ChatState {
     pub error: Option<UserError>,
     pub loading_history: bool,
     pub history_error: Option<UserError>,
+    pub steering_supported: Option<bool>,
+    pub delivery_intent: DeliveryIntent,
+    pub interrupting: bool,
+    pub interrupt_error: Option<UserError>,
+    pub deliveries: Vec<MessageDelivery>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -48,10 +53,54 @@ pub struct OutgoingMessage {
     pub text: String,
     /// The server accepted it; it shows up in `items` on a later refresh.
     pub accepted: bool,
+    pub delivery_intent: DeliveryIntent,
     pub attachments: Vec<crate::ChatDocument>,
     /// How many user messages with this text the chat had when it was sent:
     /// one more means it arrived.
     pub baseline: u32,
+}
+
+/// The running turn starts in Steer mode, like web. Files always queue.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
+pub enum DeliveryIntent {
+    #[default]
+    Steer,
+    Queue,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct MessageDelivery {
+    pub message_id: String,
+    pub status: String,
+}
+
+fn deliveries(rows: &[timeline::Row]) -> Vec<MessageDelivery> {
+    rows.iter()
+        .filter_map(|row| {
+            if row.role != "user" {
+                return None;
+            }
+            let value = row.tool_metadata.as_ref()?;
+            let parsed;
+            let meta = if let Some(text) = value.as_str() {
+                parsed = serde_json::from_str::<serde_json::Value>(text).ok()?;
+                &parsed
+            } else {
+                value
+            };
+            if meta["deliveryIntent"] != "steer" {
+                return None;
+            }
+            let status = match meta["steerOutcome"].as_str() {
+                Some("steered") => "steered",
+                Some("queued_fallback") => "queued_instead",
+                Some("unconfirmed") => "unconfirmed",
+                Some("failed") => "not_delivered",
+                _ => "steering",
+            };
+            Some(MessageDelivery { message_id: row.id.clone(), status: status.into() })
+        })
+        .collect()
 }
 
 static NEXT_LOCAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -128,6 +177,39 @@ impl ChatViewModel {
         }
     }
 
+    pub fn set_delivery_intent(&self, intent: DeliveryIntent) {
+        self.update(|s| s.delivery_intent = intent);
+    }
+
+    /// Stop this turn; pending prompts remain available for the agent to read.
+    pub async fn interrupt(&self) {
+        let mut target = None;
+        self.update_data(|s, history| {
+            if s.working && !s.interrupting && s.session.as_ref().is_some_and(|session| session.can_drive()) {
+                s.interrupting = true;
+                s.interrupt_error = None;
+                target = Some((s.project_id.clone(), s.session_id.clone(), history.generation));
+            }
+        });
+        let Some((project, session, generation)) = target else { return };
+        let result: crate::error::Result<serde_json::Value> =
+            self.app.post(&format!("/api/projects/{}/sessions/{}/cancel", seg(&project), seg(&session)), &serde_json::json!({})).await;
+        self.update_data(|s, history| {
+            if history.generation != generation {
+                return;
+            }
+            s.interrupting = false;
+            match result {
+                Ok(_) => {
+                    s.working = false;
+                    s.items = timeline::build(history.rows.clone(), false);
+                    s.delivery_intent = DeliveryIntent::Steer;
+                }
+                Err(e) => s.interrupt_error = Some(UserError::from(&e)),
+            }
+        });
+    }
+
     /// Intent: pull the latest messages and task status.
     pub async fn refresh(&self) {
         let mut request = None;
@@ -185,7 +267,17 @@ impl ChatViewModel {
             }
             match result {
                 Ok(detail) => {
-                    s.working = detail.working();
+                    let working = detail.working();
+                    if working != s.working {
+                        s.interrupt_error = None;
+                    }
+                    if !working {
+                        s.delivery_intent = DeliveryIntent::Steer;
+                    }
+                    s.working = working;
+                    if let Some(supported) = detail.state.as_ref().and_then(|s| s.steering_supported) {
+                        s.steering_supported = Some(supported);
+                    }
                     if history.rows.is_empty() {
                         s.has_more = detail.has_more;
                     }
@@ -200,6 +292,7 @@ impl ChatViewModel {
                             crate::notifications::collect_refs(&serde_json::Value::String(row.content.clone()), &mut s.requests, 0);
                         }
                     }
+                    s.deliveries = deliveries(&history.rows);
                     s.items = timeline::build(history.rows.clone(), s.working);
                     if let Some(provisioning) = provisioning {
                         s.provisioning = provisioning;
@@ -284,18 +377,29 @@ impl ChatViewModel {
         }
         let local_id = format!("local-{}", NEXT_LOCAL_ID.fetch_add(1, Ordering::Relaxed));
         let mut started = false;
+        let mut intent = DeliveryIntent::Queue;
         self.update(|s| {
             if s.sending || s.project_id != project_id || s.session_id != session_id {
                 return;
             }
             started = true;
+            if s.working && files.is_empty() && s.steering_supported != Some(false) {
+                intent = s.delivery_intent;
+            }
             s.sending = true;
             s.error = None;
             let attachments = attached.iter().filter_map(crate::documents::from_attachment).collect::<Vec<_>>();
             let display_content =
                 if !attachments.is_empty() && content == attachments::DEFAULT_ATTACHMENT_MESSAGE { String::new() } else { content.clone() };
             let baseline = user_count(&s.items, &display_content, &attachments);
-            s.outbox.push(OutgoingMessage { id: local_id.clone(), text: display_content, accepted: false, baseline, attachments });
+            s.outbox.push(OutgoingMessage {
+                id: local_id.clone(),
+                text: display_content,
+                accepted: false,
+                delivery_intent: intent,
+                baseline,
+                attachments,
+            });
         });
         if !started {
             return false;
@@ -304,7 +408,11 @@ impl ChatViewModel {
             .app
             .post(
                 &format!("/api/projects/{}/sessions/{}/prompt", seg(&project_id), seg(&session_id)),
-                &Prompt { content: &content, attachments: &files },
+                &Prompt {
+                    content: &content,
+                    attachments: &files,
+                    delivery_intent: if intent == DeliveryIntent::Steer { "steer" } else { "queue" },
+                },
             )
             .await;
         let ok = result.is_ok();

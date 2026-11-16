@@ -25,7 +25,9 @@ class ChatHistoryTest {
     private fun state() = ChatState("project", "session", null,
         List(40) { ChatItem("message-$it", it.toLong(), ChatContent.User("Message $it", emptyList())) },
         emptyList(), false, true, emptyList(), emptyList(), null, emptyList(), null,
-        false, false, false, null, false, null)
+        false, false, false, null, false, null,
+           steeringSupported = null, deliveryIntent = org.simpleagentmanager.core.DeliveryIntent.STEER,
+        interrupting = false, interruptError = null, deliveries = emptyList())
 
     @Test fun reachingHistoryLoadsAutomaticallyAndKeepsTheVisibleMessage() {
         val list = LazyListState()
