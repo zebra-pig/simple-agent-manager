@@ -184,11 +184,37 @@ final class ChatScrollUITests: XCTestCase {
             if try request("stats")["completedOlder"] as? Int == 1 { break }
             Thread.sleep(forTimeInterval: 0.1)
         }
+        let completed = try request("stats")
+        XCTAssertEqual(completed["completedOlder"] as? Int, 1)
+        XCTAssertEqual(completed["inFlight"] as? Int, 0)
         Thread.sleep(forTimeInterval: 1)
         let retained = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
         capture("history-prepend-reading-position")
         XCTAssertTrue(retained.isHittable, "Earlier-page insertion displaced the message being read")
         XCTAssertEqual(retained.frame.minY, y, accuracy: 4)
+    }
+
+    func testProvisioningProgressAppearsAndDisappearsWhenReady() throws {
+        _ = try request("reset?provisioning=true")
+        app.launch()
+        let first = app.staticTexts["Provisioning VM · 1 of 4"]
+        XCTAssertTrue(first.waitForExistence(timeout: 15))
+        XCTAssertTrue(first.isHittable)
+        capture("provisioning-first-stage")
+        for (step, title) in [("workspace_creation", "Cloning repository · 2 of 4"),
+                              ("workspace_ready", "Installing dependencies · 3 of 4"),
+                              ("agent_session", "Starting agent · 4 of 4")] {
+            _ = try request("provisioning?step=\(step)")
+            let stage = app.staticTexts[title]
+            XCTAssertTrue(stage.waitForExistence(timeout: 12))
+            XCTAssertTrue(stage.isHittable)
+        }
+        capture("provisioning-last-stage")
+        _ = try request("provisioning?step=running")
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                             object: app.staticTexts["Starting agent · 4 of 4"])
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 12), .completed)
+        XCTAssertEqual(olderRequests, 0)
     }
 
     func testScrollToTopThenTapJumpBeforeHistoryReturns() throws {

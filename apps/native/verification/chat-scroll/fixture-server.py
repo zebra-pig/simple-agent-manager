@@ -37,9 +37,18 @@ class Handler(BaseHTTPRequestHandler):
                     history_gate.set()
                 state.update(older=0, completedOlder=0, inFlight=0, polls=0,
                              generation=state["generation"] + 1,
+                             provisioning=query.get("provisioning", ["false"])[0] == "true",
+                             step="node_provisioning", startedAt=int(time.time() * 1000) - 10000,
                              mixed=query.get("mixed", ["false"])[0] == "true",
                              delay=float(query.get("delay", [0.1])[0]))
             body = state.copy()
+        elif url.path == "/provisioning":
+            with lock:
+                state["step"] = query["step"][0]
+                body = state.copy()
+        elif url.path == "/api/projects/fixture/tasks/setup":
+            with lock:
+                body = {"id": "setup", "status": "queued", "executionStep": state["step"]}
         elif url.path == "/release-history":
             history_gate.set()
             body = {"released": True}
@@ -93,8 +102,14 @@ class Handler(BaseHTTPRequestHandler):
                         role, content = "thinking", "Checking the page boundary and stable reading position. " * 4
                 rows.append({"id": f"m-{index}", "createdAt": index, "role": role,
                              "content": content, "toolMetadata": metadata})
+            if snapshot.get("provisioning"):
+                rows = [{"id": "setup-message", "createdAt": 1, "role": "user", "content": "Build an app"}]
             body = {"session": {"id": "fixture", "topic": "Scroll regression", "status": "active", "isMine": True},
                     "messages": rows, "hasMore": first > 0 if after is None else False}
+            if snapshot.get("provisioning"):
+                body["hasMore"] = False
+                body["session"].update(taskId="setup", startedAt=snapshot["startedAt"],
+                                       task={"id": "setup", "status": "queued", "executionStep": snapshot["step"]})
         elif url.path == "/api/notifications":
             body = {"notifications": [], "nextCursor": None}
         elif url.path == "/api/report-issue/config":
