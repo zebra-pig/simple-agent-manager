@@ -98,15 +98,14 @@ struct DocumentGallery: View {
     @FocusState private var keyboardFocused: Bool
     #endif
     var fallbackCore: ChatViewModel?
-    var loadingHistory = false
     var historyError: String?
-    var retryHistory: (() -> Void)?
+    var requestEarlier: (() -> Void)?
 
     init(documents: [ChatDocument], initial: String, core: ChatViewModel,
-         fallbackCore: ChatViewModel? = nil, loadingHistory: Bool = false, historyError: String? = nil, retryHistory: (() -> Void)? = nil) {
+         fallbackCore: ChatViewModel? = nil, historyError: String? = nil, requestEarlier: (() -> Void)? = nil) {
         self.documents = documents; self.initial = initial; self.core = core
         self.fallbackCore = fallbackCore
-        self.loadingHistory = loadingHistory; self.historyError = historyError; self.retryHistory = retryHistory
+        self.historyError = historyError; self.requestEarlier = requestEarlier
         _selection = State(initialValue: initial)
     }
 
@@ -117,43 +116,35 @@ struct DocumentGallery: View {
             VStack(spacing: 12) {
                 if let index {
                     #if os(iOS)
-                    if loadingHistory {
-                        GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true)
-                    } else {
-                        TabView(selection: $selection) {
-                            ForEach(Array(documents.enumerated()), id: \.element.fileId) { offset, document in
-                                GalleryPage(document: document, core: core, fallbackCore: fallbackCore, active: abs(offset - index) <= 1)
-                                    .tag(document.fileId)
-                            }
+                    TabView(selection: $selection) {
+                        ForEach(Array(documents.enumerated()), id: \.element.fileId) { offset, document in
+                            GalleryPage(document: document, core: core, fallbackCore: fallbackCore, active: abs(offset - index) <= 1)
+                                .tag(document.fileId)
                         }
-                        .tabViewStyle(.page(indexDisplayMode: .never))
                     }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
                     #else
                     GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true, swipe: swipe, onNavigate: move)
                         .id(selection)
                     #endif
-                    if documents.count > 1 {
-                        Text(loadingHistory || historyError != nil ? "\(index + 1) of \(documents.count) loaded" : "\(index + 1) of \(documents.count)")
-                            .font(.subheadline.monospacedDigit())
-                            .accessibilityAdjustableAction { direction in
-                                switch direction {
-                                case .increment: move(1)
-                                case .decrement: move(-1)
-                                @unknown default: break
-                                }
-                            }
-                            .padding(.horizontal, 18).padding(.vertical, 12)
-                            .background(.thinMaterial, in: Capsule())
-                    }
+
                 } else { ContentUnavailableView("File no longer available", systemImage: "photo") }
-                if loadingHistory {
-                    HStack { ProgressView().controlSize(.small); Text("Finding earlier images…").font(.caption) }
-                } else if historyError != nil {
+                if historyError != nil {
                     VStack(spacing: 4) {
-                        Button("Retry earlier images") { retryHistory?() }
+                        Button("Retry earlier images") { requestEarlier?() }
                     }.padding(.horizontal)
                 }
-            }.padding(.bottom, 12)
+            }
+            .onChange(of: selection) {
+                if selection == documents.first?.fileId, historyError == nil { requestEarlier?() }
+            }
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: move(1)
+                case .decrement: move(-1)
+                @unknown default: break
+                }
+            }
             #if os(macOS)
             .focusable()
             .focusEffectDisabled()
@@ -177,7 +168,11 @@ struct DocumentGallery: View {
     }
 
     private func move(_ delta: Int) {
-        guard !loadingHistory, let index, documents.indices.contains(index + delta) else { return }
+        guard let index else { return }
+        guard documents.indices.contains(index + delta) else {
+            if delta < 0 { requestEarlier?() }
+            return
+        }
         selection = documents[index + delta].fileId
     }
 }

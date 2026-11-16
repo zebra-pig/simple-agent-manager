@@ -17,7 +17,7 @@ def chunk(kind, data):
 def png(number):
     row = bytes([number * 25, 120, 220 - number * 20]) * 240
     return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 240, 160, 8, 2, 0, 0, 0))
-            + chunk(b'IDAT', zlib.compress((b'\x00' + row) * 160)) + chunk(b'IEND', b''))
+            + chunk(b'sRGB', b'\x00') + chunk(b'IDAT', zlib.compress((b'\x00' + row) * 160)) + chunk(b'IEND', b''))
 
 
 def library(number):
@@ -34,25 +34,50 @@ def uploads(first, last):
 
 
 history_reads = []
+history_completed = []
+mode = 'normal'
+gates = {70: threading.Event(), 40: threading.Event()}
+for gate in gates.values():
+    gate.set()
 class API(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
     def do_GET(self):
+        global mode
         url = urlsplit(self.path)
         status, body, mime = 200, {}, 'application/json'
-        if url.path == '/api/projects/p/sessions/s':
+        if url.path == '/test/reset':
+            mode = parse_qs(url.query).get('mode', ['normal'])[0]
+            history_reads.clear()
+            history_completed.clear()
+            for gate in gates.values():
+                if mode == 'held': gate.clear()
+                else: gate.set()
+        elif url.path == '/test/release':
+            query = parse_qs(url.query)
+            gate = gates[int(query['before'][0])]
+            delay = float(query.get('delay', ['0'])[0])
+            if delay: threading.Timer(delay, gate.set).start()
+            else: gate.set()
+        elif url.path == '/test/stats':
+            body = {'reads': history_reads, 'completed': history_completed}
+        elif url.path == '/api/projects/p/sessions/s':
             before = parse_qs(url.query).get('before')
             if not before:
-                rows, more = [uploads(7, 8), library(9)], True
+                rows, more = ([uploads(7, 8)] if mode == 'held' else [uploads(7, 8), library(9)]), True
             else:
                 history_reads.append(before[0])
+                position = json.loads(before[0])[0]
+                if position in gates:
+                    gates[position].wait(timeout=30)
                 time.sleep(0.2)
                 # Cursor includes the timestamp and row ID. Middle page starts at 40.
                 if json.loads(before[0])[0] == 70:
                     rows, more = [uploads(4, 4), library(5), library(6)], True
                 else:
                     rows, more = [library(1), uploads(2, 3)], False
+                history_completed.append(before[0])
             body = {'session': {'id': 's', 'status': 'stopped', 'startedAt': 1}, 'messages': rows, 'hasMore': more}
         elif '/library/' in url.path or '/tasks/uploads/' in url.path:
             number = int(url.path.split('/')[-2] if '/library/' in url.path else url.path.split('/uploads/')[1].split('/')[0])
@@ -75,7 +100,7 @@ class API(BaseHTTPRequestHandler):
 
 
 if len(sys.argv) > 1 and sys.argv[1] == '--serve':
-    ThreadingHTTPServer(('127.0.0.1', 18875), API).serve_forever()
+    ThreadingHTTPServer(('127.0.0.1', int(sys.argv[2]) if len(sys.argv) > 2 else 18875), API).serve_forever()
 else:
     server = ThreadingHTTPServer(('127.0.0.1', 0), API)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

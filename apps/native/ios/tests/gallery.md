@@ -1,18 +1,24 @@
 # Chat image gallery regression
 
-The gallery opens at the tapped file ID and includes user uploads and library
-images across all chat history, in chronological order with duplicate file IDs
-removed. A separate reader fetches older pages without prepending the visible
-conversation. While it loads, the tapped image remains visible with progress;
-paging starts once the collection is complete. A history error preserves loaded
-images and offers retry. The collection stays fixed until dismissal, so polling
-cannot reorder a swipe in progress. Reopening starts at the newly tapped image.
+The gallery opens at the tapped file ID and immediately allows paging through
+already-loaded user uploads and library images. There is no page indicator,
+Previous/Next button, or history-loading footer. Loading older chat history never
+replaces or disables the pager.
 
-The screen owns presentation rather than its recyclable message rows. Mac
-navigation supports arrow keys and horizontal trackpad gestures, with a simple
-page-count pill and no Previous/Next buttons.
-One gesture advances one image; momentum cannot advance again or reverse it.
-Zoomed panning and vertical scrolling do not navigate between images.
+A separate reader discovers older images without prepending the conversation
+behind the sheet. It publishes each history page as it arrives and stops once an
+earlier image batch is found. Visiting the leading image requests another batch.
+Pages without images are searched in the background while existing images remain
+browsable. Source images stay in chronological order while the reader catches up
+to history that the conversation had already loaded. Duplicate file IDs are
+removed, and selection is a file ID rather than a position. History errors retain
+the loaded images and offer retry. Reopening starts at the newly tapped image.
+
+The chat screen owns presentation rather than recyclable message rows. Mac
+navigation supports arrow keys and horizontal trackpad gestures. One gesture
+advances one image; momentum cannot advance again or reverse it. Zoomed panning
+and vertical scrolling do not navigate between images. Accessibility adjustment
+remains available on the gallery without a visible counter.
 
 Run on an Apple-silicon Mac after `apps/native/scripts/build-ios.sh`:
 
@@ -22,22 +28,26 @@ bash apps/native/ios/tests/gallery-macos.sh /tmp/sam-gallery-mac
 bash apps/native/ios/tests/gallery-ios.sh /tmp/sam-gallery-touch
 ```
 
-The offline API uses three pages containing nine images, mixed uploaded and
-library files, and an unavailable image. The Mac fixture uses production SwiftUI,
-Rust and HTTP transport. It checks the tapped image's final position, traverses
-every image repeatedly, verifies the original transcript is unchanged, and sends
-real AppKit scroll events to check momentum and zoom. Screenshots are retained;
-Vision reads the displayed counters using CPU devices for headless build hosts.
+The Mac fixture uses production SwiftUI, Rust and HTTP transport with three
+history pages and nine mixed images. It verifies the actual decoded pixels in
+the native zoom view, traverses every image repeatedly, checks that the original
+transcript is unchanged, and sends real AppKit events to check momentum and zoom.
+An unavailable-image page must remain navigable. Screenshots are retained.
 
-The iOS XCTest opens an actual production chat attachment, swipes every gallery
-page in both directions twice, checks both boundaries, dismisses, and reopens.
-The runner creates and deletes its own simulator and retains an xcresult bundle
-and interaction video. Both fixtures run from the Xcode Cloud post-clone script.
-No live accounts or user images are used.
+The iOS XCTest reproduces the reported two-image case with history requests held
+open by the offline API. It swipes both ways before releasing history, releases
+a batch during a swipe, browses newly found images while another older request
+is held, then traverses every image twice and dismisses/reopens. It checks actual
+navigation titles and explicitly rejects the old counter/loading footer. The
+runner creates and deletes its own simulator and retains an xcresult bundle and
+interaction video. Each run uses its own server port and checks that its server
+started before building, so stale fixtures cannot be mistaken for the current
+run. Both regressions run from the native Xcode Cloud post-clone
+script. No live accounts or user images are used.
 
-Verified on filmkit-macbuild on 2026-11-16: macOS production-view integration
-passed (`GALLERY_MAC_PAGINATION_SELECTION_NAVIGATION_PASS`); iOS touch XCTest
-passed with zero failures. Full unsigned app builds passed for both platforms.
 Review captures: [Mac gallery](evidence/gallery/mac.png),
 [Mac unavailable image](evidence/gallery/mac-unavailable.png),
-and [iOS gallery after repeated swipes](evidence/gallery/ios.png).
+and [iOS gallery](evidence/gallery/ios.png).
+
+Verified on filmkit-macbuild, 2026-11-16: Mac native regression passed; the
+held-history iOS touch regression passed with zero failures in 111.116 seconds.
