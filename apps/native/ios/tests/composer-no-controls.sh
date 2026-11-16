@@ -60,5 +60,5 @@ for attempt in $(seq 1 30); do
     sleep 1
 done
 cp "$container/Documents/composer-result.txt" "$output_dir/result.txt"
-xcrun simctl io "$simulator" screenshot "$output_dir/composer.png"
+xcrun simctl io "$simulator" screenshot --display=1 "$output_dir/composer.png"
 grep '^PASS:' "$output_dir/result.txt"

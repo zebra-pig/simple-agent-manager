@@ -48,3 +48,8 @@ matching the existing project-loading runner. Build 121 on Xcode Cloud (Xcode
 27.2) rejected the originally hardcoded iPhone 17 Pro with `Incompatible device`
 after macOS rendering passed; the locally installed iOS 27.0 runtime had supported
 it. Runtime/device pairing must be discovered rather than assumed.
+
+Build 122 compiled and launched the iOS fixture and produced its result receipt,
+but screenshot capture rejected the Cloud simulator's two displays. Capture now
+explicitly selects display 1 (the primary LCD), as named by `simctl`'s diagnostic,
+instead of relying on a single-display default.
