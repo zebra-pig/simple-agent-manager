@@ -219,6 +219,32 @@ final class ChatScrollUITests: XCTestCase {
         XCTAssertEqual(olderRequests, 0)
     }
 
+    func testHistoryCompletionDuringAnimatedJumpDoesNotRestoreTop() throws {
+        _ = try request("reset?hold=true")
+        launch()
+        reachOlderPage(1)
+        // Leave and reenter the pager while its first request is held, recording
+        // a pending entry. Then release it from rendered animation samples.
+        app.scrollViews.firstMatch.swipeUp()
+        for _ in 0..<4 { app.scrollViews.firstMatch.swipeDown(velocity: .fast) }
+        XCTAssertEqual(try request("stats")["inFlight"] as? Int, 1)
+        _ = try request("release-on-scroll")
+        jump.tap()
+        assertAtLatest()
+        Thread.sleep(forTimeInterval: 10)
+        assertAtLatest()
+        let stats = try request("stats")
+        XCTAssertEqual(stats["releasedDuringJump"] as? Bool, true)
+        XCTAssertGreaterThan(stats["releaseDistance"] as? Double ?? 0, 50,
+                             "History must complete during movement, before reaching the bottom")
+        XCTAssertGreaterThan(stats["completionDistance"] as? Double ?? 0, 50,
+                             "The response must finish before the jump settles")
+        XCTAssertEqual(stats["older"] as? Int, 1, "A canceled pager entry started another request")
+        XCTAssertEqual(stats["completedOlder"] as? Int, 1)
+        XCTAssertEqual(stats["inFlight"] as? Int, 0)
+        capture("history-completion-during-jump")
+    }
+
     func testScrollToTopThenTapJumpBeforeHistoryReturns() throws {
         // Hold the real older-history HTTP response until after the actual
         // button tap. This reproduces the user's top -> down-arrow sequence

@@ -21,7 +21,7 @@ XCTest PNG screenshots into the build log even on failure.
 
 ## Coverage
 
-Eight real UI tests cover:
+Nine real UI tests cover:
 
 - Opening/polling at the bottom without fetching earlier pages.
 - Jumping after multiple pages and staying at the latest message through two
@@ -33,6 +33,8 @@ Eight real UI tests cover:
 - Preserving a partially visible message's position when an earlier page arrives,
   after explicitly asserting that the HTTP response completed.
 - All four inline provisioning stages and disappearance when the agent starts.
+- A response completing during the actual jump animation after leaving and
+  reentering the pager, without starting a canceled request or restoring the top.
 - The user's exact top → tap sequence: hold an earlier-page HTTP response, swipe
   to the top, tap the real down-arrow, release the response and observe two polls.
 
@@ -64,5 +66,12 @@ Its historical screenshots are not evidence for this correction.
 | 99 | a83c4ecbf | macOS archive passed; seven UI tests ran, four passed and three failed. Exact top→tap with held response, four repeated jumps, bottom polling and older-position polling passed. Consecutive pagination and prepend position failed. |
 | 101 | de42ba06a | macOS archive passed; eight UI tests ran, five passed and three failed. Provisioning passed. Prepend now retains the row but shifts 24pt; consecutive page entry can be dropped during loading. |
 
-The next correction records a pending viewport entry during loading, consumes it once on completion, and updates the reading anchor while the request waits for a response. Test-only layout sampling distinguishes gesture settling from restoration math. No passing full-suite result
+Build 103 (784daaa5a) ran eight UI tests: six passed, two failed. Updating the
+reading anchor while the response waited fixed the24pt shift. Consecutive pages
+still stalled when the pager stayed visible through repeated swipes. The next
+correction admits a new downward finger swipe at the continuously visible top,
+without treating completion as new intent. A cancellation generation invalidates
+pending entries when the arrow is tapped. A ninth UI test releases and completes
+history during the actual animation and checks the remaining distance at both
+points. Test-only layout/inset measurements remain available in the logs. No passing full-suite result
 is claimed until all test results and screenshots have been inspected.

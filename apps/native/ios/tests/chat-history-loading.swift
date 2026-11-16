@@ -7,6 +7,8 @@ import SwiftUI
     var shown = true
     var offset: CGFloat = 0
     var requests = 0
+    var cancellation = 0
+    var interaction = 0
     func load() { requests += 1; loading = true }
 }
 
@@ -15,7 +17,7 @@ struct HistoryFixtureView: View {
     var body: some View {
         VStack {
             if fixture.shown {
-                ChatHistoryPager(loading: fixture.loading, error: fixture.error, viewportHeight: 200, load: fixture.load)
+                ChatHistoryPager(loading: fixture.loading, error: fixture.error, viewportHeight: 200, cancellation: fixture.cancellation, interaction: fixture.interaction, load: fixture.load)
                     .offset(y: fixture.offset)
             }
             Text("Previously loaded conversation")
@@ -55,18 +57,37 @@ struct HistoryFixtureView: View {
         fixture.loading = false
         settle()
         precondition(fixture.requests == 3, "Do not lose a viewport entry during loading")
+        fixture.offset = -400
+        settle()
+        fixture.offset = 0
+        settle()
+        fixture.cancellation += 1
+        fixture.loading = false
+        settle()
+        precondition(fixture.requests == 3, "Jump cancellation must invalidate a pending entry")
+        fixture.offset = -400
+        settle()
+        fixture.offset = 0
+        settle()
+        precondition(fixture.requests == 4, "A subsequent user entry must still load")
         fixture.error = "Connection interrupted"
         fixture.loading = false
         settle()
-        precondition(fixture.requests == 3, "Errors must stop automatic retries")
+        precondition(fixture.requests == 4, "Errors must stop automatic retries")
         fixture.shown = false
         settle()
         fixture.error = nil
         settle()
-        precondition(fixture.requests == 3, "Hidden history must not load")
+        precondition(fixture.requests == 4, "Hidden history must not load")
         fixture.shown = true
         settle()
-        precondition(fixture.requests == 4, "Returning to history must resume automatic loading")
+        precondition(fixture.requests == 5, "Returning to history must resume automatic loading")
+        fixture.loading = false
+        settle()
+        precondition(fixture.requests == 5, "Completion alone must remain idle")
+        fixture.interaction += 1
+        settle()
+        precondition(fixture.requests == 6, "A new swipe at a continuously visible top must load")
         window.orderOut(nil)
         print("CHAT_HISTORY_LOADING_PASS: appearance, in-flight guard, no chained loads, error stop, visibility")
     }

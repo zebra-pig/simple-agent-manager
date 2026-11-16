@@ -28,6 +28,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         samples = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with lock:
+            if state.get("releaseArmed"):
+                movement = next((sample for sample in samples if sample["time"] >= state["armedAt"] and sample["y"] > state["releaseY"] + 50), None)
+                if movement:
+                    state["releaseArmed"] = False
+                    state["releasedDuringJump"] = True
+                    state["releaseDistance"] = movement["bottom"] - movement["y"]
+                    history_gate.set()
             scroll_samples.extend(samples)
             del scroll_samples[:-20000]
         self.send_response(204)
@@ -48,6 +55,7 @@ class Handler(BaseHTTPRequestHandler):
                 state.update(older=0, completedOlder=0, inFlight=0, polls=0,
                              generation=state["generation"] + 1,
                              provisioning=query.get("provisioning", ["false"])[0] == "true",
+                             releaseArmed=False, releasedDuringJump=False,
                              step="node_provisioning", startedAt=int(time.time() * 1000) - 10000,
                              mixed=query.get("mixed", ["false"])[0] == "true",
                              delay=float(query.get("delay", [0.1])[0]))
@@ -59,6 +67,11 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/projects/fixture/tasks/setup":
             with lock:
                 body = {"id": "setup", "status": "queued", "executionStep": state["step"]}
+        elif url.path == "/release-on-scroll":
+            with lock:
+                state.update(releaseArmed=True, releasedDuringJump=False, armedAt=time.time(),
+                             releaseY=scroll_samples[-1]["y"])
+                body = state.copy()
         elif url.path == "/release-history":
             history_gate.set()
             body = {"released": True}
@@ -84,12 +97,15 @@ class Handler(BaseHTTPRequestHandler):
                 snapshot = state.copy()
                 gate = history_gate
             if "before" in query:
-                gate.wait(timeout=30)
+                gate.wait(timeout=60)
                 time.sleep(snapshot["delay"])
                 with lock:
                     if state["generation"] == snapshot["generation"]:
                         state["inFlight"] -= 1
                         state["completedOlder"] += 1
+                        if state.get("releasedDuringJump") and scroll_samples:
+                            sample = max(scroll_samples, key=lambda sample: sample["time"])
+                            state["completionDistance"] = sample["bottom"] - sample["y"]
             first = max(0, before - 12) if after is None else after + 1
             rows = []
             for index in range(first, before):
