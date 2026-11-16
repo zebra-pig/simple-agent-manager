@@ -32,7 +32,6 @@ struct ChatView: View {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if chat.state.hasMore || chat.state.loadingHistory {
                             ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message) {
-                                followsLatest = false
                                 historyAnchor = chat.state.items.map(\.id)
                                 Task { await chat.core.loadOlder() }
                             }.id("history")
@@ -79,7 +78,7 @@ struct ChatView: View {
                 .modifier(ChatScrollTracking(control: scrollControl, visibleMessage: $visibleMessage, followsLatest: $followsLatest))
                 .interactiveKeyboardDismiss()
                 .onChange(of: chat.state.items) {
-                    if followsLatest && !chat.state.loadingHistory { scrollControl.jump(using: proxy, to: "latest", animated: false) }
+                    if followsLatest && !chat.state.loadingHistory && historyAnchor.isEmpty { scrollControl.jump(using: proxy, to: "latest", animated: false) }
                 }
                 .onChange(of: chat.state.loadingHistory) {
                     guard !chat.state.loadingHistory, !historyAnchor.isEmpty else { return }
@@ -91,9 +90,12 @@ struct ChatView: View {
                         scrollControl.restore(using: proxy, to: anchor)
                     }
                     historyAnchor = []
-                    followsLatest = false
+                    if #unavailable(iOS 18, macOS 15) { followsLatest = false }
                 }
-                .onChange(of: chat.state.outbox) { scrollControl.jump(using: proxy, to: "latest", animated: false) }
+                .onChange(of: chat.state.outbox) {
+                    historyAnchor = []
+                    scrollControl.jump(using: proxy, to: "latest", animated: false)
+                }
                 if !followsLatest {
                     ChatJumpButton {
                         // An in-flight history page must not restore its old
