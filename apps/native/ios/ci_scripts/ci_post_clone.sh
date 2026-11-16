@@ -99,6 +99,15 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
         -lsam_core -framework Security -framework SystemConfiguration \
         -o "$preview_test_dir/preview-test"
     python3 "$repo_dir/apps/native/ios/tests/uploaded-preview-server.py" "$preview_test_dir/preview-test"
+    gallery_mac_status=0
+    bash "$repo_dir/apps/native/ios/tests/gallery-macos.sh" "$preview_test_dir/gallery" || gallery_mac_status=$?
+    for gallery_image in "$preview_test_dir/gallery/images/"*.png; do
+        [ -f "$gallery_image" ] || continue
+        echo "GALLERY_MAC_SCREENSHOT_BEGIN $(basename "$gallery_image")"
+        base64 -b 4096 -i "$gallery_image"
+        echo "GALLERY_MAC_SCREENSHOT_END"
+    done
+    [ "$gallery_mac_status" -eq 0 ] || exit "$gallery_mac_status"
     rm -rf "$preview_test_dir"
 fi
 
@@ -120,6 +129,21 @@ if [ "$CI_PRODUCT_PLATFORM" = "iOS" ]; then
             base64 -b 4096 -i "$screenshot"
             echo "CHAT_SCROLL_SCREENSHOT_END"
         done
+    fi
+    if [ "$scroll_test_status" -eq 0 ]; then
+        gallery_test_dir=$(mktemp -d)
+        gallery_test_status=0
+        bash "$repo_dir/apps/native/ios/tests/gallery-ios.sh" "$gallery_test_dir" || gallery_test_status=$?
+        if [ -d "$gallery_test_dir/run/scroll-tests.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$gallery_test_dir/run/scroll-tests.xcresult" \
+                --output-path "$gallery_test_dir/attachments" || true
+            find "$gallery_test_dir/attachments" -name '*.png' 2>/dev/null | while IFS= read -r screenshot; do
+                echo "GALLERY_SCREENSHOT_BEGIN $(basename "$screenshot")"
+                base64 -b 4096 -i "$screenshot"
+                echo "GALLERY_SCREENSHOT_END"
+            done
+        fi
+        exit "$gallery_test_status"
     fi
     exit "$scroll_test_status"
 fi

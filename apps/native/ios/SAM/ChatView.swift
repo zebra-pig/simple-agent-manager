@@ -205,7 +205,9 @@ struct ChatView: View {
         }
         .sheet(item: $tool) { selected in
             ChatToolView(tool: selected, chat: chat, serverUrl: app.state().serverUrl)
+                .modifier(ChatGalleryPresentation(chat: chat, app: app))
         }
+        .modifier(ChatGalleryPresentation(chat: chat, app: app))
         .confirmationDialog(endLabel ?? String(localized: "Complete"), isPresented: $confirmEnd) {
             Button(endLabel ?? String(localized: "Complete"), role: .destructive) { ending = true; Task { await chat.core.endTask(); ending = false } }
         } message: { Text("This ends the task and stops its agent.") }

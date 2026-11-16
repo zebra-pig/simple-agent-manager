@@ -19,6 +19,7 @@ struct DocumentCard: View {
     let core: ChatViewModel
     var compactImage = false
     @State private var image: Image?
+    @Environment(\.openChatImage) private var openChatImage
     @State private var gallery = false
     @State private var preview: URL?
     @State private var folder: URL?
@@ -27,7 +28,10 @@ struct DocumentCard: View {
 
     var body: some View {
         Button {
-            if document.isImage { gallery = true }
+            if document.isImage {
+                if let openChatImage { openChatImage(document.fileId) }
+                else { gallery = true }
+            }
             else { Task { await openFile() } }
         } label: {
             if compactImage && document.isImage {
@@ -54,13 +58,14 @@ struct DocumentCard: View {
         }
         .buttonStyle(.plain)
         .disabled(document.unavailable || document.fileId.isEmpty || loading)
+        .accessibilityLabel(Text(verbatim: document.label))
         .accessibilityHint(Text(document.isImage ? "Open gallery" : "Open file"))
         .task(id: document.fileId) {
             if document.isImage && !document.unavailable, let bytes = await core.documentBytes(fileId: document.fileId) { let decoded = await decodeImage(bytes, maxPixelSize: 440)
                 guard !Task.isCancelled else { return }
                 image = decoded.map { Image(decorative: $0, scale: 1) } }
         }
-        .sheet(isPresented: $gallery) { DocumentGallery(documents: documents.filter { $0.isImage && !$0.unavailable && !$0.fileId.isEmpty }, initial: document.fileId, core: core) }
+        .sheet(isPresented: $gallery) { DocumentGallery(documents: documents.uniqueGalleryImages, initial: document.fileId, core: core) }
         .quickLookPreview($preview)
         .onChange(of: preview) { if preview == nil { cleanUp() } }
         .onDisappear { cleanUp() }
@@ -87,62 +92,103 @@ struct DocumentGallery: View {
     let initial: String
     let core: ChatViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var index: Int
+    @State private var selection: String
+    @State private var swipe = GallerySwipeNavigation()
+    #if os(macOS)
+    @FocusState private var keyboardFocused: Bool
+    #endif
+    var fallbackCore: ChatViewModel?
+    var loadingHistory = false
+    var historyError: String?
+    var retryHistory: (() -> Void)?
 
-    init(documents: [ChatDocument], initial: String, core: ChatViewModel) {
+    init(documents: [ChatDocument], initial: String, core: ChatViewModel,
+         fallbackCore: ChatViewModel? = nil, loadingHistory: Bool = false, historyError: String? = nil, retryHistory: (() -> Void)? = nil) {
         self.documents = documents; self.initial = initial; self.core = core
-        _index = State(initialValue: documents.firstIndex { $0.fileId == initial } ?? 0)
+        self.fallbackCore = fallbackCore
+        self.loadingHistory = loadingHistory; self.historyError = historyError; self.retryHistory = retryHistory
+        _selection = State(initialValue: initial)
     }
+
+    private var index: Int? { documents.firstIndex { $0.fileId == selection } }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                if !documents.isEmpty {
+            VStack(spacing: 12) {
+                if let index {
                     #if os(iOS)
-                    TabView(selection: $index) {
-                        ForEach(Array(documents.enumerated()), id: \.element.fileId) { offset, document in
-                            GalleryPage(document: document, core: core, active: abs(offset - index) <= 1)
-                                .tag(offset)
+                    if loadingHistory {
+                        GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true)
+                    } else {
+                        TabView(selection: $selection) {
+                            ForEach(Array(documents.enumerated()), id: \.element.fileId) { offset, document in
+                                GalleryPage(document: document, core: core, fallbackCore: fallbackCore, active: abs(offset - index) <= 1)
+                                    .tag(document.fileId)
+                            }
                         }
+                        .tabViewStyle(.page(indexDisplayMode: .never))
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
                     #else
-                    GalleryPage(document: documents[index], core: core, active: true)
-                        .id(documents[index].fileId)
-                        .focusable()
-                        .onMoveCommand { direction in
-                            if direction == .left { index = max(index - 1, 0) }
-                            if direction == .right { index = min(index + 1, documents.count - 1) }
-                        }
+                    GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true, swipe: swipe, onNavigate: move)
+                        .id(selection)
                     #endif
                     if documents.count > 1 {
-                        Text("\(index + 1) of \(documents.count)")
+                        Text(loadingHistory || historyError != nil ? "\(index + 1) of \(documents.count) loaded" : "\(index + 1) of \(documents.count)")
                             .font(.subheadline.monospacedDigit())
                             .accessibilityAdjustableAction { direction in
                                 switch direction {
-                                case .increment: index = min(index + 1, documents.count - 1)
-                                case .decrement: index = max(index - 1, 0)
+                                case .increment: move(1)
+                                case .decrement: move(-1)
                                 @unknown default: break
                                 }
                             }
                             .padding(.horizontal, 18).padding(.vertical, 12)
-                        .background(.thinMaterial, in: Capsule()).padding(.bottom, 12)
+                            .background(.thinMaterial, in: Capsule())
                     }
                 } else { ContentUnavailableView("File no longer available", systemImage: "photo") }
+                if loadingHistory {
+                    HStack { ProgressView().controlSize(.small); Text("Finding earlier images…").font(.caption) }
+                } else if let historyError {
+                    VStack(spacing: 4) {
+                        Text(historyError).font(.caption).foregroundStyle(.secondary)
+                        Button("Retry earlier images") { retryHistory?() }
+                    }.padding(.horizontal)
+                }
+            }.padding(.bottom, 12)
+            #if os(macOS)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($keyboardFocused)
+            .onMoveCommand { direction in
+                if direction == .left { move(-1) }
+                if direction == .right { move(1) }
             }
-            .navigationTitle(documents.indices.contains(index) ? documents[index].label : String(localized: "Images"))
+            .onAppear { keyboardFocused = true }
+            #endif
+            .navigationTitle(index.map { documents[$0].label } ?? String(localized: "Images"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { Button("Done") { dismiss() } }
         }
+        #if os(macOS)
+        .frame(minWidth: 300, minHeight: 360)
+        #endif
+    }
+
+    private func move(_ delta: Int) {
+        guard !loadingHistory, let index, documents.indices.contains(index + delta) else { return }
+        selection = documents[index + delta].fileId
     }
 }
 
 private struct GalleryPage: View {
     let document: ChatDocument
     let core: ChatViewModel
+    var fallbackCore: ChatViewModel?
     let active: Bool
+    var swipe: GallerySwipeNavigation?
+    var onNavigate: ((Int) -> Void)?
     @State private var image: CGImage?
     @State private var failed = false
     @State private var retry = 0
@@ -154,7 +200,7 @@ private struct GalleryPage: View {
                     #if os(iOS)
                     GalleryZoomImage(image: image)
                     #else
-                    GalleryMacZoomImage(image: image)
+                    GalleryMacZoomImage(image: image, swipe: swipe, onNavigate: onNavigate)
                     #endif
                 } else if failed {
                     ContentUnavailableView {
@@ -171,7 +217,8 @@ private struct GalleryPage: View {
             guard active else { image = nil; return }
             guard image == nil else { return }
             failed = false
-            let bytes = await core.documentBytes(fileId: document.fileId)
+            var bytes = await core.documentBytes(fileId: document.fileId)
+            if bytes == nil, let fallbackCore { bytes = await fallbackCore.documentBytes(fileId: document.fileId) }
             let decoded: CGImage?
             if let bytes { decoded = await decodeImage(bytes) } else { decoded = nil }
             guard !Task.isCancelled else { return }
@@ -233,14 +280,24 @@ private final class GalleryImageScrollView: UIScrollView, UIScrollViewDelegate {
 #if os(macOS)
 private struct GalleryMacZoomImage: NSViewRepresentable {
     let image: CGImage
+    var swipe: GallerySwipeNavigation?
+    var onNavigate: ((Int) -> Void)?
     func makeNSView(context: Context) -> GalleryMacScrollView { GalleryMacScrollView() }
     func updateNSView(_ view: GalleryMacScrollView, context: Context) {
-        view.imageView.image = NSImage(cgImage: image, size: .zero)
+        view.swipe = swipe
+        view.onNavigate = onNavigate
+        if view.sourceImage !== image {
+            view.sourceImage = image
+            view.imageView.image = NSImage(cgImage: image, size: .zero)
+        }
     }
 }
 
 private final class GalleryMacScrollView: NSScrollView {
     let imageView = NSImageView()
+    var sourceImage: CGImage?
+    var onNavigate: ((Int) -> Void)?
+    var swipe: GallerySwipeNavigation?
     private var viewport = CGSize.zero
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -250,6 +307,22 @@ private final class GalleryMacScrollView: NSScrollView {
         documentView = imageView
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func scrollWheel(with event: NSEvent) {
+        // A single unzoomed horizontal trackpad gesture advances one image.
+        // Ignore its momentum, which otherwise advances again or bounces back.
+        if event.phase.contains(.began) { swipe?.begin() }
+        guard magnification <= 1, let onNavigate,
+              abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else {
+            super.scrollWheel(with: event); return
+        }
+        if let direction = swipe?.move(delta: event.scrollingDeltaX,
+                                       began: event.phase.contains(.began),
+                                       discrete: event.phase.isEmpty,
+                                       momentum: !event.momentumPhase.isEmpty,
+                                       time: event.timestamp) {
+            onNavigate(direction)
+        }
+    }
     override func layout() {
         super.layout()
         if viewport != bounds.size {
