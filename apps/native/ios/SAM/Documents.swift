@@ -94,6 +94,9 @@ struct DocumentGallery: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selection: String
     @State private var swipe = GallerySwipeNavigation()
+    #if os(macOS)
+    @FocusState private var keyboardFocused: Bool
+    #endif
     var fallbackCore: ChatViewModel?
     var loadingHistory = false
     var historyError: String?
@@ -129,12 +132,7 @@ struct DocumentGallery: View {
                     GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true, swipe: swipe, onNavigate: move)
                         .id(selection)
                     #endif
-                    HStack(spacing: 24) {
-                        Button("Previous image", systemImage: "chevron.left") { move(-1) }
-                            .labelStyle(.iconOnly).disabled(loadingHistory || index == 0)
-                            #if os(macOS)
-                            .keyboardShortcut(.leftArrow, modifiers: [])
-                            #endif
+                    if documents.count > 1 {
                         Text(loadingHistory || historyError != nil ? "\(index + 1) of \(documents.count) loaded" : "\(index + 1) of \(documents.count)")
                             .font(.subheadline.monospacedDigit())
                             .accessibilityAdjustableAction { direction in
@@ -144,13 +142,9 @@ struct DocumentGallery: View {
                                 @unknown default: break
                                 }
                             }
-                        Button("Next image", systemImage: "chevron.right") { move(1) }
-                            .labelStyle(.iconOnly).disabled(loadingHistory || index == documents.count - 1)
-                            #if os(macOS)
-                            .keyboardShortcut(.rightArrow, modifiers: [])
-                            #endif
-                    }.padding(.horizontal, 18).padding(.vertical, 12)
-                        .background(.thinMaterial, in: Capsule())
+                            .padding(.horizontal, 18).padding(.vertical, 12)
+                            .background(.thinMaterial, in: Capsule())
+                    }
                 } else { ContentUnavailableView("File no longer available", systemImage: "photo") }
                 if loadingHistory {
                     HStack { ProgressView().controlSize(.small); Text("Finding earlier images…").font(.caption) }
@@ -161,6 +155,16 @@ struct DocumentGallery: View {
                     }.padding(.horizontal)
                 }
             }.padding(.bottom, 12)
+            #if os(macOS)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($keyboardFocused)
+            .onMoveCommand { direction in
+                if direction == .left { move(-1) }
+                if direction == .right { move(1) }
+            }
+            .onAppear { keyboardFocused = true }
+            #endif
             .navigationTitle(index.map { documents[$0].label } ?? String(localized: "Images"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

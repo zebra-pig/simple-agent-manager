@@ -9,7 +9,8 @@ images and offers retry. The collection stays fixed until dismissal, so polling
 cannot reorder a swipe in progress. Reopening starts at the newly tapped image.
 
 The screen owns presentation rather than its recyclable message rows. Mac
-navigation supports visible buttons, arrow keys and horizontal trackpad gestures.
+navigation supports arrow keys and horizontal trackpad gestures, with a simple
+page-count pill and no Previous/Next buttons.
 One gesture advances one image; momentum cannot advance again or reverse it.
 Zoomed panning and vertical scrolling do not navigate between images.
 
@@ -33,3 +34,10 @@ page in both directions twice, checks both boundaries, dismisses, and reopens.
 The runner creates and deletes its own simulator and retains an xcresult bundle
 and interaction video. Both fixtures run from the Xcode Cloud post-clone script.
 No live accounts or user images are used.
+
+Verified on filmkit-macbuild on 2026-11-16: macOS production-view integration
+passed (`GALLERY_MAC_PAGINATION_SELECTION_NAVIGATION_PASS`); iOS touch XCTest
+passed with zero failures. Full unsigned app builds passed for both platforms.
+Review captures: [Mac gallery](evidence/gallery/mac.png),
+[Mac unavailable image](evidence/gallery/mac-unavailable.png),
+and [iOS gallery after repeated swipes](evidence/gallery/ios.png).

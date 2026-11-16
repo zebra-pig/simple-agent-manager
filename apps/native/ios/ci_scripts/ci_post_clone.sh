@@ -99,7 +99,15 @@ if [ "$CI_PRODUCT_PLATFORM" = "macOS" ]; then
         -lsam_core -framework Security -framework SystemConfiguration \
         -o "$preview_test_dir/preview-test"
     python3 "$repo_dir/apps/native/ios/tests/uploaded-preview-server.py" "$preview_test_dir/preview-test"
-    bash "$repo_dir/apps/native/ios/tests/gallery-macos.sh" "$preview_test_dir/gallery"
+    gallery_mac_status=0
+    bash "$repo_dir/apps/native/ios/tests/gallery-macos.sh" "$preview_test_dir/gallery" || gallery_mac_status=$?
+    for gallery_image in "$preview_test_dir/gallery/images/"*.png; do
+        [ -f "$gallery_image" ] || continue
+        echo "GALLERY_MAC_SCREENSHOT_BEGIN $(basename "$gallery_image")"
+        base64 -b 4096 -i "$gallery_image"
+        echo "GALLERY_MAC_SCREENSHOT_END"
+    done
+    [ "$gallery_mac_status" -eq 0 ] || exit "$gallery_mac_status"
     rm -rf "$preview_test_dir"
 fi
 

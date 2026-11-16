@@ -58,7 +58,7 @@ private final class GalleryCredentials: CredentialStore, @unchecked Sendable {
                 windowNumber: window.windowNumber, context: nil,
                 characters: right ? "\u{F703}" : "\u{F702}", charactersIgnoringModifiers: right ? "\u{F703}" : "\u{F702}",
                 isARepeat: false, keyCode: right ? 124 : 123)!
-            _ = window.performKeyEquivalent(with: event)
+            window.sendEvent(event)
             pause(0.25)
         }
         pause(2)
