@@ -19,15 +19,15 @@ struct ChatSteeringSelector: View {
     var body: some View {
         Menu {
             Button { select(.steer) } label: {
-                Label("Steer now", systemImage: queued ? "arrow.turn.down.right" : "checkmark")
+                Label("Steer", systemImage: queued ? "arrow.turn.down.right" : "checkmark")
             }
             Button { select(.queue) } label: {
-                Label("Queue next", systemImage: queued ? "checkmark" : "text.line.last.and.arrowtriangle.forward")
+                Label("Queue", systemImage: queued ? "checkmark" : "text.line.last.and.arrowtriangle.forward")
             }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: queued ? "text.line.last.and.arrowtriangle.forward" : "arrow.turn.down.right")
-                Text(queued ? "Queue next" : "Steer now")
+                Text(queued ? "Queue" : "Steer")
                     .font(.subheadline.weight(.semibold))
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2).foregroundStyle(.secondary)
@@ -43,7 +43,7 @@ struct ChatSteeringSelector: View {
         .fixedSize(horizontal: false, vertical: true)
         .disabled(locked)
         .accessibilityLabel("Message delivery")
-        .accessibilityValue(Text(queued ? "Queue next" : "Steer now"))
+        .accessibilityValue(Text(queued ? "Queue" : "Steer"))
         .accessibilityHint(Text(detail))
         .help(Text(detail))
     }
