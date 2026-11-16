@@ -190,9 +190,8 @@ private struct ToolLoadStatus: View {
     let retry: () async -> Void
 
     var body: some View {
-        if let error = state.error {
+        if state.error != nil {
             VStack(alignment: .leading, spacing: 8) {
-                ErrorNotice(message: error.message)
                 Button("Retry") { Task { await retry() } }.disabled(state.loading)
             }.padding(.vertical, 8)
         }

@@ -13,9 +13,6 @@ struct ChatHistoryPager: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            if let error {
-                ErrorNotice(message: error)
-            }
             if error != nil {
                 Button("Retry earlier messages", action: load)
                     .disabled(loading)

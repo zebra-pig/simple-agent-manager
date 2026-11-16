@@ -31,8 +31,7 @@ struct ProjectSettings: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let error = model.state.error {
-                    ErrorNotice(message: error.message)
+                if model.state.error != nil {
                     if !model.state.initialized {
                         Button("Retry") { Task { await load() } }.buttonStyle(.borderless)
                     }

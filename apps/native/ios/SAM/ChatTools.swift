@@ -32,8 +32,7 @@ struct ChatToolView: View {
                 default:
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
-                            if tool != .progress, let error = state.error {
-                                ErrorNotice(message: error.message)
+                            if tool != .progress && state.error != nil {
                                 Button("Retry") { Task { await refresh() } }.glassButton()
                             }
                             switch tool {

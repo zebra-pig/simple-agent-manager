@@ -148,9 +148,8 @@ struct DocumentGallery: View {
                 } else { ContentUnavailableView("File no longer available", systemImage: "photo") }
                 if loadingHistory {
                     HStack { ProgressView().controlSize(.small); Text("Finding earlier images…").font(.caption) }
-                } else if let historyError {
+                } else if historyError != nil {
                     VStack(spacing: 4) {
-                        ErrorNotice(message: historyError)
                         Button("Retry earlier images") { retryHistory?() }
                     }.padding(.horizontal)
                 }

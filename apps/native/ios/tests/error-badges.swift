@@ -11,9 +11,11 @@ import SwiftUI
             NavigationStack {
                 Form {
                     Section("Request") {
-                        Text("The error must appear above this form.")
-                        if failed && !sheetMode {
-                            ErrorNotice(message: "Can't reach the server. Check your connection and try again.")
+                        VStack(alignment: .leading) {
+                            Text("The error must appear above this form.")
+                            if failed && !sheetMode {
+                                ErrorNotice(message: "Can't reach the server. Check your connection and try again.")
+                            }
                         }
                         Button("Retry") { failed = false }
                     }
@@ -24,8 +26,10 @@ import SwiftUI
             .sheet(isPresented: $sheet) {
                 NavigationStack {
                     Form {
-                        Text("The error belongs above this sheet.")
-                        if failed { ErrorNotice(message: "Couldn't save your changes. Try again.") }
+                        VStack(alignment: .leading) {
+                            Text("The error belongs above this sheet.")
+                            if failed { ErrorNotice(message: "Couldn't save your changes. Try again.") }
+                        }
                         Button("Retry") { failed = false }
                     }
                     .navigationTitle("Settings")

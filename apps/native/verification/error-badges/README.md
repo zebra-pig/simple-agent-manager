@@ -24,4 +24,10 @@ Validation on the remote Mac with Xcode 27:
 - Run `bash apps/native/ios/tests/error-badges.sh` to exercise nested preference
   reporting and sheet ownership using the production badge components.
 
+The macOS component capture can be reproduced by compiling
+`ios/SAM/FloatingErrorBadge.swift` with `ios/tests/error-badges-macos.swift` using
+`xcrun swiftc -parse-as-library`, then passing an output PNG path to the executable.
+`desktop.png` is an ImageRenderer capture; material blending depends on the live
+window background. `nested.png` and `sheet.png` verify preference delivery.
+
 Android presentation is unchanged by this Apple UI change.

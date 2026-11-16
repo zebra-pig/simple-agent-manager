@@ -131,8 +131,7 @@ struct AssistantView: View {
     }
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let error = model.state.error {
-                ErrorNotice(message: error.message)
+            if model.state.error != nil {
                 Button { Task { await model.core.refresh() } } label: {
                     LoadingLabel(title: "Refresh", loading: model.state.loading)
                 }.disabled(model.state.loading)
