@@ -9,7 +9,7 @@ From the repository root on a Mac:
 
 ```sh
 sh apps/native/scripts/build-ios.sh
-bash apps/native/ios/tests/slash-commands.sh /tmp/sam-slash-evidence
+bash apps/native/ios/tests/ui/slash-commands/slash-commands.sh /tmp/sam-slash-evidence
 ```
 
 The iOS fixture verifies discovery, filtering, arrow/Return selection, trailing
@@ -18,7 +18,7 @@ auto-send. The script captures actual simulator screenshots at synchronized
 checkpoints, including the software keyboard, then deletes its simulator.
 
 For desktop verification, make an isolated copy of `apps/native/ios`, replace
-`SAM/SAMApp.swift` with `ios/tests/slash-commands-macos.swift`, and build the SAM
+`SAM/SAMApp.swift` with `ios/tests/ui/slash-commands/slash-commands-macos.swift`, and build the SAM
 scheme for macOS with `CODE_SIGNING_ALLOWED=NO`. Run its executable with
 `SAM_SCREENSHOT_DIR` set to an existing evidence directory. It checks desktop
 arrow/Return selection and records a production-composer render.
@@ -50,7 +50,7 @@ Validated with Xcode 27 on the Mac:
 
 ## Inside an agent chat
 
-`ios/tests/slash-commands-chat-ios.swift` mounts the actual `ChatView`, including
+`ios/tests/ui/slash-commands/slash-commands-chat-ios.swift` mounts the actual `ChatView`, including
 its transcript, tools menu, durable reply draft and production reply composer.
 `chat-server.py` serves an offline authenticated session and custom command cache;
 command discovery passes through the real Rust HTTP client and generated Swift
@@ -59,7 +59,7 @@ bindings. All POST requests are rejected so the screenshot run cannot start work
 Start `chat-server.py <port-file>` on the Mac, then run `slash-commands.sh` with:
 
 - `SAM_TEST_SERVER=http://127.0.0.1:<port>`
-- `SAM_TEST_APP_SOURCE=<absolute-path>/ios/tests/slash-commands-chat-ios.swift`
+- `SAM_TEST_APP_SOURCE=<absolute-path>/ios/tests/ui/slash-commands/slash-commands-chat-ios.swift`
 - `SAM_TEST_PHASES="chat-light chat-inserted chat-dark"`
 
 Stop the fixture server afterward. The run checks filtering in the real chat,

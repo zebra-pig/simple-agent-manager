@@ -109,3 +109,7 @@ apps/installer/public/brand-icon.png
 apps/installer/public/sam-head.png
 apps/installer/public/theme-init.js
 packages/ui/.astro/
+
+# Native generated test outputs belong in scratch/CI artifacts, never beside suites.
+apps/native/**/evidence/
+apps/native/**/*.xcresult/

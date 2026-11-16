@@ -5,6 +5,8 @@ server (hosted or self-hosted), browse your projects and their chat sessions, st
 the agent's conversation and task status, open the resulting pull request, and reply to the agent. Tasks and replies can carry files.
 A new task runs with the agent profile you pick, and you can create, edit and delete the project's profiles.
 
+See [TESTING.md](TESTING.md) for test structure, local/CI commands and evidence rules.
+
 ## Layout
 
 | Path       | What                                                                                                                                                                |
@@ -86,7 +88,7 @@ with progress while cancellation is in flight; errors remain visible with retry 
 It is available only to viewers who can drive the session.
 
 `core/tests/steering.rs` exercises wire intent, runtime capability, delivery fallback,
-interrupt failure/retry and duplicate protection. `ios/tests/render-steering-ios.sh`
+interrupt failure/retry and duplicate protection. `verification/visual/render-steering-ios.sh`
 renders the production chat with an offline API in an isolated iOS simulator, including
 steer, queue, interrupt progress, error and unsupported-runtime states.
 
@@ -142,6 +144,7 @@ Secret values remain in the form's transient state, go directly to the dedicated
 and are cleared after success or leaving the form. They never become chat prompts or core state.
 Replacing a project value requires consent tied to the exact existing version; a changed version
 requires fresh consent. A failed save preserves the input for retry. Permissions match web.
+
 ## Chat tools
 
 The top-right **Session tools** menu follows the web tool rail's groups: workspace and
@@ -190,7 +193,7 @@ without blocking chat. This is autocomplete for agent commands; web-only local
 clear/copy/export actions are not advertised. Android currently retains its plain
 composer; the discovery model is shared and exported through UniFFI.
 
-Run `ios/tests/slash-commands.sh <output-directory>` on a Mac after building the
+Run `ios/tests/ui/slash-commands/slash-commands.sh <output-directory>` on a Mac after building the
 core to verify the production composer in an isolated iOS simulator and capture
 screenshots. See [slash command verification](verification/slash-commands/README.md).
 
@@ -236,7 +239,7 @@ message content and chronological accessibility ordering. Earlier pages extend t
 end, with one automatic request per downward swipe. While reading history, a stable
 transcript snapshot holds live layout changes; core polling and session/composer state
 continue updating. Returning to latest catches up immediately. The real iOS touch and
-frame-position regression suite is documented in [ios/tests/chat-scroll.md](ios/tests/chat-scroll.md).
+frame-position regression suite is documented in [chat scroll tests](docs/testing/chat-scroll.md).
 
 Android's `ChatContent` accepts a state snapshot and callbacks. Robolectric tests exercise
 actual Compose views without signing in, including expanded activity, the history arrow,
