@@ -108,8 +108,19 @@ static NEXT_LOCAL_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Default)]
 struct ChatHistory {
     rows: Vec<timeline::Row>,
+    boundaries: std::collections::HashSet<String>,
     generation: u64,
     refreshing: bool,
+}
+
+impl ChatHistory {
+    fn items(&self, working: bool) -> Vec<ChatItem> {
+        if self.boundaries.is_empty() {
+            timeline::build(self.rows.clone(), working)
+        } else {
+            timeline::build_with_boundaries(self.rows.clone(), working, &self.boundaries)
+        }
+    }
 }
 
 /// Navigation can drop an in-flight intent. Release its busy flag even then.
@@ -202,7 +213,7 @@ impl ChatViewModel {
             match result {
                 Ok(_) => {
                     s.working = false;
-                    s.items = timeline::build(history.rows.clone(), false);
+                    s.items = history.items(false);
                     s.delivery_intent = DeliveryIntent::Steer;
                 }
                 Err(e) => s.interrupt_error = Some(UserError::from(&e)),
@@ -293,7 +304,7 @@ impl ChatViewModel {
                         }
                     }
                     s.deliveries = deliveries(&history.rows);
-                    s.items = timeline::build(history.rows.clone(), s.working);
+                    s.items = history.items(s.working);
                     if let Some(provisioning) = provisioning {
                         s.provisioning = provisioning;
                     }
@@ -340,9 +351,12 @@ impl ChatViewModel {
                         s.history_error = Some(UserError::Unexpected { detail: "History page did not advance. Please retry.".into() });
                         return;
                     }
+                    if let Some(first) = history.rows.first() {
+                        history.boundaries.insert(first.id.clone());
+                    }
                     merge_rows(&mut history.rows, page.messages);
                     s.has_more = page.has_more;
-                    let items = timeline::build(history.rows.clone(), s.working);
+                    let items = history.items(s.working);
                     // Earlier identical user messages are not delivery receipts
                     // for a pending prompt sent after those messages.
                     for outgoing in &mut s.outbox {

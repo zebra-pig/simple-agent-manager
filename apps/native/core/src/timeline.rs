@@ -14,6 +14,8 @@
 //! ("Report from the workspace"), the notice says where it came from and the
 //! shell writes the words.
 
+mod tool_rows;
+
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -185,12 +187,25 @@ const OUTPUT_LIMIT: usize = 4000;
 
 /// Builds the chat from rows sorted by time (equal timestamps keep server order).
 /// `working`: the agent is mid-turn, so the newest activity is live.
-pub(crate) fn build(mut rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
+pub(crate) fn build(rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
+    build_with_boundaries(rows, working, &Default::default())
+}
+
+/// Loaded page boundaries keep an existing message from merging into an older
+/// reply/activity card. Tool updates still resolve across the entire transcript.
+pub(crate) fn build_with_boundaries(
+    mut rows: Vec<Row>,
+    working: bool,
+    boundaries: &std::collections::HashSet<String>,
+) -> Vec<ChatItem> {
     rows.sort_by_key(|r| r.created_at);
     crate::documents::resolve(&mut rows);
     let mut items: Vec<Positioned> = Vec::with_capacity(rows.len());
-    let mut calls_by_id: std::collections::HashMap<String, usize> = Default::default();
+    let mut calls = tool_rows::resolve(&rows, boundaries);
     for mut row in rows {
+        if boundaries.contains(&row.id) {
+            items.push(Item::Boundary.at(row.id.clone(), row.created_at));
+        }
         // Only trusted injected user rows may lose the bootstrap prefix. Keep
         // historical context appended by the server as its own visible notice.
         if row.role == "user" && row.origin.as_deref() == Some("system") {
@@ -240,20 +255,8 @@ pub(crate) fn build(mut rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
                 }
             }
             "tool" => {
-                let update = ToolUpdate::from(&row, meta);
-                let existing = update.call_id.as_ref().and_then(|id| calls_by_id.get(id)).copied();
-                match existing.and_then(|i| match &mut items[i].item {
-                    Item::Tool(call) => Some(call),
-                    _ => None,
-                }) {
-                    Some(call) => update.apply(call),
-                    None => {
-                        if let Some(id) = &update.call_id {
-                            calls_by_id.insert(id.clone(), items.len());
-                        }
-                        let call = update.into_call(&row.id);
-                        items.push(Item::Tool(call).at(row.id, row.created_at));
-                    }
+                if let Some(call) = calls.remove(&row.id) {
+                    items.push(Item::Tool(call).at(row.id, row.created_at));
                 }
             }
             "system" => items.push(Item::Notice(system_notice(&row.content, meta)).at(row.id, row.created_at)),
@@ -267,6 +270,7 @@ pub(crate) fn build(mut rows: Vec<Row>, working: bool) -> Vec<ChatItem> {
 
 /// Mid-build items, before tool calls are grouped.
 enum Item {
+    Boundary,
     Document(crate::ChatDocument),
     User((String, Vec<crate::ChatDocument>)),
     Agent(String),
@@ -295,6 +299,7 @@ fn group(items: Vec<Positioned>, working: bool) -> Vec<ChatItem> {
     let mut run: Vec<Positioned> = Vec::new();
     for p in items {
         match p.item {
+            Item::Boundary => flush_run(&mut run, &mut out),
             Item::Tool(_) | Item::Thinking(_) => run.push(p),
             _ => {
                 flush_run(&mut run, &mut out);
@@ -349,6 +354,7 @@ fn flush_run(run: &mut Vec<Positioned>, out: &mut Vec<ChatItem>) {
 
 fn finish(p: Positioned) -> ChatItem {
     let content = match p.item {
+        Item::Boundary => unreachable!("Page boundaries are consumed by group"),
         Item::Document(document) => ChatContent::Document { document },
         Item::User((text, attachments)) => ChatContent::User { text, attachments },
         Item::Agent(text) => ChatContent::Agent { blocks: markdown::parse(&text), text },

@@ -162,12 +162,36 @@ final class ChatScrollUITests: XCTestCase {
             .allElementsBoundByIndex.first { $0.isHittable }!
         let label = row.label
         let y = row.frame.minY
+        let id = "m-" + label.components(separatedBy: "\n")[0].replacingOccurrences(of: "Message ", with: "")
+        let layouts = try request("layout")["samples"] as! [[String: Any]]
+        let beforeRows = layouts.last!["rows"] as! [[String: Any]]
+        let offset = beforeRows.first { $0["id"] as? String == id }!["y"] as! Double
+        let started = Date().timeIntervalSince1970
+        capture("older-position-before-polling")
         Thread.sleep(forTimeInterval: 10)
         let retained = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
         XCTAssertTrue(retained.isHittable)
-        XCTAssertEqual(retained.frame.minY, y, accuracy: 4)
+        XCTAssertEqual(retained.frame.minY, y, accuracy: 1)
+        let frames = try request("trace?after=\(started)")["samples"] as! [[String: Any]]
+        XCTAssertGreaterThan(frames.count, 10)
+        for frame in frames {
+            let rows = frame["rows"] as! [[String: Any]]
+            let reading = rows.first { $0["id"] as? String == id }
+            XCTAssertNotNil(reading, "Polling displaced the displayed reading position")
+            XCTAssertEqual(reading!["y"] as! Double, offset, accuracy: 1,
+                           "Polling shifted a displayed frame before correcting itself")
+        }
         XCTAssertTrue(jump.isHittable)
         capture("older-position-after-polling")
+        let pollsBeforeJump = try request("stats")["polls"] as! Int
+        XCTAssertGreaterThan(pollsBeforeJump, 2, "Live polling must continue while reading history")
+        jump.tap()
+        assertAtLatest()
+        let stream = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Streaming update ")).firstMatch
+        XCTAssertTrue(stream.waitForExistence(timeout: 5))
+        let version = Int(stream.label.components(separatedBy: "\n")[0].components(separatedBy: " ").last!)!
+        XCTAssertGreaterThanOrEqual(version, pollsBeforeJump - 1, "Returning to latest must flush buffered live content")
+        capture("latest-caught-up-after-history-reading")
     }
 
     func testPrependingHistoryPreservesVisibleMessagePosition() throws {
@@ -194,6 +218,98 @@ final class ChatScrollUITests: XCTestCase {
         capture("history-prepend-reading-position")
         XCTAssertTrue(retained.isHittable, "Earlier-page insertion displaced the message being read")
         XCTAssertEqual(retained.frame.minY, y, accuracy: 4)
+    }
+
+    func testRepeatedPrependDoesNotMoveOrChainHistory() throws {
+        try assertRepeatedPrepend(query: "hold=true")
+    }
+
+    func testMixedPrependDoesNotMoveOrChainHistory() throws {
+        try assertRepeatedPrepend(query: "hold=true&mixed=true")
+    }
+
+    private func assertRepeatedPrepend(query: String) throws {
+        _ = try request("reset?\(query)")
+        launch()
+        for page in 1...3 {
+            reachOlderPage(page)
+            // Allow the finger's momentum and bounce to stop while HTTP waits.
+            Thread.sleep(forTimeInterval: 1)
+            let beforeLayouts = try request("layout")["samples"] as! [[String: Any]]
+            let beforeRows = beforeLayouts.last!["rows"] as! [[String: Any]]
+            let reading = beforeRows[0]
+            let id = reading["id"] as! String
+            let row = app.descendants(matching: .any).matching(identifier: "chat-message-\(id)").firstMatch
+            XCTAssertTrue(row.exists, "Missing the visible production message container")
+            let y = row.frame.minY
+            let offset = reading["y"] as! Double
+            capture("page-\(page)-before-prepend")
+            let released = Date().timeIntervalSince1970
+            _ = try request("release-history")
+            for _ in 0..<50 {
+                if try request("stats")["completedOlder"] as? Int == page { break }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            let completed = try request("stats")
+            XCTAssertEqual(completed["completedOlder"] as? Int, page)
+            XCTAssertEqual(completed["inFlight"] as? Int, 0)
+            Thread.sleep(forTimeInterval: 1)
+            let retained = app.descendants(matching: .any).matching(identifier: "chat-message-\(id)").firstMatch
+            capture("page-\(page)-after-prepend")
+            let layouts = try request("layout?after=\(released)")["samples"] as! [[String: Any]]
+            print("CHAT_SCROLL_PAGE_\(page) before=\(y) after=\(retained.frame.minY) layouts=\(layouts)")
+            XCTAssertFalse(layouts.isEmpty, "No insertion layout samples were captured")
+            let rendered = try request("trace?after=\(released)")["samples"] as! [[String: Any]]
+            XCTAssertGreaterThan(rendered.count, 3, "Missing display-link samples during insertion")
+            for sample in rendered {
+                let rows = sample["rows"] as! [[String: Any]]
+                let reading = rows.first { $0["id"] as? String == id }
+                XCTAssertNotNil(reading, "A displayed frame briefly showed a different page")
+                XCTAssertEqual(reading!["y"] as! Double, offset, accuracy: 1,
+                               "A displayed frame shifted the reading position")
+            }
+            XCTAssertTrue(retained.exists)
+            XCTAssertEqual(retained.frame.minY, y, accuracy: 1, "Page \(page) shifted the reading position")
+            XCTAssertEqual(olderRequests, page, "Insertion alone loaded another page")
+            Thread.sleep(forTimeInterval: 2)
+            XCTAssertEqual(retained.frame.minY, y, accuracy: 1, "Position drifted after settling")
+            XCTAssertEqual(olderRequests, page, "History chained without a new swipe")
+            _ = try request("hold-history")
+        }
+    }
+
+    func testHistoryArrivalDuringScrollDoesNotSwitchPages() throws {
+        launch()
+        reachOlderPage(1)
+        for _ in 0..<50 {
+            if try request("stats")["completedOlder"] as? Int == 1 { break }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        Thread.sleep(forTimeInterval: 1)
+        let stats = try request("stats")
+        XCTAssertEqual(stats["completedOlder"] as? Int, 1)
+        let events = stats["historyEvents"] as! [[String: Any]]
+        let event = events[0]
+        let started = event["started"] as! Double
+        let completed = event["completed"] as! Double
+        let frames = try request("trace?after=\(started - 0.2)")["samples"] as! [[String: Any]]
+        let aroundInsertion = frames.filter { ($0["time"] as! Double) < completed + 0.8 }
+        XCTAssertGreaterThan(aroundInsertion.count, 5)
+        for (before, after) in zip(aroundInsertion, aroundInsertion.dropFirst()) {
+            guard (after["time"] as! Double) - (before["time"] as! Double) < 0.12 else { continue }
+            let oldRows = before["rows"] as! [[String: Any]]
+            let newRows = after["rows"] as! [[String: Any]]
+            guard !oldRows.isEmpty, !newRows.isEmpty else { continue }
+            let retained = newRows.filter { row in oldRows.contains { $0["id"] as? String == row["id"] as? String } }
+            XCTAssertFalse(retained.isEmpty, "History switched to a different page between displayed frames")
+            for row in retained {
+                let old = oldRows.first { $0["id"] as? String == row["id"] as? String }!
+                XCTAssertLessThan(abs((row["y"] as! Double) - (old["y"] as! Double)), 160,
+                                  "History introduced a discontinuity during the swipe")
+            }
+        }
+        XCTAssertEqual(olderRequests, 1, "One swipe chained another page")
+        capture("history-arrival-during-real-scroll")
     }
 
     func testProvisioningProgressAppearsAndDisappearsWhenReady() throws {

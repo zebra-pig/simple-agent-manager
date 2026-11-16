@@ -227,7 +227,16 @@ Follow-ups appear immediately in an outbox and remain marked as sending or queue
 server transcript contains them. Failed sends restore the draft. Reading older messages pauses
 following; the down-arrow button returns to the latest messages. Earlier messages load automatically as the top of the conversation comes into view. A small
 spinner appears while a page loads; failures show a retry action. Loaded messages keep stable
-identities so adding history preserves the reading position.
+identities so adding history preserves the reading position. Page boundaries keep already
+loaded reply/thought/activity cards from regrouping when earlier chunks arrive; tool
+updates still resolve globally without duplicate cards.
+
+On Apple platforms, the agent transcript lays out from the newest end with upright
+message content and chronological accessibility ordering. Earlier pages extend the far
+end, with one automatic request per downward swipe. While reading history, a stable
+transcript snapshot holds live layout changes; core polling and session/composer state
+continue updating. Returning to latest catches up immediately. The real iOS touch and
+frame-position regression suite is documented in [ios/tests/chat-scroll.md](ios/tests/chat-scroll.md).
 
 Android's `ChatContent` accepts a state snapshot and callbacks. Robolectric tests exercise
 actual Compose views without signing in, including expanded activity, the history arrow,

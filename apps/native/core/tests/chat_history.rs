@@ -217,3 +217,65 @@ async fn cancelled_requests_can_be_retried_after_navigation() {
     vm.load_older().await;
     assert_eq!(ids(&vm), ["r1", "r2", "r3", "r4", "r5"]);
 }
+
+#[tokio::test]
+async fn earlier_pages_keep_visible_reply_and_thought_groups_through_refresh() {
+    let state = Arc::new(Mutex::new(History {
+        rows: vec![
+            row("tool", 1, 0, "tool", "Earlier operation"),
+            row("thought", 2, 0, "thinking", "Thought already being read"),
+            row("latest", 3, 0, "user", "Latest prompt"),
+        ],
+        ..Default::default()
+    }));
+    let vm = model(state.clone()).await;
+    let visible = vm.state().items;
+    vm.load_older().await;
+    assert_eq!(&vm.state().items[1..], visible.as_slice(), "Older tools must not fold an existing thought into a different card");
+    vm.refresh().await;
+    assert_eq!(&vm.state().items[1..], visible.as_slice(), "Polling must retain page boundaries");
+
+    let state = Arc::new(Mutex::new(History {
+        rows: vec![
+            row("older-1", 1, 0, "assistant", "Earlier reply "),
+            row("older-2", 2, 0, "assistant", "continued"),
+            row("visible", 3, 0, "assistant", "Reply already being read"),
+            row("prompt", 4, 0, "user", "Continue"),
+        ],
+        ..Default::default()
+    }));
+    let vm = model(state.clone()).await;
+    let visible = vm.state().items;
+    vm.load_older().await;
+    assert_eq!(&vm.state().items[1..], visible.as_slice(), "Prepending chunks must not replace an existing reply ID or text");
+    state.lock().unwrap().rows.extend([
+        row("new-1", 5, 0, "assistant", "New reply "),
+        row("new-2", 6, 0, "assistant", "continued"),
+    ]);
+    vm.refresh().await;
+    let items = vm.state().items;
+    assert_eq!(&items[1..3], visible.as_slice());
+    assert!(matches!(&items[3].content, ChatContent::Agent { text, .. } if text == "New reply continued"), "Live chunks must still merge within their page");
+}
+
+#[tokio::test]
+async fn a_tool_update_keeps_its_card_when_its_older_start_event_loads() {
+    let mut start = row("start", 1, 0, "tool", "Started");
+    start["toolMetadata"] = json!({"toolCallId":"job", "title":"Run tests", "kind":"execute", "status":"in_progress"});
+    let mut done = row("done", 2, 0, "tool", "Tests passed");
+    done["toolMetadata"] = json!({"toolCallId":"job", "status":"completed"});
+    let state = Arc::new(Mutex::new(History {
+        rows: vec![start, done, row("latest", 3, 0, "user", "Latest prompt")],
+        ..Default::default()
+    }));
+    let vm = model(state).await;
+    assert_eq!(vm.state().items[0].id, "done");
+    vm.load_older().await;
+    vm.refresh().await;
+    let items = vm.state().items;
+    assert_eq!(items.len(), 2, "An older start event must not duplicate the tool card");
+    assert_eq!(items[0].id, "done");
+    let ChatContent::Activity { steps, summary } = &items[0].content else { panic!("Missing tool activity") };
+    assert_eq!(summary.tool_count, 1);
+    assert!(matches!(&steps[0], sam_core::ActivityStep::Tool { call } if call.title.as_deref() == Some("Run tests") && call.status == sam_core::ToolStatus::Completed));
+}

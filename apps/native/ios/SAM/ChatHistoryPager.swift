@@ -23,6 +23,9 @@ struct ChatHistoryPager: View {
             }
         }.frame(maxWidth: .infinity)
             .modifier(HistoryViewportVisibility(viewportHeight: viewportHeight, visible: $visible))
+            .accessibilityAction(named: Text("Load earlier messages")) {
+                if !loading { load() }
+            }
             .onDisappear { visible = false }
             .onChange(of: visible) { _, visible in
                 pendingEntry = visible ? cancellation : nil
@@ -40,9 +43,11 @@ struct ChatHistoryPager: View {
     }
 
     private func requestIfReady() {
-        // An entry during the previous request must not be dropped. Consume it
-        // once; completion alone never creates another entry or starts a loop.
-        guard pendingEntry == cancellation, visible, !loading, error == nil else { return }
+        // Inserting rows can make the pager leave and reenter the viewport.
+        // Visibility is a location, not another user intent: admit at most one
+        // page per downward drag, even across layout and loading transitions.
+        guard pendingEntry == cancellation, visible, !loading, error == nil,
+              admittedInteraction != interaction else { return }
         pendingEntry = nil
         admittedInteraction = interaction
         load()
