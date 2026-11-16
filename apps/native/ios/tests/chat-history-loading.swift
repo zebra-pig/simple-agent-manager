@@ -34,23 +34,23 @@ struct HistoryFixtureView: View {
         precondition(fixture.requests == 1, "Appearing must load automatically")
         settle()
         precondition(fixture.requests == 1, "In-flight requests must not repeat")
-        // No rendered-message ID changes: completion alone must continue paging.
+        // Completion while still visible must not start another page.
         fixture.loading = false
         settle()
-        precondition(fixture.requests == 2, "Visible pager must continue after a successful page")
+        precondition(fixture.requests == 1, "Completion must not chain another page")
         fixture.error = "Connection interrupted"
         fixture.loading = false
         settle()
-        precondition(fixture.requests == 2, "Errors must stop automatic retries")
+        precondition(fixture.requests == 1, "Errors must stop automatic retries")
         fixture.shown = false
         settle()
         fixture.error = nil
         settle()
-        precondition(fixture.requests == 2, "Hidden history must not load")
+        precondition(fixture.requests == 1, "Hidden history must not load")
         fixture.shown = true
         settle()
-        precondition(fixture.requests == 3, "Returning to history must resume automatic loading")
+        precondition(fixture.requests == 2, "Returning to history must resume automatic loading")
         window.orderOut(nil)
-        print("CHAT_HISTORY_LOADING_PASS: appearance, in-flight guard, continuation, error stop, visibility")
+        print("CHAT_HISTORY_LOADING_PASS: appearance, in-flight guard, no chained loads, error stop, visibility")
     }
 }

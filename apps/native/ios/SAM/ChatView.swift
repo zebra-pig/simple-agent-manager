@@ -9,6 +9,9 @@ struct ChatView: View {
     @ChatDraft private var draft: String
     @State private var historyAnchor: [String] = []
     @State private var visibleMessage: String?
+    @State private var messageFrames: [String: CGRect] = [:]
+    @State private var viewportHeight: CGFloat = 0
+    @State private var readingAnchor: ChatHistoryAnchor?
     @State private var followsLatest = true
     @State private var scrollControl = ChatScrollControl()
     @State private var tool: ChatTool?
@@ -31,9 +34,11 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if chat.state.hasMore || chat.state.loadingHistory {
-                            ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message) {
+                            ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message, viewportHeight: viewportHeight) {
                                 followsLatest = false
                                 historyAnchor = chat.state.items.map(\.id)
+                                // Capture before loading changes either the rows or scroll binding.
+                                readingAnchor = ChatHistoryAnchor.capture(frames: messageFrames, viewportHeight: viewportHeight)
                                 Task { await chat.core.loadOlder() }
                             }.id("history")
                         }
@@ -45,6 +50,10 @@ struct ChatView: View {
                                     UserMessageView(text: text, attachments: attachments, core: chat.core)
                                 } else { TimelineItemView(item: message) }
                             }.id(message.id)
+                                .background(GeometryReader { geometry in
+                                    Color.clear.preference(key: ChatMessageFrames.self,
+                                        value: [message.id: geometry.frame(in: .named("chatViewport"))])
+                                })
                         }
                         ForEach(chat.state.outbox, id: \.id) { message in
                             VStack(alignment: .trailing, spacing: 4) {
@@ -77,23 +86,29 @@ struct ChatView: View {
                     .padding()
                     .background(ChatScrollProbe(control: scrollControl))
                 }
+                .coordinateSpace(name: "chatViewport")
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: ChatViewportHeight.self, value: geometry.size.height)
+                })
+                .onPreferenceChange(ChatMessageFrames.self) { messageFrames = $0 }
+                .onPreferenceChange(ChatViewportHeight.self) { viewportHeight = $0 }
                 .defaultScrollAnchor(.bottom)
                 .scrollPosition(id: $visibleMessage, anchor: .top)
                 .interactiveKeyboardDismiss()
                 .onChange(of: chat.state.items) {
-                    if followsLatest && !chat.state.loadingHistory { proxy.scrollTo("latest", anchor: .bottom) }
+                    if followsLatest && historyAnchor.isEmpty && !chat.state.loadingHistory { proxy.scrollTo("latest", anchor: .bottom) }
                 }
                 .onChange(of: chat.state.loadingHistory) {
                     guard !chat.state.loadingHistory, !historyAnchor.isEmpty else { return }
                     let ids = Set(chat.state.items.map(\.id))
-                    // Streaming/tool groups may join across the page boundary;
-                    // prefer the first previously visible stable message ID.
-                    let retained = visibleMessage.map { historyAnchor.contains($0) && ids.contains($0) } ?? false
-                    if !retained, let anchor = historyAnchor.first(where: { ids.contains($0) }) {
+                    let anchor = readingAnchor.flatMap { ids.contains($0.id) ? $0 : nil }
+                        ?? historyAnchor.first(where: { ids.contains($0) }).map { ChatHistoryAnchor(id: $0, point: .top) }
+                    if let anchor {
                         var transaction = Transaction(animation: nil)
                         transaction.disablesAnimations = true
-                        withTransaction(transaction) { proxy.scrollTo(anchor, anchor: .top) }
+                        withTransaction(transaction) { proxy.scrollTo(anchor.id, anchor: anchor.point) }
                     }
+                    readingAnchor = nil
                     historyAnchor = []
                     followsLatest = false
                 }
