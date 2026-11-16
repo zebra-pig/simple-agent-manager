@@ -43,12 +43,39 @@ import Security
     let core: ChatViewModel
     let tools: ChatToolsModel
     private(set) var state: ChatState
+    /// A stable reading snapshot. Live changes catch up when returning to latest.
+    private(set) var transcript: ChatState
+    @ObservationIgnored private var browsingHistory = false
+    @ObservationIgnored var willUpdateItems: (() -> Void)?
 
     init(app: App) {
         core = ChatViewModel(app: app)
         tools = ChatToolsModel(app: app)
-        state = core.state()
-        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+        let initial = core.state()
+        state = initial
+        transcript = initial
+        core.setObserver(observer: Relay { [weak self] next in
+            guard let self else { return }
+            var displayed = next
+            if self.state.sessionId != next.sessionId { self.browsingHistory = false }
+            if self.browsingHistory && self.state.sessionId == next.sessionId && !self.transcript.items.isEmpty {
+                // History extends the reading snapshot; offscreen live changes
+                // cannot resize content beneath the message being read.
+                let known = Set(self.transcript.items.map(\.id))
+                displayed = self.transcript
+                displayed.items = Array(next.items.prefix { !known.contains($0.id) }) + self.transcript.items
+            }
+            if self.transcript.items != displayed.items { self.willUpdateItems?() }
+            self.transcript = displayed
+            self.state = next
+        })
+    }
+
+    func browseHistory() { browsingHistory = true }
+
+    func showLatest() {
+        browsingHistory = false
+        transcript = state
     }
 }
 

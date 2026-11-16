@@ -22,7 +22,10 @@ private final class ScrollFixtureCredentials: CredentialStore, @unchecked Sendab
                     .onPreferenceChange(ChatViewportHeight.self) { viewportHeight = $0 }
                     .onPreferenceChange(ChatMessageFrames.self) { frames in
                         let visible = frames.filter { $0.value.maxY > 0 && $0.value.minY < viewportHeight }
-                            .sorted { $0.value.minY < $1.value.minY }.prefix(2)
+                            .sorted { $0.value.minY < $1.value.minY }
+                        ScrollRenderedLayout.rows = visible.map {
+                            ["id": $0.key, "y": $0.value.minY, "height": $0.value.height] as [String: Any]
+                        }
                         let anchor = ChatHistoryAnchor.capture(frames: frames, viewportHeight: viewportHeight)
                         let payload: [String: Any] = ["time": Date().timeIntervalSince1970,
                             "height": viewportHeight, "id": anchor?.id ?? "none", "point": anchor?.point.y ?? 0,
@@ -35,6 +38,12 @@ private final class ScrollFixtureCredentials: CredentialStore, @unchecked Sendab
             }
         }
     }
+}
+
+// Preference callbacks can describe intermediate layout passes that never reach
+// the display. Sample the latest completed layout at display-link cadence too.
+private enum ScrollRenderedLayout {
+    static var rows: [[String: Any]] = []
 }
 
 // Read-only instrumentation of the rendered scroll view. Sampling presentation
@@ -75,7 +84,10 @@ private struct ScrollSamples: UIViewRepresentable {
             guard let scroll = chatScroll else { return }
             samples.append([
                 "time": Date().timeIntervalSince1970,
+                "rows": ScrollRenderedLayout.rows,
                 "y": scroll.layer.presentation()?.bounds.origin.y ?? scroll.contentOffset.y,
+                "distanceToLatest": max(0,
+                    (scroll.layer.presentation()?.bounds.origin.y ?? scroll.contentOffset.y) + scroll.adjustedContentInset.top),
                 "bottom": max(-scroll.adjustedContentInset.top,
                     scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom),
                 "height": scroll.bounds.height,

@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 lock = threading.Lock()
-state = {"older": 0, "completedOlder": 0, "inFlight": 0, "polls": 0, "delay": 0.1, "generation": 0, "mixed": False}
+state = {"older": 0, "completedOlder": 0, "inFlight": 0, "polls": 0, "delay": 0.1, "generation": 0, "mixed": False, "historyEvents": []}
 scroll_samples = []
 layout_samples = []
 history_gate = threading.Event()
@@ -29,11 +29,11 @@ class Handler(BaseHTTPRequestHandler):
         samples = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with lock:
             if state.get("releaseArmed"):
-                movement = next((sample for sample in samples if sample["time"] >= state["armedAt"] and sample["y"] > state["releaseY"] + 50), None)
+                movement = next((sample for sample in samples if sample["time"] >= state["armedAt"] and sample.get("distanceToLatest", sample["bottom"] - sample["y"]) < state["releaseDistanceAtArm"] - 50), None)
                 if movement:
                     state["releaseArmed"] = False
                     state["releasedDuringJump"] = True
-                    state["releaseDistance"] = movement["bottom"] - movement["y"]
+                    state["releaseDistance"] = movement.get("distanceToLatest", movement["bottom"] - movement["y"])
                     history_gate.set()
             scroll_samples.extend(samples)
             del scroll_samples[:-20000]
@@ -53,7 +53,7 @@ class Handler(BaseHTTPRequestHandler):
                 if query.get("hold", ["false"])[0] != "true":
                     history_gate.set()
                 state.update(older=0, completedOlder=0, inFlight=0, polls=0,
-                             generation=state["generation"] + 1,
+                             generation=state["generation"] + 1, historyEvents=[],
                              provisioning=query.get("provisioning", ["false"])[0] == "true",
                              releaseArmed=False, releasedDuringJump=False,
                              step="node_provisioning", startedAt=int(time.time() * 1000) - 10000,
@@ -70,14 +70,19 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/release-on-scroll":
             with lock:
                 state.update(releaseArmed=True, releasedDuringJump=False, armedAt=time.time(),
-                             releaseY=scroll_samples[-1]["y"])
+                             releaseY=scroll_samples[-1]["y"],
+                             releaseDistanceAtArm=scroll_samples[-1].get("distanceToLatest", scroll_samples[-1]["bottom"] - scroll_samples[-1]["y"]))
                 body = state.copy()
+        elif url.path == "/hold-history":
+            history_gate.clear()
+            body = {"held": True}
         elif url.path == "/release-history":
             history_gate.set()
             body = {"released": True}
         elif url.path == "/layout":
             with lock:
-                body = {"samples": layout_samples[-4:]}
+                after = float(query.get("after", [0])[0])
+                body = {"samples": sorted((sample for sample in layout_samples if sample["time"] >= after), key=lambda sample: sample["time"])}
         elif url.path == "/trace":
             after = float(query.get("after", [0])[0])
             with lock:
@@ -92,6 +97,8 @@ class Handler(BaseHTTPRequestHandler):
                 if "before" in query:
                     state["older"] += 1
                     state["inFlight"] += 1
+                    event = {"started": time.time(), "before": before}
+                    state["historyEvents"].append(event)
                 else:
                     state["polls"] += 1
                 snapshot = state.copy()
@@ -103,9 +110,10 @@ class Handler(BaseHTTPRequestHandler):
                     if state["generation"] == snapshot["generation"]:
                         state["inFlight"] -= 1
                         state["completedOlder"] += 1
+                        event["completed"] = time.time()
                         if state.get("releasedDuringJump") and scroll_samples:
                             sample = max(scroll_samples, key=lambda sample: sample["time"])
-                            state["completionDistance"] = sample["bottom"] - sample["y"]
+                            state["completionDistance"] = sample.get("distanceToLatest", sample["bottom"] - sample["y"])
             first = max(0, before - 12) if after is None else after + 1
             rows = []
             for index in range(first, before):

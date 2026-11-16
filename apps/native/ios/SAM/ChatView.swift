@@ -9,17 +9,14 @@ struct ChatView: View {
     @State private var commands: CommandsModel
     @ChatDraft private var draft: String
     @State private var submission = ChatSubmission()
-    @State private var historyAnchor: [String] = []
     @State private var historyCancellation = 0
     @State private var historyInteraction = 0
     @State private var historyGestureActive = false
     @GestureState private var historyDragging = false
     @State private var visibleMessage: String?
-    @State private var messageFrames: [String: CGRect] = [:]
     @State private var viewportHeight: CGFloat = 0
-    @State private var readingAnchor: ChatHistoryAnchor?
     @State private var followsLatest = true
-    @State private var scrollControl = ChatScrollControl()
+    @State private var scrollControl = ChatScrollControl(inverted: true)
     @State private var tool: ChatTool?
     @State private var confirmEnd = false
     @State private var ending = false
@@ -40,119 +37,113 @@ struct ChatView: View {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        if chat.state.hasMore || chat.state.loadingHistory {
-                            ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message, viewportHeight: viewportHeight, cancellation: historyCancellation, interaction: historyInteraction) {
-                                historyAnchor = chat.state.items.map(\.id)
-                                // Capture before loading changes either the rows or scroll binding.
-                                readingAnchor = ChatHistoryAnchor.capture(frames: messageFrames, viewportHeight: viewportHeight)
-                                Task { await chat.core.loadOlder() }
+                        Color.clear.frame(height: 1).id("latest")
+                            .modifier(ChatBottomTracking(followsLatest: $followsLatest))
+                        if let error = chat.transcript.error {
+                            Text(error.message).foregroundStyle(.red).font(.callout).scaleEffect(y: -1)
+                        }
+                        if let provisioning = chat.transcript.provisioning {
+                            ProvisioningView(state: provisioning).scaleEffect(y: -1)
+                        }
+                        ForEach(chat.transcript.notifications.filter { item in
+                            guard let id = item.requestId else { return false }
+                            return !chat.transcript.requests.contains { $0.id == id }
+                        }.reversed(), id: \.id) { item in
+                            if let id = item.requestId {
+                                RequestCard(app: app, project: ref.projectId, session: item.sessionId ?? ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval", hideResolved: true).scaleEffect(y: -1)
                             }
                         }
-                        ForEach(chat.state.items, id: \.id) { message in
-                            Group {
+                        ForEach(chat.transcript.requests.reversed(), id: \.id) { request in
+                            RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval, hideResolved: true).scaleEffect(y: -1)
+                        }
+                        ForEach(chat.transcript.outbox.reversed(), id: \.id) { message in
+                            VStack(alignment: .trailing, spacing: 4) {
+                                UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
+                                if message.deliveryIntent == .steer { MessageDeliveryLabel(status: "steering") }
+                                else { Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary) }
+                            }.frame(maxWidth: .infinity, alignment: .trailing).scaleEffect(y: -1)
+                        }
+                        ForEach(Array(chat.transcript.items.enumerated()).reversed(), id: \.element.id) { index, message in
+                            VStack(alignment: .leading, spacing: 0) {
                                 if case let .document(document) = message.content {
-                                    DocumentCard(document: document, documents: chat.state.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
+                                    DocumentCard(document: document, documents: chat.transcript.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
                                 } else if case let .user(text, attachments) = message.content {
                                     VStack(alignment: .trailing, spacing: 4) {
                                         UserMessageView(text: text, attachments: attachments, core: chat.core)
-                                        if let delivery = chat.state.deliveries.first(where: { $0.messageId == message.id }) {
+                                        if let delivery = chat.transcript.deliveries.first(where: { $0.messageId == message.id }) {
                                             MessageDeliveryLabel(status: delivery.status)
                                         }
                                     }
                                 } else { TimelineItemView(item: message) }
-                            }.id(message.id)
+                            }.scaleEffect(y: -1).id(message.id)
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("chat-message-\(message.id)")
+                                .accessibilitySortPriority(Double(chat.transcript.items.count - index))
                                 .background(GeometryReader { geometry in
                                     Color.clear.preference(key: ChatMessageFrames.self,
                                         value: [message.id: geometry.frame(in: .named("chatViewport"))])
                                 })
                         }
-                        ForEach(chat.state.outbox, id: \.id) { message in
-                            VStack(alignment: .trailing, spacing: 4) {
-                                UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
-                                if message.deliveryIntent == .steer { MessageDeliveryLabel(status: "steering") }
-                                else { Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary) }
-                            }.frame(maxWidth: .infinity, alignment: .trailing)
+                        if chat.state.hasMore || chat.state.loadingHistory {
+                            ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message, viewportHeight: viewportHeight, cancellation: historyCancellation, interaction: historyInteraction) {
+                                Task { await chat.core.loadOlder() }
+                            }.scaleEffect(y: -1)
                         }
-                        ForEach(chat.state.requests, id: \.id) { request in
-                            RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval, hideResolved: true)
-                        }
-                        ForEach(chat.state.notifications.filter { item in
-                            guard let id = item.requestId else { return false }
-                            return !chat.state.requests.contains { $0.id == id }
-                        }, id: \.id) { item in
-                            if let id = item.requestId {
-                                RequestCard(app: app, project: ref.projectId, session: item.sessionId ?? ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval", hideResolved: true)
-                            }
-                        }
-                        if let provisioning = chat.state.provisioning {
-                            ProvisioningView(state: provisioning)
-                        }
-                        if let error = chat.state.error {
-                            Text(error.message).foregroundStyle(.red).font(.callout)
-                        }
-                        Color.clear.frame(height: 1).id("latest")
-                            .modifier(ChatBottomTracking(followsLatest: $followsLatest))
                     }
                     .scrollTargetLayout()
                     .padding()
                 }
+                // Lay out from the newest end. Earlier pages append beyond the
+                // viewport, so lazy height estimates cannot move existing rows.
+                .scaleEffect(y: -1)
+                .clipped()
                 .coordinateSpace(name: "chatViewport")
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: ChatViewportHeight.self, value: geometry.size.height)
                 })
-                .onPreferenceChange(ChatMessageFrames.self) { frames in
-                    messageFrames = frames
-                    // The request may begin during a swipe/bounce. Retain the
-                    // user's latest reading position while that response waits.
-                    if chat.state.loadingHistory, !historyAnchor.isEmpty,
-                       frames.keys.allSatisfy({ historyAnchor.contains($0) }),
-                       let anchor = ChatHistoryAnchor.capture(frames: frames, viewportHeight: viewportHeight) {
-                        readingAnchor = anchor
+                .onPreferenceChange(ChatMessageFrames.self) { scrollControl.messageFrames = $0 }
+                .onPreferenceChange(ChatViewportHeight.self) {
+                    viewportHeight = $0
+                    scrollControl.viewportHeight = $0
+                }
+                .onAppear {
+                    chat.willUpdateItems = {
+                        if !followsLatest { scrollControl.preserveReadingPosition(using: proxy) }
                     }
                 }
-                .onPreferenceChange(ChatViewportHeight.self) { viewportHeight = $0 }
+                .onDisappear { chat.willUpdateItems = nil }
                 .modifier(ChatScrollTracking(control: scrollControl, followsLatest: followsLatest, visibleMessage: $visibleMessage))
                 .interactiveKeyboardDismiss()
                 .simultaneousGesture(DragGesture()
                     .updating($historyDragging) { _, dragging, _ in dragging = true }
                     .onChanged { gesture in
+                        scrollControl.readManually()
                         if !historyGestureActive, gesture.translation.height > abs(gesture.translation.width) {
                             historyGestureActive = true
+                            chat.browseHistory()
                             historyInteraction += 1
                         }
                     })
                 .onChange(of: historyDragging) { _, dragging in
                     if !dragging { historyGestureActive = false }
                 }
-                .onChange(of: chat.state.items) {
-                    if followsLatest && !chat.state.loadingHistory && historyAnchor.isEmpty { scrollControl.jump(using: proxy, to: "latest", animated: false) }
+                .onChange(of: chat.transcript.items) {
+                    if followsLatest && !chat.state.loadingHistory { scrollControl.jump(using: proxy, to: "latest", animated: false) }
                 }
-                .onChange(of: chat.state.loadingHistory) {
-                    guard !chat.state.loadingHistory, !historyAnchor.isEmpty else { return }
-                    let ids = Set(chat.state.items.map(\.id))
-                    let anchor = readingAnchor.flatMap { ids.contains($0.id) ? $0 : nil }
-                        ?? historyAnchor.first(where: { ids.contains($0) }).map { ChatHistoryAnchor(id: $0, point: .top) }
-                    if let anchor {
-                        scrollControl.restore(using: proxy, to: anchor.id, anchor: anchor.point)
-                    }
-                    readingAnchor = nil
-                    historyAnchor = []
-                    if #unavailable(iOS 18, macOS 15) { followsLatest = false }
+                .onChange(of: followsLatest) { _, latest in
+                    if latest { chat.showLatest() } else { chat.browseHistory() }
                 }
                 .onChange(of: chat.state.outbox) {
                     historyCancellation += 1
-                    historyAnchor = []
-                    readingAnchor = nil
                     scrollControl.jump(using: proxy, to: "latest", animated: false)
+                    chat.showLatest()
                 }
                 if !followsLatest {
                     ChatJumpButton {
-                        // An in-flight history page must not restore its old
-                        // reading anchor after the user explicitly leaves it.
+                        // Cancel any pending pager entry when leaving history.
                         historyCancellation += 1
-                        historyAnchor = []
-                        readingAnchor = nil
                         scrollControl.jump(using: proxy, to: "latest")
+                        chat.showLatest()
                     }
                 }
             }
