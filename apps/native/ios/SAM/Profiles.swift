@@ -128,9 +128,6 @@ struct ProfileEditor: View {
                 } footer: {
                     Text("When the agent stops on its own. Empty uses the project's settings.")
                 }
-                if let error = model.state.profileError {
-                    Section { Text(error.message).foregroundStyle(.red) }
-                }
                 if let profile {
                     Section {
                         Button("Delete profile", role: .destructive) { confirmDelete = true }
@@ -174,6 +171,7 @@ struct ProfileEditor: View {
             .interactiveDismissDisabled(saving)
         }
         .macSheet()
+        .floatingErrors([model.state.profileError?.message])
     }
 }
 

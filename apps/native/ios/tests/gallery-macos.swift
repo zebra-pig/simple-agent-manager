@@ -42,14 +42,25 @@ private final class GalleryCredentials: CredentialStore, @unchecked Sendable {
             let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
-            let request = VNRecognizeTextRequest()
+            var request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
-            for (stage, devices) in try request.supportedComputeStageDevices {
-                for device in devices {
-                    if case .cpu = device { request.setComputeDevice(device, for: stage); break }
+            let handler = VNImageRequestHandler(cgImage: bitmap.cgImage!, options: [:])
+            do {
+                for (stage, devices) in try request.supportedComputeStageDevices {
+                    for device in devices {
+                        if case .cpu = device { request.setComputeDevice(device, for: stage); break }
+                    }
                 }
+                try handler.perform([request])
+            } catch {
+                // Headless Cloud runs can fail while configuring or running accurate OCR.
+                // Retry the same screenshot with CPU-only OCR; keep every UI assertion.
+                print("Accurate OCR unavailable: \(error); retrying CPU-only OCR")
+                request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.usesCPUOnly = true
+                try handler.perform([request])
             }
-            try VNImageRequestHandler(cgImage: bitmap.cgImage!, options: [:]).perform([request])
             return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
                 .joined(separator: " ").replacingOccurrences(of: "of g", with: "of 9")
         }

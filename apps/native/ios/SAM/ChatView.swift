@@ -39,9 +39,6 @@ struct ChatView: View {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         Color.clear.frame(height: 1).id("latest")
                             .modifier(ChatBottomTracking(followsLatest: $followsLatest))
-                        if let error = chat.transcript.error {
-                            Text(error.message).foregroundStyle(.red).font(.callout).scaleEffect(y: -1)
-                        }
                         if let provisioning = chat.transcript.provisioning {
                             ProvisioningView(state: provisioning).scaleEffect(y: -1)
                         }
@@ -205,10 +202,6 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom) {
             if canReply {
                 VStack(spacing: 0) {
-                    if let error = chat.state.interruptError {
-                        Text(error.message).font(.caption).foregroundStyle(.red)
-                            .padding(.horizontal).accessibilityAddTraits(.updatesFrequently)
-                    }
                     replyComposer
                 }
             }
@@ -223,6 +216,7 @@ struct ChatView: View {
                 await chat.core.refresh()
             }
         }
+        .floatingErrors([chat.state.error?.message, chat.state.interruptError?.message, chat.state.historyError?.message])
     }
 
     private var replyComposer: some View {
