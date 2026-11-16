@@ -287,9 +287,13 @@ struct Composer<Accessory: View>: View {
         }
     }
 
-    @ViewBuilder
     private var attachmentControl: some View {
-        if let files { AttachButton(files: files) }
+        // Layout requires a stable control slot even when SAM has no attachments.
+        // A conditional EmptyView is omitted from Layout.Subviews entirely.
+        ZStack {
+            Color.clear
+            if let files { AttachButton(files: files) }
+        }
     }
 
     @ViewBuilder

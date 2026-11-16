@@ -115,6 +115,11 @@ fi
 # The runner copies the app into an isolated directory and uses only localhost
 # fixture data. No account credentials or provisioning services are involved.
 if [ "$CI_PRODUCT_PLATFORM" = "iOS" ]; then
+    # The SAM text-only composer has no attachment/microphone child. Render the
+    # production layout on both platforms so missing layout slots fail CI.
+    composer_test_dir=$(mktemp -d)
+    bash "$repo_dir/apps/native/ios/tests/composer-no-controls.sh" "$composer_test_dir"
+    rm -rf "$composer_test_dir"
     gem install --user-install xcodeproj --version 1.27.0 --no-document
     scroll_test_dir=$(mktemp -d)
     scroll_test_status=0
