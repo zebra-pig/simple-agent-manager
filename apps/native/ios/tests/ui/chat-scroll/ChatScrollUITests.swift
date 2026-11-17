@@ -89,6 +89,102 @@ final class ChatScrollUITests: XCTestCase {
         add(attachment)
     }
 
+    private func assertRowsWithinScreenWidth(_ phase: String, file: StaticString = #filePath, line: UInt = #line) {
+        let start = Date().timeIntervalSince1970
+        Thread.sleep(forTimeInterval: 0.2)
+        guard let sample = (try? renderedSamples(after: start))?.last,
+              let width = sample["width"] as? Double, let content = sample["contentWidth"] as? Double,
+              let offset = sample["x"] as? Double else {
+            return XCTFail("\(phase): no scroll geometry sample", file: file, line: line)
+        }
+        let geometry = "scroll width \(width), content width \(content), horizontal offset \(offset)"
+        let screen = app.windows.firstMatch.frame
+        let rows = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'chat-message-' OR identifier BEGINSWITH 'chat-request-'"))
+            .allElementsBoundByIndex
+        var checked = 0
+        for row in rows where row.exists {
+            let frame = row.frame
+            guard !frame.isEmpty, frame.maxY > screen.minY, frame.minY < screen.maxY else { continue }
+            checked += 1
+            if frame.minX < screen.minX - 0.5 || frame.maxX > screen.maxX + 0.5 {
+                capture("too-wide-\(phase)")
+                return XCTFail("\(phase): \(row.identifier) at \(frame) exceeds screen \(screen); \(geometry)", file: file, line: line)
+            }
+        }
+        XCTAssertGreaterThan(checked, 0, "\(phase): no rendered rows were checked", file: file, line: line)
+        // The conversation itself must never become horizontally scrollable.
+        XCTAssertLessThanOrEqual(content, width + 0.5, "\(phase): \(geometry)", file: file, line: line)
+        XCTAssertEqual(offset, 0, accuracy: 0.5, "\(phase): chat is scrolled sideways; \(geometry)", file: file, line: line)
+    }
+
+    func testWideContentStaysWithinScreenWidthAcrossRotation() throws {
+        _ = try request("reset?wide=true")
+        launch()
+        assertRowsWithinScreenWidth("portrait")
+        for step in 1...3 {
+            app.scrollViews.firstMatch.swipeDown()
+            assertRowsWithinScreenWidth("scrolled-\(step)")
+        }
+        // A sideways drag must not pan the conversation.
+        app.scrollViews.firstMatch.swipeLeft()
+        assertRowsWithinScreenWidth("swiped-left")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 1)
+        assertRowsWithinScreenWidth("landscape")
+        app.scrollViews.firstMatch.swipeUp()
+        assertRowsWithinScreenWidth("landscape-scrolled")
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 1)
+        assertRowsWithinScreenWidth("portrait-after-rotation")
+        for step in 1...3 {
+            app.scrollViews.firstMatch.swipeUp()
+            assertRowsWithinScreenWidth("portrait-after-rotation-\(step)")
+        }
+    }
+
+    func testPendingRequestCardKeepsConversationWithinScreenWidth() throws {
+        // A long agent reply between images, uploads and a pending request card
+        // left the column scrolled sideways on about half of launches.
+        for attempt in 1...4 {
+            _ = try request("reset?attention=true")
+            app.terminate()
+            launch()
+            XCTAssertTrue(app.buttons["Approved: merge iOS now, Android later"].waitForExistence(timeout: 10))
+            Thread.sleep(forTimeInterval: 2)
+            assertRowsWithinScreenWidth("launch-\(attempt)")
+        }
+        // Polling refreshes the card and transcript; the column must not move.
+        Thread.sleep(forTimeInterval: 6)
+        assertRowsWithinScreenWidth("after-polling")
+        app.scrollViews.firstMatch.swipeDown()
+        assertRowsWithinScreenWidth("scrolled")
+        app.scrollViews.firstMatch.swipeUp(velocity: .fast)
+        assertRowsWithinScreenWidth("returned")
+        app.scrollViews.firstMatch.swipeLeft()
+        assertRowsWithinScreenWidth("swiped-left")
+    }
+
+    func testConversationDrawsBehindNavigationBarAndComposer() throws {
+        launch()
+        let start = Date().timeIntervalSince1970
+        Thread.sleep(forTimeInterval: 0.5)
+        let sample = try XCTUnwrap(try renderedSamples(after: start).last)
+        let windowHeight = try XCTUnwrap(sample["windowHeight"] as? Double)
+        let visibleMinY = try XCTUnwrap(sample["visibleMinY"] as? Double)
+        let visibleMaxY = try XCTUnwrap(sample["visibleMaxY"] as? Double)
+        let navigationBar = app.navigationBars.firstMatch.frame
+        let composer = app.textViews.firstMatch.frame
+        XCTAssertLessThanOrEqual(visibleMinY, navigationBar.minY + 1,
+            "Chat content is clipped below the navigation bar (visible from \(visibleMinY))")
+        XCTAssertGreaterThanOrEqual(visibleMaxY, windowHeight - 1,
+            "Chat content is clipped above the bottom edge (visible to \(visibleMaxY) of \(windowHeight))")
+        // Content may pass behind the bars, but the resting latest row stays readable.
+        XCTAssertLessThanOrEqual(latest.frame.maxY, composer.minY, "Latest row rests behind the composer")
+        XCTAssertGreaterThanOrEqual(latest.frame.minY, navigationBar.maxY, "Latest row rests behind the navigation bar")
+        capture("full-bleed-latest")
+    }
+
     func testOpeningAndPollingAtBottomDoesNotDrainHistory() throws {
         launch()
         // Two production poll cycles, including changing message height.

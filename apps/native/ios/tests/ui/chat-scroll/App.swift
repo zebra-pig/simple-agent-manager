@@ -78,6 +78,21 @@ private struct ScrollSamples: UIViewRepresentable {
             return nil
         }
 
+        /// The window region where the scroll view's content can actually draw:
+        /// its frame intersected with every clipping ancestor.
+        private func visible(_ scroll: UIScrollView) -> CGRect {
+            guard let window else { return .zero }
+            var rect = scroll.convert(scroll.bounds, to: window)
+            var view = scroll.superview
+            while let current = view, current !== window {
+                if current.clipsToBounds || current.layer.masksToBounds || current.layer.mask != nil {
+                    rect = rect.intersection(current.convert(current.bounds, to: window))
+                }
+                view = current.superview
+            }
+            return rect
+        }
+
         @objc private func sample() {
             if chatScroll == nil, let window { chatScroll = findScroll(in: window) }
             guard let scroll = chatScroll else { return }
@@ -93,6 +108,13 @@ private struct ScrollSamples: UIViewRepresentable {
                 "contentHeight": scroll.contentSize.height,
                 "insetTop": scroll.adjustedContentInset.top,
                 "insetBottom": scroll.adjustedContentInset.bottom,
+                "visibleMinY": visible(scroll).minY,
+                "visibleMaxY": visible(scroll).maxY,
+                "windowHeight": window?.bounds.height ?? 0,
+                "width": scroll.bounds.width,
+                // Horizontal geometry including margins; 0 / bounds width at rest.
+                "contentWidth": scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right,
+                "x": scroll.contentOffset.x + scroll.adjustedContentInset.left,
                 "reduceMotion": UIAccessibility.isReduceMotionEnabled
             ])
             if samples.count >= 8 && !sending {

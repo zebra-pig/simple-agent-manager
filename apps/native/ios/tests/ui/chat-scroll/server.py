@@ -1,9 +1,19 @@
 """Loopback-only paginated conversation for real ChatView UI tests."""
 import json
+import struct
 import threading
+import zlib
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+
+def png(width, height):
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    row = b"\x00" + bytes([40, 120, 200]) * width
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(row * height)) + chunk(b"IEND", b""))
+
 
 lock = threading.Lock()
 state = {"older": 0, "completedOlder": 0, "inFlight": 0, "polls": 0, "delay": 0.1, "generation": 0, "mixed": False, "historyEvents": []}
@@ -61,6 +71,8 @@ class Handler(BaseHTTPRequestHandler):
                              step="node_provisioning", startedAt=int(time.time() * 1000) - 10000,
                              mixed=query.get("mixed", ["false"])[0] == "true",
                              requests=query.get("requests", ["false"])[0] == "true", requestLoads=0,
+                             wide=query.get("wide", ["false"])[0] == "true",
+                             attention=query.get("attention", ["false"])[0] == "true",
                              delay=float(query.get("delay", [0.1])[0]))
             body = state.copy()
         elif url.path == "/provisioning":
@@ -79,6 +91,17 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/release-requests":
             request_gate.set()
             body = {"released": True}
+        # Specific fixture request: must precede the generic attention handler.
+        elif url.path == "/api/projects/fixture/sessions/fixture/attention/approval-request":
+            body = {"canAnswer": True, "request": {
+                "status": "pending", "canAnswer": True,
+                "reason": ("The native iOS session tools (Related, Automation, Comments, Share, Retry, Fork, Report) "
+                           "are done in draft PR https://github.com/zebra-pig/simple-agent-manager/pull/80. "
+                           "13 screenshots are in the chat and in the library under /screenshots/native-session-tools/. "
+                           "You asked to approve before anything goes further. Please approve, or tell me what to change. "
+                           "Once approved, I'll port the same tools to Android and merge."),
+                "options": ["Approved: do Android, then merge", "Approved: merge iOS now, Android later",
+                            "Change something (describe)"]}}
         elif url.path.startswith("/api/projects/fixture/sessions/fixture/attention/"):
             request_id = url.path.rsplit("/", 1)[1]
             with lock:
@@ -158,6 +181,57 @@ class Handler(BaseHTTPRequestHandler):
                         content = "Output line with variable width.\n" * 20
                     elif index % 7 == 4:
                         role, content = "thinking", "Checking the page boundary and stable reading position. " * 4
+                if snapshot.get("wide") and 88 <= index < 94:
+                    # Content whose natural width exceeds a phone: unbroken
+                    # tokens, long links, wide tables and long command lines.
+                    token = "a1b2c3d4e5f6" * 12
+                    link = "https://github.com/zebra-pig/simple-agent-manager/pull/80/files/" + token
+                    role, metadata = "assistant", None
+                    if index == 88:
+                        content = (f"Unbroken token `{token}` and link {link}\n\n"
+                                   f"- Item with path /workspaces/{token}/apps/native/ios/SAM/ChatView.swift\n"
+                                   f"  - Nested {token}\n\n> Quote {token}\n\n"
+                                   "| " + " | ".join(f"Column {n} heading" for n in range(10)) + " |\n"
+                                   "| " + " | ".join("---" for _ in range(10)) + " |\n"
+                                   "| " + " | ".join(f"value-{token[:30]}" for _ in range(10)) + " |")
+                    elif index == 89:
+                        role = "tool"
+                        metadata = {"toolCallId": f"call-{index}", "title": "git log --format=" + token * 2,
+                                    "kind": "execute", "status": "completed", "locations": [f"/workspaces/{token}/x.swift"]}
+                        content = (token * 3 + "\n") * 3
+                    elif index == 90:
+                        role = "user"
+                        content = f"User text {token}{token} {link}"
+                    elif index == 91:
+                        content = f"```\n{'x' * 400}\n```\n\n**Heading:** {token}{token}"
+                    elif index == 92:
+                        role, content = "thinking", f"Thinking about {token}{token}"
+                    else:
+                        content = f"# {token}\n\n1. {link}\n2. `{token}{token}`"
+                if snapshot.get("attention") and index in (88, 89, 91):
+                    # Agent-shared screenshots: tall and wide library images.
+                    role, content = "tool", ""
+                    metadata = {"toolName": "display_from_library", "toolCallId": f"call-{index}",
+                                "rawOutput": {"fileId": str(index), "filename": f"{index}.png", "mimeType": "image/png"}}
+                if snapshot.get("attention") and index == 90:
+                    role = "user"
+                    content = ("Review images\n\n## Attached Files\n\nThe following files have been uploaded to the workspace:\n"
+                               + "\n".join(f"- `/workspaces/.private/{n:026d}/{n}.png` (100 bytes, image/png)" for n in range(80, 86))
+                               + "\n\nThese are absolute paths inside your workspace container, outside the repository. Open the exact paths listed above to read the attachments; do not look for them relative to the repository.")
+                if snapshot.get("attention") and index == 93:
+                    role, metadata = "tool", {"toolCallId": "call-attention", "title": "Request human input",
+                                              "kind": "other", "status": "completed"}
+                    content = ('(tool call)Tool: mcp__sam-mcp__request_human_input(tool call){"message":"Human input request recorded.",'
+                               '"humanInputRequest":{"id":"approval-request","sessionId":"fixture"},"notificationScheduled":true}')
+                if snapshot.get("attention") and index == 94:
+                    role = "assistant"
+                    content = ("I haven't stalled; I'm waiting for your approval before going further. The iOS work is finished in draft PR "
+                               "[#80](https://github.com/zebra-pig/simple-agent-manager/pull/80), and the 13 screenshots are above.\n\n"
+                               "I've sent you an approval request with three choices:\n"
+                               "- **Approved, do Android first:** I port the same tools to Android, then merge.\n"
+                               "- **Approved, merge iOS now:** I merge this PR and do Android later.\n"
+                               "- **Change something:** tell me what, and I'll update the screens and send new screenshots.\n\n"
+                               "Nothing will be merged until you reply.")
                 rows.append({"id": f"m-{index}", "createdAt": index, "role": role,
                              "content": content, "toolMetadata": metadata})
             if snapshot.get("provisioning"):
@@ -168,6 +242,15 @@ class Handler(BaseHTTPRequestHandler):
                 body["hasMore"] = False
                 body["session"].update(taskId="setup", startedAt=snapshot["startedAt"],
                                        task={"id": "setup", "status": "queued", "executionStep": snapshot["step"]})
+        elif "/library/" in url.path or "/tasks/uploads/" in url.path:
+            number = int(url.path.split("/")[-2] if "/library/" in url.path else url.path.split("/uploads/")[1].split("/")[0])
+            data = png(240, 120) if number % 2 else png(118, 256)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         elif url.path == "/api/notifications":
             body = {"notifications": [], "nextCursor": None}
         elif url.path == "/api/report-issue/config":
