@@ -90,4 +90,27 @@ final class GalleryUITests: XCTestCase {
         image.tap(); assertImage(7)
         app.swipeLeft(); assertImage(8)
     }
+
+    func testShareOffersTheDisplayedImageFile() throws {
+        app.launch()
+        let image = app.buttons["7.png"]
+        XCTAssertTrue(image.waitForExistence(timeout: 15))
+        image.tap()
+        assertImage(7)
+        app.swipeLeft(); assertImage(8)
+        // Sharing is available while older history is still held.
+        let share = app.navigationBars["8.png"].buttons["Share"]
+        XCTAssertTrue(share.waitForExistence(timeout: 5))
+        let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: share)
+        wait(for: [enabled], timeout: 10)
+        share.tap()
+        let sheet = app.otherElements["ActivityListView"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "The system share sheet must open")
+        // The share header is a remote view; image-only actions show the file's type was recognized.
+        XCTAssertTrue(sheet.cells["Assign to Contact"].waitForExistence(timeout: 10),
+                      "The shared file must be recognized as an image")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "gallery-share-sheet"; attachment.lifetime = .keepAlways
+        add(attachment)
+    }
 }

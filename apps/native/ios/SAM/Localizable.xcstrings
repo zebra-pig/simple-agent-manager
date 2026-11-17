@@ -1,6 +1,14 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Share" : {
+      "comment" : "Gallery toolbar button that shares the displayed image's original file.",
+      "extractionState" : "manual"
+    },
+    "Image" : {
+      "comment" : "Fallback file name for a shared gallery image that has no name.",
+      "extractionState" : "manual"
+    },
     "Search chat titles or IDs" : {
       "comment" : "Search field in a project’s chat list. Searches titles and session identifiers.",
       "extractionState" : "manual"

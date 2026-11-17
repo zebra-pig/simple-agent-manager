@@ -6,6 +6,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import kotlinx.coroutines.CompletableDeferred
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -54,5 +56,25 @@ class DocumentGalleryTest {
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Photo 0").assertIsDisplayed()
         compose.onNodeWithContentDescription("Next").assertDoesNotExist()
+    }
+
+    @Test fun shareIsOfferedForTheDisplayedImageOnceItLoads() {
+        val shared = mutableListOf<String>()
+        val first = CompletableDeferred<Unit>()
+        compose.setContent { MaterialTheme {
+            DocumentGalleryContent(documents, "image-3", { document ->
+                if (document.fileId == "image-3") first.await()
+                ImageBitmap(120, 240)
+            }, {}, share = { shared += it.fileId })
+        } }
+        compose.onNodeWithContentDescription("Share").assertIsNotEnabled()
+        first.complete(Unit)
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Share").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Photo 3").performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+        compose.onNodeWithText("5 of 30").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Share").performClick()
+        compose.runOnIdle { assertEquals(listOf("image-3", "image-4"), shared) }
     }
 }
