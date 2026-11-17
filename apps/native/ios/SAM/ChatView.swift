@@ -169,6 +169,10 @@ struct ChatView: View {
                             Button("Files", systemImage: "folder") { tool = .files }
                             Button("Git", systemImage: "arrow.triangle.branch") { tool = .git }
                         }
+                        if let session = chat.state.session, session.workspaceId != nil,
+                           session.viewerAccess == "owner" || (session.viewerAccess == nil && session.isMine) {
+                            Button("Ports", systemImage: "network") { tool = .ports }
+                        }
                         Button("Timeline", systemImage: "clock") { tool = .timeline }
                         Button("Related", systemImage: "link") { sessionSheet = .related }
                         Button("Resources", systemImage: "chart.xyaxis.line") { tool = .resources }

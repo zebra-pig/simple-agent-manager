@@ -1,10 +1,11 @@
 import SwiftUI
 
 enum ChatTool: String, Identifiable {
-    case files, git, timeline, resources, details, progress
+    case ports, files, git, timeline, resources, details, progress
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .ports: String(localized: "Ports")
         case .files: String(localized: "Files")
         case .git: String(localized: "Git")
         case .timeline: String(localized: "Timeline")
@@ -39,6 +40,7 @@ struct ChatToolView: View {
         NavigationStack {
             Group {
                 switch tool {
+                case .ports: PortsView(model: chat.ports, workspaceId: chat.state.session?.workspaceId ?? "")
                 case .files: FileBrowserView(source: model)
                 case .git: GitChangesView(source: model)
                 default:
@@ -52,7 +54,7 @@ struct ChatToolView: View {
                             case .details: details
                             case .timeline: timeline
                             case .progress: ChatProgressView(state: chat.state, serverUrl: serverUrl)
-                            case .files, .git: EmptyView()
+                            case .ports, .files, .git: EmptyView()
                             }
                         }.padding()
                     }
@@ -63,7 +65,7 @@ struct ChatToolView: View {
             .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-                if tool != .files && tool != .git {
+                if tool != .ports && tool != .files && tool != .git {
                     ToolbarItem(placement: .primaryAction) {
                         Button { Task { await refresh() } } label: {
                             LoadingLabel(title: "Refresh", systemImage: "arrow.clockwise", loading: tool == .progress ? chat.state.loading : state.loading)
@@ -71,7 +73,7 @@ struct ChatToolView: View {
                     }
                 }
             }
-            .task { if tool != .files && tool != .git { await refresh() } }
+            .task { if tool != .ports && tool != .files && tool != .git { await refresh() } }
         }
         .frame(minWidth: 300, minHeight: 400)
         .floatingErrors([model.state.error?.message])
@@ -79,7 +81,7 @@ struct ChatToolView: View {
 
     private func refresh() async {
         switch tool {
-        case .files, .git: break
+        case .ports, .files, .git: break
         case .resources: await model.core.resources()
         case .details:
             let session = chat.state.session
