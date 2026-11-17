@@ -165,7 +165,7 @@ final class ChatScrollUITests: XCTestCase {
         assertRowsWithinScreenWidth("swiped-left")
     }
 
-    func testConversationDrawsBehindNavigationBarAndComposer() throws {
+    func testConversationStopsAtNavigationBarAndDrawsBehindComposer() throws {
         launch()
         let start = Date().timeIntervalSince1970
         Thread.sleep(forTimeInterval: 0.5)
@@ -175,14 +175,15 @@ final class ChatScrollUITests: XCTestCase {
         let visibleMaxY = try XCTUnwrap(sample["visibleMaxY"] as? Double)
         let navigationBar = app.navigationBars.firstMatch.frame
         let composer = app.textViews.firstMatch.frame
-        XCTAssertLessThanOrEqual(visibleMinY, navigationBar.minY + 1,
-            "Chat content is clipped below the navigation bar (visible from \(visibleMinY))")
+        // A plain system bar: no rows behind it, and no gap below it.
+        XCTAssertEqual(visibleMinY, navigationBar.maxY, accuracy: 1,
+            "Chat content should start at the navigation bar's bottom edge (visible from \(visibleMinY))")
         XCTAssertGreaterThanOrEqual(visibleMaxY, windowHeight - 1,
             "Chat content is clipped above the bottom edge (visible to \(visibleMaxY) of \(windowHeight))")
-        // Content may pass behind the bars, but the resting latest row stays readable.
+        // Content may pass behind the composer, but the resting latest row stays readable.
         XCTAssertLessThanOrEqual(latest.frame.maxY, composer.minY, "Latest row rests behind the composer")
         XCTAssertGreaterThanOrEqual(latest.frame.minY, navigationBar.maxY, "Latest row rests behind the navigation bar")
-        capture("full-bleed-latest")
+        capture("standard-bar-latest")
     }
 
     func testPressingAMessageOpensItsCommentMenu() throws {

@@ -90,10 +90,13 @@ struct ChatView: View {
                 .contentMargins(.horizontal, 16, for: .scrollContent)
                 // Lay out from the newest end. Earlier pages append beyond the
                 // viewport, so lazy height estimates cannot move existing rows.
-                // Not clipped: rows scroll on behind the navigation bar and the
-                // composer, whose heights the scroll view already insets.
+                // Rows scroll on behind the composer, whose height the scroll
+                // view already insets.
                 .scaleEffect(y: -1)
-                .modifier(ChatTopFade())
+                // Stop at the navigation bar so it stays a plain system bar: the
+                // inverted list can't use the system scroll edge effect. Rows still
+                // run on behind the composer at the bottom.
+                .mask(Rectangle().ignoresSafeArea(edges: .bottom))
                 .coordinateSpace(name: "chatViewport")
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: ChatViewportHeight.self, value: geometry.size.height)
@@ -500,27 +503,6 @@ struct UserMessageView: View {
             }
             .padding(12)
             .glass(in: RoundedRectangle(cornerRadius: 18))
-        }
-    }
-}
-
-/// Rows scroll on behind the navigation bar. The system scroll edge effect
-/// is off for the inverted list, so blur them out to keep the title readable.
-private struct ChatTopFade: ViewModifier {
-    func body(content: Content) -> some View {
-        content.overlay(alignment: .top) {
-            // The scroll view's frame starts below the bar: a 24-point fade
-            // there, grown up through the bar's safe area.
-            Color.clear.frame(height: 24).overlay {
-                Rectangle().fill(.thinMaterial)
-                    .mask(LinearGradient(stops: [.init(color: .black, location: 0),
-                                                 .init(color: .black, location: 0.8),
-                                                 .init(color: .clear, location: 1)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .ignoresSafeArea(edges: .top)
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
         }
     }
 }
