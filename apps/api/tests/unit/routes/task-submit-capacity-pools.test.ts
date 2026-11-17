@@ -21,6 +21,7 @@ import { createOperationPorts } from '../../../src/operation-ports';
 import { agentProfileRoutes } from '../../../src/routes/agent-profiles';
 import { cliProjectMetadataRoutes } from '../../../src/routes/cli-project-metadata';
 import { skillRoutes } from '../../../src/routes/skills';
+import { buildVisibleInitialPrompt } from '../../../src/services/agent-bootstrap-prompt';
 import { ensureDefaultCapacityPoolsForExistingCredentials } from '../../../src/services/default-capacity-pools';
 import type { SamDispatchReservation } from '../../../src/services/sam-dispatch-reservation';
 import { resolveSkillProfile } from '../../../src/services/skills';
@@ -430,6 +431,50 @@ describe('task submit capacity-pool placement', () => {
       expect(fence).toHaveBeenCalledTimes(2);
       expect(mocks.startTaskRunnerDO).not.toHaveBeenCalled();
       expect(mocks.stopSession).not.toHaveBeenCalled();
+      await Promise.all(vi.mocked(executionCtx.waitUntil).mock.calls.map(([promise]) => promise));
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('persists the first message with its attached files so a new chat shows them before the agent starts', async () => {
+    const { sqlite, env } = createEnv();
+    seedTaskSubmitRows(sqlite);
+    await seedProjectDefaultPool(env);
+    const attachment = {
+      uploadId: '01M7GE2BN1VC90CZ76HN0FFKCQ',
+      filename: 'screenshot.png',
+      size: 4,
+      contentType: 'image/png',
+    };
+    env.R2 = { head: vi.fn().mockResolvedValue({ size: 4 }) } as unknown as R2Bucket;
+    try {
+      const res = await createApp().request(
+        '/api/projects/project-1/tasks/submit',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Look at this', attachments: [attachment] }),
+        },
+        env,
+        executionCtx
+      );
+      expect(res.status, await res.clone().text()).toBe(202);
+      const visible = buildVisibleInitialPrompt({
+        message: 'Look at this',
+        attachments: [attachment],
+      });
+      expect(visible).toContain(
+        '- `/workspaces/.private/01M7GE2BN1VC90CZ76HN0FFKCQ/screenshot.png` (4 bytes, image/png)'
+      );
+      expect(mocks.persistMessage.mock.calls.filter((call) => call[3] === 'user')).toEqual([
+        [env, 'project-1', 'session-1', 'user', visible, null],
+      ]);
+      // The agent's echo of its first prompt is the same text, so it is deduplicated.
+      expect(mocks.startTaskRunnerDO).toHaveBeenCalledWith(
+        env,
+        expect.objectContaining({ taskDescription: 'Look at this', attachments: [attachment] })
+      );
       await Promise.all(vi.mocked(executionCtx.waitUntil).mock.calls.map(([promise]) => promise));
     } finally {
       sqlite.close();
@@ -1493,7 +1538,10 @@ describe('task submit capacity-pool placement', () => {
       'Connector sam_chat_start overrides the model for one chat, keeping the profile (%s)',
       async (runtime) => {
         await withSolEnv(runtime, async ({ sqlite, env }) => {
-          for (const migration of ['0191_connector_execution.sql', '0189_cli_operation_receipts.sql'])
+          for (const migration of [
+            '0191_connector_execution.sql',
+            '0189_cli_operation_receipts.sql',
+          ])
             sqlite.exec(readFileSync(join(process.cwd(), 'src/db/migrations', migration), 'utf8'));
           const { samChatStart } =
             await import('@simple-agent-manager/operations/internal/connector-operations');

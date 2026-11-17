@@ -32,6 +32,23 @@ export function buildVisibleInitialPrompt(input: BuildVisibleInitialPromptInput)
   return `${input.message}${attachmentContext}${systemPromptSuffix}`;
 }
 
+/**
+ * The first user message as the chat persists it: the typed text plus the same
+ * attached-files list the agent's first prompt carries (no profile system append),
+ * matching what follow-up messages persist. Clients render attachments from this
+ * list, so without it a new chat shows no files until the agent echoes its prompt.
+ * A fork's agent prompt is plain (its files travel in the historical context), so
+ * a fork's message stays plain too and the agent echo still deduplicates.
+ */
+export function buildVisibleInitialMessage(input: {
+  message: string;
+  attachments?: VisibleInitialPromptAttachment[] | null;
+  forked?: boolean;
+}): string {
+  if (input.forked || !input.attachments?.length) return input.message;
+  return buildVisibleInitialPrompt({ message: input.message, attachments: input.attachments });
+}
+
 export function buildSamBootstrapInstructions(_input: {
   contextType: McpInstructionContextType;
 }): string {

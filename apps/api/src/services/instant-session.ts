@@ -13,6 +13,7 @@ import type { Env } from '../env';
 import { log } from '../lib/logger';
 import { ulid } from '../lib/ulid';
 import { operationDeps } from '../operation-ports';
+import { buildVisibleInitialMessage } from './agent-bootstrap-prompt';
 import { startSamAwareAgentSession } from './agent-session-bootstrap';
 import { explicitRuntimeAdapterSnapshot } from './canonical-vm-allocation';
 import { capacityPlacementSnapshotDbValues } from './capacity-placement-snapshot';
@@ -362,7 +363,13 @@ export async function acceptInstantSession(
     input.project.id,
     chatSessionId,
     'user',
-    input.displayMessage ?? input.initialPrompt,
+    input.displayMessage == null
+      ? input.initialPrompt
+      : buildVisibleInitialMessage({
+          message: input.displayMessage,
+          attachments: input.attachments,
+          forked: !!input.historicalContext,
+        }),
     null,
     ...(input.initialMessageId ? ([input.initialMessageId] as const) : ([] as const))
   );
