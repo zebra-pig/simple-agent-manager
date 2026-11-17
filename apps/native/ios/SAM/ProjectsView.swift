@@ -1,16 +1,13 @@
 import SwiftUI
 
-/// A chat session to open: the stack's second level.
-struct SessionRef: Hashable {
-    let projectId: String
-    let sessionId: String
-}
-
 struct ProjectsView: View {
     let app: App
     let onPush: () -> Void
     @State private var list: ProjectListModel
-    @State private var path = NavigationPath()
+    @State private var selectedProjectId: String?
+    @State private var path: [SessionRef] = []
+    @State private var pendingSession: SessionRef?
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var query = ""
     @State private var showingAccount = false
     @State private var creating = false
@@ -30,13 +27,25 @@ struct ProjectsView: View {
         }
     }
 
+    /// Keep the detail root's identity stable while a notification's project is loading.
+    private var selectedProject: Project? {
+        guard let id = selectedProjectId else { return nil }
+        return list.state.projects.first(where: { $0.id == id })
+            ?? Project(id: id, name: String(localized: "Project"), repository: nil, activeSessionCount: 0)
+    }
+
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
+        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
+            List(selection: $selectedProjectId) {
                 ForEach(projects, id: \.id) { project in
-                    NavigationLink(value: project) {
+                    // Explicit selection keeps arriving rows from replacing a notification's chat route.
+                    Button { selectProject(project.id) } label: {
                         ProjectRow(project: project)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .tag(project.id)
+                    .accessibilityIdentifier("project-\(project.id)")
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                 }
             }
@@ -60,31 +69,81 @@ struct ProjectsView: View {
                     Button("Account", systemImage: "person.crop.circle") { showingAccount = true }
                 }
             }
-            .navigationDestination(for: Project.self) { project in
-                ProjectView(app: app, project: project, changed: { updated in
-                    path = NavigationPath()
-                    Task { await list.core.load() }
-                    if let updated { path.append(updated) }
-                }) { path.append($0) }
-            }
-            .navigationDestination(for: SessionRef.self) { ref in
-                ChatView(app: app, ref: ref)
-            }
             .sheet(isPresented: $creating) {
                 ProjectSettings(app: app) { project in
-                    Task { await list.core.load() }
-                    if let project { path.append(project) }
+                    Task {
+                        await list.core.load()
+                        if let project { selectProject(project.id) }
+                    }
                 }
             }
             .sheet(isPresented: $showingAccount) { AccountView().macSheet() }
-            // A tapped notification opens its session on top of the stack.
-            .onChange(of: push.pending, initial: true) { _, ref in
-                guard let ref else { return }
-                onPush()
-                push.pending = nil
-                path.append(ref)
+            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 380)
+        } detail: {
+            NavigationStack(path: $path) {
+                Group {
+                    if let project = selectedProject {
+                        ProjectView(app: app, project: project, changed: projectChanged, open: openSession)
+                            .id(project.id)
+                            .task { openPendingSession(for: project.id) }
+                    } else {
+                        ContentUnavailableView("Select a project", systemImage: "folder",
+                                               description: Text("Choose a project to see its sessions and start a task."))
+                    }
+                }
+                .navigationDestination(for: SessionRef.self) { ref in
+                    ChatView(app: app, ref: ref)
+                }
             }
         }
+        .navigationSplitViewStyle(.balanced)
+        .onChange(of: selectedProjectId) { _, id in
+            // A push selects its project and session together; keep that route.
+            if path.last?.projectId != id { path.removeAll() }
+            preferredCompactColumn = id == nil ? .sidebar : .detail
+        }
+        .onChange(of: push.pending, initial: true) { _, ref in
+            guard let ref else { return }
+            onPush()
+            push.pending = nil
+            openSession(ref)
+        }
+    }
+
+    private func selectProject(_ id: String) {
+        pendingSession = nil
+        selectedProjectId = id
+        path.removeAll()
+        preferredCompactColumn = .detail
+    }
+
+    private func openSession(_ ref: SessionRef) {
+        if selectedProjectId == ref.projectId && pendingSession == nil {
+            path = [ref]
+        } else {
+            // Let the selected project's detail root mount before pushing its chat.
+            pendingSession = ref
+            selectedProjectId = ref.projectId
+        }
+        preferredCompactColumn = .detail
+    }
+
+    private func openPendingSession(for projectId: String) {
+        guard let ref = pendingSession, ref.projectId == projectId else { return }
+        pendingSession = nil
+        path = [ref]
+    }
+
+    private func projectChanged(_ updated: Project?) {
+        pendingSession = nil
+        path.removeAll()
+        if let updated {
+            selectedProjectId = updated.id
+        } else {
+            selectedProjectId = nil
+            preferredCompactColumn = .sidebar
+        }
+        Task { await list.core.load() }
     }
 }
 

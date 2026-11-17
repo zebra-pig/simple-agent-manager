@@ -38,10 +38,14 @@ case "$mode" in
         bash "$here/ui/gallery/gallery-macos.sh" "$output/gallery"
         ;;
     ui)
-        if [ -n "${3:-}" ]; then suites=("$3"); else suites=(composer errors chat-scroll gallery session-tools app-lock); fi
+        if [ -n "${3:-}" ]; then suites=("$3"); else suites=(composer errors chat-scroll gallery session-tools app-lock split-view); fi
         for suite in "${suites[@]}"; do
             case "$suite" in
                 composer|errors|chat-scroll|gallery|session-tools|app-lock) bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite" ;;
+                split-view)
+                    # Sidebar cases need a regular-width iPad; compact navigation runs on an iPhone.
+                    bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite-iphone"
+                    SAM_TEST_DEVICE_PREFIX=iPad bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite-ipad" ;;
                 project-loading) sh "$here/ui/project-loading/project-loading.sh" "$output/$suite" ;;
                 slash-commands) bash "$here/ui/slash-commands/slash-commands.sh" "$output/$suite" ;;
                 *) echo "Unknown UI suite: $suite" >&2; exit 1 ;;
