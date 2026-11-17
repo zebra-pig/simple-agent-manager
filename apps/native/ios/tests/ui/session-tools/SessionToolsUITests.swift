@@ -187,7 +187,10 @@ final class SessionToolsUITests: XCTestCase {
         let share = app.navigationBars.buttons.matching(NSPredicate(format: "label == 'Share' AND identifier != 'BackButton'")).firstMatch
         waitFor(share)
         XCTAssertFalse(share.isEnabled, "no duration and no acknowledgement yet")
-        app.buttons["30 min"].tap()
+        // The form builds rows lazily; on shorter screens the duration is below the warnings.
+        let thirty = app.buttons["30 min"]
+        for _ in 0..<4 where !(thirty.exists && thirty.isHittable) { app.swipeUp() }
+        thirty.tap()
         XCTAssertFalse(share.isEnabled, "the acknowledgement is required")
         let consent = app.switches.firstMatch
         for _ in 0..<4 where !consent.isHittable { app.swipeUp() }
