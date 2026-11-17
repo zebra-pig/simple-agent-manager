@@ -82,10 +82,17 @@ final class ComposerUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         app.buttons["Send"].tap()
         XCTAssertTrue(app.staticTexts["Agent conversation"].waitForExistence(timeout: 5))
-        app.navigationBars.buttons.firstMatch.tap()
+        backButton("Composer").tap()
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         editor.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    }
+
+    /// The iOS 27.2 simulator (Xcode Cloud) reports the bar's back button as type Other
+    /// (`_UIButtonBarButton`), so `navigationBars.buttons` finds nothing. Match it at any type.
+    private func backButton(_ title: String) -> XCUIElement {
+        app.navigationBars.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'BackButton' OR label == %@", title)).firstMatch
     }
 }
