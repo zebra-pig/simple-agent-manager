@@ -48,11 +48,16 @@ ruby "$support/make-project.rb" ui "$ios" "$output/project" "$suite/App.swift" "
     -c 'Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true' "$output/project/ios/Info.plist"
 selection=$(xcrun simctl list runtimes --json | python3 -c '
 import json,os,sys
-runtimes=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable") and r["name"].startswith("iOS")]
-if not runtimes: raise SystemExit("An installed iOS simulator runtime is required")
-runtime=max(runtimes,key=lambda r:tuple(map(int,r["version"].split("."))))
 prefix=os.environ.get("SAM_TEST_DEVICE_PREFIX", "iPhone")
-device=next(d for d in runtime["supportedDeviceTypes"] if d["name"].startswith(prefix))
+# Xcode Cloud ships device-family runtimes (e.g. an iPhone-only iOS 27.2), so pick the
+# newest runtime that actually supports a device with the requested prefix.
+pairs=[]
+for r in json.load(sys.stdin)["runtimes"]:
+    if r.get("isAvailable") and r["name"].startswith("iOS"):
+        device=next((d for d in r["supportedDeviceTypes"] if d["name"].startswith(prefix)), None)
+        if device: pairs.append((r,device))
+if not pairs: raise SystemExit(f"An installed iOS simulator runtime with a {prefix} device is required")
+runtime,device=max(pairs,key=lambda p:tuple(map(int,p[0]["version"].split("."))))
 print(runtime["identifier"]+" "+device["identifier"])
 ')
 simulator=$(xcrun simctl create "SAMNativeTests-$$" "${selection#* }" "${selection%% *}")
