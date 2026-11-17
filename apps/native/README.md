@@ -395,6 +395,37 @@ reads the same variables in `android/app/build.gradle.kts`.
 
 The upstream bundle id belongs to the upstream project. Build your own copy under your own id.
 
+## App lock (iOS)
+
+Account → **Lock with Face ID** (Touch ID, Optic ID or the passcode, whichever the device
+has) asks to unlock when the person returns to the app, immediately or after 1, 5 or 15
+minutes or an hour in the background. Turning it on first asks to authenticate, so a
+cancelled or failed check can't lock anyone out; removing the device passcode releases it.
+
+Unlocking shows exactly the screen that was left: tab, navigation stack, scroll position,
+open sheets and alerts, the focused field and its unsent text, and any request in flight.
+A lock that replaced the root view would tear all of that down, so `AppLock`
+(`ios/SAM/AppLock.swift`) never touches the app's views. It shows a separate lock window
+per scene above every app window, including sheets and full-screen covers:
+
+- On `didEnterBackground` the window covers the app synchronously, so the app-switcher
+  snapshot shows no content, even while inside the delay.
+- On `willEnterForeground` it either uncovers (within the delay) or stays locked. On
+  `didBecomeActive` it prompts once. The system prompt itself deactivates and reactivates
+  the app, so a cancelled prompt leaves the Unlock button instead of looping.
+- The lock window takes key status, so a hardware keyboard can't type into the hidden app.
+  Unlocking hands key status back to the app's window, which restores its first responder
+  and keyboard.
+- A launch with the lock on starts covered. State the system discards while the app is
+  suspended (termination) is not restored.
+
+The rules are in `AppLockPolicy` (`ios/SAM/AppLockPolicy.swift`) and its host tests.
+`bash scripts/test.sh apple-ui <dir> app-lock` drives the production lock on a simulator:
+background, return, cancel, unlock, then checks the sheet, its text and focus, the pushed
+screen and its scroll position. Face ID can't be scripted from XCUITest, so that fixture
+scripts the authentication results; everything else is the shipping code. macOS and
+Android don't have the lock yet.
+
 ## Strings and translation
 
 Every user-facing string goes through the platform's string resources, even before there are

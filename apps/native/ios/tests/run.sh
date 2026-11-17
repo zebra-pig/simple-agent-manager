@@ -12,7 +12,8 @@ case "$mode" in
     host)
         ruby "$here/support/make-project.rb" host "$ios" "$output/project" \
             "$ios/SAM/ChatDraft.swift" "$ios/SAM/ChatHistoryPager.swift" "$ios/SAM/ChatHistoryAnchor.swift" \
-            "$ios/SAM/Glass.swift" "$ios/SAM/ResourceHistoryView.swift" "$ios/SAM/GalleryShare.swift" "$here/behavior/"*.swift
+            "$ios/SAM/Glass.swift" "$ios/SAM/ResourceHistoryView.swift" "$ios/SAM/GalleryShare.swift" \
+            "$ios/SAM/AppLockPolicy.swift" "$ios/SAM/AppLock.swift" "$here/behavior/"*.swift
         action=test
         result_bundle="$output/results.xcresult"
         if [ "${SAM_TEST_HEADLESS_HOST:-0}" = 1 ]; then action=build-for-testing; result_bundle="$output/build-only.xcresult"; fi
@@ -37,10 +38,10 @@ case "$mode" in
         bash "$here/ui/gallery/gallery-macos.sh" "$output/gallery"
         ;;
     ui)
-        if [ -n "${3:-}" ]; then suites=("$3"); else suites=(composer errors chat-scroll gallery session-tools); fi
+        if [ -n "${3:-}" ]; then suites=("$3"); else suites=(composer errors chat-scroll gallery session-tools app-lock); fi
         for suite in "${suites[@]}"; do
             case "$suite" in
-                composer|errors|chat-scroll|gallery|session-tools) bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite" ;;
+                composer|errors|chat-scroll|gallery|session-tools|app-lock) bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite" ;;
                 project-loading) sh "$here/ui/project-loading/project-loading.sh" "$output/$suite" ;;
                 slash-commands) bash "$here/ui/slash-commands/slash-commands.sh" "$output/$suite" ;;
                 *) echo "Unknown UI suite: $suite" >&2; exit 1 ;;

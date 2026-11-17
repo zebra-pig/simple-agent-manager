@@ -16,6 +16,9 @@ struct AccountView: View {
                 Section {
                     LabeledContent("Server", value: app.state.serverUrl)
                 }
+                #if os(iOS)
+                AppLockSettings()
+                #endif
                 Section {
                     Button("Sign out", role: .destructive) {
                         Task { await app.core.signOut() }
