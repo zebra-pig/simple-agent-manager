@@ -12,7 +12,7 @@ case "$mode" in
     host)
         ruby "$here/support/make-project.rb" host "$ios" "$output/project" \
             "$ios/SAM/ChatDraft.swift" "$ios/SAM/ChatHistoryPager.swift" "$ios/SAM/ChatHistoryAnchor.swift" \
-            "$ios/SAM/Glass.swift" "$ios/SAM/ResourceHistoryView.swift" "$here/behavior/"*.swift
+            "$ios/SAM/Glass.swift" "$ios/SAM/ResourceHistoryView.swift" "$ios/SAM/GalleryShare.swift" "$here/behavior/"*.swift
         action=test
         result_bundle="$output/results.xcresult"
         if [ "${SAM_TEST_HEADLESS_HOST:-0}" = 1 ]; then action=build-for-testing; result_bundle="$output/build-only.xcresult"; fi

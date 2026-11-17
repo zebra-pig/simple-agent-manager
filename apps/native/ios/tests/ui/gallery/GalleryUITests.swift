@@ -37,6 +37,20 @@ final class GalleryUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "^[0-9]+ of [0-9]+( loaded)?$")).count, 0, file: file, line: line)
     }
 
+    func testSharedImageCardIsOnlyASquareTappableImage() throws {
+        _ = try request("reset?mode=normal")
+        app.launch()
+        // 9.png is an agent-shared library image rendered by DocumentCard.
+        let image = app.buttons["9.png"]
+        XCTAssertTrue(image.waitForExistence(timeout: 15))
+        // No bubble, filename, size or "Open gallery" line: the hit area is the 160pt square tile.
+        XCTAssertEqual(image.frame.width, 160, accuracy: 1, "\(image.frame)")
+        XCTAssertEqual(image.frame.height, 160, accuracy: 1, "\(image.frame)")
+        XCTAssertFalse(app.staticTexts["Open gallery"].exists)
+        image.tap()
+        assertImage(9)
+    }
+
     func testLoadedImagesRemainSwipeableWhileOlderHistoryIsHeld() throws {
         app.launch()
         let image = app.buttons["7.png"]
@@ -85,9 +99,38 @@ final class GalleryUITests: XCTestCase {
             for number in 2...8 { app.swipeLeft(); assertImage(number) }
             app.swipeLeft(); assertImage(8)
         }
-        app.buttons["Done"].tap()
+        let bar = app.navigationBars["8.png"]
+        XCTAssertTrue(bar.buttons["Close"].exists, "The gallery closes with an X button")
+        XCTAssertFalse(bar.buttons["Done"].exists, "The gallery no longer shows a Done button")
+        bar.buttons["Close"].tap()
         XCTAssertTrue(image.waitForExistence(timeout: 5))
         image.tap(); assertImage(7)
         app.swipeLeft(); assertImage(8)
+    }
+
+    func testShareOffersTheDisplayedImageFile() throws {
+        app.launch()
+        let image = app.buttons["7.png"]
+        XCTAssertTrue(image.waitForExistence(timeout: 15))
+        image.tap()
+        assertImage(7)
+        app.swipeLeft(); assertImage(8)
+        // Sharing is available while older history is still held.
+        let share = app.navigationBars["8.png"].buttons["Share"]
+        XCTAssertTrue(share.waitForExistence(timeout: 5))
+        let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: share)
+        wait(for: [enabled], timeout: 10)
+        let gallery = XCTAttachment(screenshot: app.screenshot())
+        gallery.name = "gallery-share-button"; gallery.lifetime = .keepAlways
+        add(gallery)
+        share.tap()
+        let sheet = app.otherElements["ActivityListView"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "The system share sheet must open")
+        // The share header is a remote view; image-only actions show the file's type was recognized.
+        XCTAssertTrue(sheet.cells["Assign to Contact"].waitForExistence(timeout: 10),
+                      "The shared file must be recognized as an image")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "gallery-share-sheet"; attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

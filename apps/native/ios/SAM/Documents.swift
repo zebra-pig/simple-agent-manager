@@ -34,16 +34,13 @@ struct DocumentCard: View {
             }
             else { Task { await openFile() } }
         } label: {
-            if compactImage && document.isImage {
-                ImageTile(image: image, side: 120)
+            if document.isImage {
+                ImageTile(image: image, side: compactImage ? 120 : 160)
             } else {
             VStack(alignment: .leading, spacing: 6) {
-                if document.isImage {
-                    ImageTile(image: image, side: 160)
-                }
                 HStack {
                     if loading { ProgressView().controlSize(.small) }
-                    else { Image(systemName: document.isImage ? "photo.on.rectangle" : "doc") }
+                    else { Image(systemName: "doc") }
                     Text(verbatim: document.label).lineLimit(2)
                 }.font(.callout)
                 if !document.caption.isEmpty { Text(verbatim: document.caption).font(.caption).foregroundStyle(.secondary) }
@@ -51,7 +48,7 @@ struct DocumentCard: View {
                 if document.unavailable { Text("File no longer available").font(.caption).foregroundStyle(.secondary) }
                 else if document.fileId.isEmpty { Text("Preparing file…").font(.caption).foregroundStyle(.secondary) }
                 else if failed { Text("File unavailable. Tap to retry.").font(.caption).foregroundStyle(.secondary) }
-                else { Text(document.isImage ? String(localized: "Open gallery") : String(localized: "Open file")).font(.caption2).foregroundStyle(.secondary) }
+                else { Text("Open file").font(.caption2).foregroundStyle(.secondary) }
             }.padding(10).frame(maxWidth: 260, alignment: .leading)
                 .glass(in: RoundedRectangle(cornerRadius: 16))
             }
@@ -94,6 +91,7 @@ struct DocumentGallery: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selection: String
     @State private var swipe = GallerySwipeNavigation()
+    @State private var shareFiles = GalleryShareFiles()
     #if os(macOS)
     @FocusState private var keyboardFocused: Bool
     #endif
@@ -118,13 +116,15 @@ struct DocumentGallery: View {
                     #if os(iOS)
                     TabView(selection: $selection) {
                         ForEach(Array(documents.enumerated()), id: \.element.fileId) { offset, document in
-                            GalleryPage(document: document, core: core, fallbackCore: fallbackCore, active: abs(offset - index) <= 1)
+                            GalleryPage(document: document, core: core, fallbackCore: fallbackCore, active: abs(offset - index) <= 1,
+                                        shareFiles: shareFiles)
                                 .tag(document.fileId)
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
                     #else
-                    GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true, swipe: swipe, onNavigate: move)
+                    GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true,
+                                shareFiles: shareFiles, swipe: swipe, onNavigate: move)
                         .id(selection)
                     #endif
 
@@ -159,12 +159,41 @@ struct DocumentGallery: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .toolbar { Button("Done") { dismiss() } }
+            .toolbar {
+                ToolbarItem(placement: shareActionPlacement) { shareButton }
+                ToolbarItem(placement: closeActionPlacement) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
+                        .labelStyle(.iconOnly)
+                        .keyboardShortcut(.cancelAction)
+                }
+            }
         }
+        .onDisappear { shareFiles.removeAll() }
         #if os(macOS)
         .frame(minWidth: 300, minHeight: 360)
         #endif
         .floatingErrors([historyError])
+    }
+
+    #if os(iOS)
+    private var shareActionPlacement: ToolbarItemPlacement { .topBarLeading }
+    // A plain trailing item: confirmation placement would render a tinted, prominent button.
+    private var closeActionPlacement: ToolbarItemPlacement { .topBarTrailing }
+    #else
+    private var shareActionPlacement: ToolbarItemPlacement { .primaryAction }
+    private var closeActionPlacement: ToolbarItemPlacement { .cancellationAction }
+    #endif
+
+    /// Shares the displayed image's original file once its bytes have loaded.
+    @ViewBuilder private var shareButton: some View {
+        if let index, let url = shareFiles.urls[documents[index].fileId] {
+            // Without an explicit preview the system thumbnails the file itself.
+            ShareLink(item: url) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        } else {
+            Button {} label: { Label("Share", systemImage: "square.and.arrow.up") }.disabled(true)
+        }
     }
 
     private func move(_ delta: Int) {
@@ -182,6 +211,7 @@ private struct GalleryPage: View {
     let core: ChatViewModel
     var fallbackCore: ChatViewModel?
     let active: Bool
+    var shareFiles: GalleryShareFiles?
     var swipe: GallerySwipeNavigation?
     var onNavigate: ((Int) -> Void)?
     @State private var image: CGImage?
@@ -218,6 +248,10 @@ private struct GalleryPage: View {
             if let bytes { decoded = await decodeImage(bytes) } else { decoded = nil }
             guard !Task.isCancelled else { return }
             image = decoded; failed = decoded == nil
+            // Only offer files that are known to decode as the displayed image.
+            if let bytes, decoded != nil {
+                await shareFiles?.store(bytes, fileId: document.fileId, filename: document.filename, mimeType: document.mimeType)
+            }
         }
     }
 }
@@ -352,14 +386,15 @@ struct ImageTile: View {
     let image: Image?
     let side: CGFloat
     var body: some View {
-        ZStack {
-            Color.secondary.opacity(0.12)
-            if let image { image.resizable().scaledToFill() }
-            else { Image(systemName: "photo").foregroundStyle(.secondary) }
-        }
-        .frame(width: side, height: side)
-        .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        Color.secondary.opacity(0.12)
+            .frame(width: side, height: side)
+            .overlay {
+                // Fill without letting the wider/taller image grow the tile's frame.
+                if let image { image.resizable().scaledToFill().frame(width: side, height: side).clipped() }
+                else { Image(systemName: "photo").foregroundStyle(.secondary) }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 

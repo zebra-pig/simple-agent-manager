@@ -7,6 +7,7 @@ struct ChatView: View {
     let ref: SessionRef
     @State private var chat: ChatModel
     @State private var commands: CommandsModel
+    @State private var requests = ChatRequests()
     @ChatDraft private var draft: String
     @State private var submission = ChatSubmission()
     @State private var historyCancellation = 0
@@ -45,16 +46,11 @@ struct ChatView: View {
                         if let provisioning = chat.transcript.provisioning {
                             ProvisioningView(state: provisioning).scaleEffect(y: -1)
                         }
-                        ForEach(chat.transcript.notifications.filter { item in
-                            guard let id = item.requestId else { return false }
-                            return !chat.transcript.requests.contains { $0.id == id }
-                        }.reversed(), id: \.id) { item in
-                            if let id = item.requestId {
-                                RequestCard(app: app, project: ref.projectId, session: item.sessionId ?? ref.sessionId, id: id, secret: item.kind == "secret_request", approval: item.kind == "operations_approval", hideResolved: true).scaleEffect(y: -1)
+                        // Only requests already known to be open get a row.
+                        ForEach(requestKeys, id: \.self) { key in
+                            if let model = requests.visible(key) {
+                                RequestCard(chat: key, project: ref.projectId, model: model).scaleEffect(y: -1)
                             }
-                        }
-                        ForEach(chat.transcript.requests.reversed(), id: \.id) { request in
-                            RequestCard(app: app, project: ref.projectId, session: request.sessionId ?? ref.sessionId, id: request.id, secret: request.secret, approval: request.approval, hideResolved: true).scaleEffect(y: -1)
                         }
                         ForEach(chat.transcript.outbox.reversed(), id: \.id) { message in
                             VStack(alignment: .trailing, spacing: 4) {
@@ -215,6 +211,7 @@ struct ChatView: View {
             }
         }
         .task(id: ref) { await commands.core.load(projectId: ref.projectId) }
+        .task(id: requestKeys) { await requests.poll(app: app, project: ref.projectId, keys: requestKeys) }
         .task(id: ref) {
             chat.tools.core.load(projectId: ref.projectId, sessionId: ref.sessionId)
             await chat.core.load(projectId: ref.projectId, sessionId: ref.sessionId)
@@ -225,6 +222,22 @@ struct ChatView: View {
             }
         }
         .floatingErrors([chat.state.error?.message, chat.state.interruptError?.message, chat.state.historyError?.message])
+    }
+
+    /// Requests from notifications and from the conversation, newest-first in
+    /// the inverted list, in the order the cards appear.
+    private var requestKeys: [ChatRequestKey] {
+        let transcript = chat.transcript
+        let notified = transcript.notifications.compactMap { item -> ChatRequestKey? in
+            guard let id = item.requestId, !transcript.requests.contains(where: { $0.id == id }) else { return nil }
+            return ChatRequestKey(id: id, session: item.sessionId ?? ref.sessionId,
+                                  secret: item.kind == "secret_request", approval: item.kind == "operations_approval")
+        }
+        let referenced = transcript.requests.map {
+            ChatRequestKey(id: $0.id, session: $0.sessionId ?? ref.sessionId, secret: $0.secret, approval: $0.approval)
+        }
+        var seen = Set<ChatRequestKey>()
+        return (notified.reversed() + referenced.reversed()).filter { seen.insert($0).inserted }
     }
 
     private var replyComposer: some View {

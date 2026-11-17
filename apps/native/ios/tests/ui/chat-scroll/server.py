@@ -11,6 +11,8 @@ scroll_samples = []
 layout_samples = []
 history_gate = threading.Event()
 history_gate.set()
+request_gate = threading.Event()
+request_gate.set()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -37,7 +39,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        global history_gate
+        global history_gate, request_gate
         url = urlsplit(self.path)
         query = parse_qs(url.query)
         if url.path == "/reset":
@@ -48,12 +50,17 @@ class Handler(BaseHTTPRequestHandler):
                 history_gate = threading.Event()
                 if query.get("hold", ["false"])[0] != "true":
                     history_gate.set()
+                request_gate.set()
+                request_gate = threading.Event()
+                if query.get("holdRequests", ["false"])[0] != "true":
+                    request_gate.set()
                 state.update(older=0, completedOlder=0, inFlight=0, polls=0,
                              generation=state["generation"] + 1, historyEvents=[],
                              provisioning=query.get("provisioning", ["false"])[0] == "true",
                              releaseArmed=False, releasedDuringJump=False,
                              step="node_provisioning", startedAt=int(time.time() * 1000) - 10000,
                              mixed=query.get("mixed", ["false"])[0] == "true",
+                             requests=query.get("requests", ["false"])[0] == "true", requestLoads=0,
                              delay=float(query.get("delay", [0.1])[0]))
             body = state.copy()
         elif url.path == "/provisioning":
@@ -69,6 +76,19 @@ class Handler(BaseHTTPRequestHandler):
                              releaseY=scroll_samples[-1]["y"],
                              releaseDistanceAtArm=scroll_samples[-1].get("distanceToLatest", scroll_samples[-1]["bottom"] - scroll_samples[-1]["y"]))
                 body = state.copy()
+        elif url.path == "/release-requests":
+            request_gate.set()
+            body = {"released": True}
+        elif url.path.startswith("/api/projects/fixture/sessions/fixture/attention/"):
+            request_id = url.path.rsplit("/", 1)[1]
+            with lock:
+                state["requestLoads"] += 1
+                gate = request_gate
+            gate.wait(timeout=60)
+            resolved = request_id.startswith("done")
+            body = {"request": {"reason": f"Question {request_id}", "options": ["Yes", "No"],
+                                "canAnswer": not resolved, "resolvedAt": 1 if resolved else None,
+                                "resolvedAnswer": "Yes" if resolved else None}}
         elif url.path == "/hold-history":
             history_gate.clear()
             body = {"held": True}
@@ -119,6 +139,11 @@ class Handler(BaseHTTPRequestHandler):
                 if index == 95:
                     content = "LATEST MESSAGE"
                 role, metadata = "user", None
+                if snapshot.get("requests") and index == 93:
+                    # Questions near the end of a conversation; two were already answered.
+                    role, content = "tool", "Asked the user"
+                    metadata = {"toolCallId": "ask", "title": "Ask the user", "kind": "other", "status": "completed",
+                                "rawOutput": [{"humanInputRequest": {"id": request_id}} for request_id in ("done-1", "done-2", "open-1")]}
                 if snapshot["mixed"] and index < 94:
                     if index % 7 in (1, 5):
                         role = "assistant"

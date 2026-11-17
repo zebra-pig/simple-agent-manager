@@ -1,6 +1,9 @@
 package org.simpleagentmanager.app
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.Context
+import android.net.Uri
 import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
@@ -24,6 +27,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -110,6 +116,45 @@ fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: Ch
     }
 }
 
+// Expire old previews; only this narrow cache directory is shared with the OS.
+private suspend fun sharedDocumentUri(context: Context, name: String, bytes: ByteArray): Uri {
+  val file =
+    withContext(Dispatchers.IO) {
+      val folder = File(context.cacheDir, "documents").apply { mkdirs() }
+      folder
+        .listFiles()
+        ?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }
+        ?.forEach { it.deleteRecursively() }
+      val dir = File(folder, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
+      File(dir, File(name).name.takeUnless { it.isBlank() || it == "." || it == ".." } ?: "File")
+        .apply { writeBytes(bytes) }
+    }
+  return FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+}
+
+/** Opens the system share sheet with the image's original uploaded file. */
+private suspend fun shareDocument(context: Context, document: ChatDocument, bytes: ByteArray): Boolean {
+  val uri =
+    try {
+      sharedDocumentUri(context, document.filename, bytes)
+    } catch (_: java.io.IOException) {
+      return false
+    }
+  val type = document.mimeType.takeIf { it.isNotBlank() } ?: "image/*"
+  val send =
+    Intent(Intent.ACTION_SEND)
+      .setType(type)
+      .putExtra(Intent.EXTRA_STREAM, uri)
+      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+  send.clipData = ClipData.newRawUri(document.filename, uri)
+  return try {
+    context.startActivity(Intent.createChooser(send, null))
+    true
+  } catch (_: ActivityNotFoundException) {
+    false
+  }
+}
+
 @Composable
 private fun DocumentGallery(
   documents: List<ChatDocument>,
@@ -119,9 +164,13 @@ private fun DocumentGallery(
 ) {
   if (documents.isEmpty()) return
   Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     DocumentGalleryContent(documents, initial, { document ->
       core.documentBytes(document.fileId)?.let { decode(it, 2048) }
-    }, close)
+    }, close, share = { document ->
+      scope.launch { core.documentBytes(document.fileId)?.let { shareDocument(context, document, it) } }
+    })
   }
 }
 
@@ -131,13 +180,20 @@ internal fun DocumentGalleryContent(
   initial: String,
   load: suspend (ChatDocument) -> ImageBitmap?,
   close: () -> Unit,
+  share: ((ChatDocument) -> Unit)? = null,
 ) {
-  GalleryLayout(documents, initial, close) { document -> GalleryPage(document, load) }
+  // Share is offered once the displayed page has loaded, so it shares a real image.
+  val loaded = remember { mutableStateMapOf<String, Boolean>() }
+  GalleryLayout(documents, initial, close, share?.let { action -> { document: ChatDocument ->
+    if (loaded[document.fileId] == true) action(document) } }, { loaded[it.fileId] == true }) { document ->
+    GalleryPage(document, load) { loaded[document.fileId] = it }
+  }
 }
 
 @Composable
 internal fun GalleryLayout(
   documents: List<ChatDocument>, initial: String, close: () -> Unit,
+  share: ((ChatDocument) -> Unit)? = null, canShare: (ChatDocument) -> Boolean = { true },
   pageContent: @Composable (ChatDocument) -> Unit,
 ) {
   if (documents.isEmpty()) return
@@ -151,7 +207,13 @@ internal fun GalleryLayout(
       Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(document.filename, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
           style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = close) { Text(stringResource(R.string.document_done)) }
+        if (share != null)
+          IconButton(onClick = { share(document) }, enabled = canShare(document)) {
+            Icon(Icons.Filled.Share, contentDescription = stringResource(R.string.document_share))
+          }
+        IconButton(onClick = close) {
+          Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.document_close))
+        }
       }
       HorizontalPager(
         pager, Modifier.weight(1f).fillMaxWidth(), key = { documents[it].fileId },
@@ -172,7 +234,11 @@ internal fun GalleryLayout(
 }
 
 @Composable
-private fun GalleryPage(document: ChatDocument, load: suspend (ChatDocument) -> ImageBitmap?) {
+private fun GalleryPage(
+  document: ChatDocument,
+  load: suspend (ChatDocument) -> ImageBitmap?,
+  onLoaded: (Boolean) -> Unit,
+) {
   var bitmap by remember(document.fileId) { mutableStateOf<ImageBitmap?>(null) }
   var failed by remember(document.fileId) { mutableStateOf(false) }
   var retry by remember(document.fileId) { mutableIntStateOf(0) }
@@ -180,6 +246,7 @@ private fun GalleryPage(document: ChatDocument, load: suspend (ChatDocument) -> 
     failed = false
     bitmap = load(document)
     failed = bitmap == null
+    onLoaded(bitmap != null)
   }
   GalleryImageContent(document, bitmap, failed) { retry++ }
 }
@@ -277,21 +344,10 @@ internal fun SquareImageTile(thumbnail: ImageBitmap?, label: String, side: Dp) {
   }
 }
 
-/** Writes a library file to the shared cache and opens it in a viewer. False if it could not. */
+/** Opens a library file in a viewer, via the shared cache. False if it could not. */
 internal suspend fun openLibraryFile(context: android.content.Context, core: ChatViewModel, fileId: String, label: String, mimeType: String): Boolean {
   val bytes = core.documentBytes(fileId) ?: return false
-  val file =
-    withContext(Dispatchers.IO) {
-      val folder = File(context.cacheDir, "documents").apply { mkdirs() }
-      // Expire old previews; only this narrow directory is shared with the OS.
-      folder
-        .listFiles()
-        ?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }
-        ?.forEach { it.deleteRecursively() }
-      val dir = File(folder, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
-      File(dir, File(label).name.takeUnless { it == "." || it == ".." || it.isEmpty() } ?: "File").apply { writeBytes(bytes) }
-    }
-  val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+  val uri = sharedDocumentUri(context, label.ifEmpty { "File" }, bytes)
   val type = mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream"
   val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
   return try {
