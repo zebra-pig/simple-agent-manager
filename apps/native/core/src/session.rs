@@ -139,6 +139,23 @@ pub struct App {
     state: Mutex<AppState>,
     observer: Mutex<Option<Arc<dyn AppObserver>>>,
     push_token: Mutex<Option<PushToken>>,
+    /// Files sent with a new chat's first message, by session id, until that chat
+    /// shows them from the server (see `chat::StartedChat`).
+    started_chats: Mutex<std::collections::HashMap<String, crate::chat::StartedChat>>,
+}
+
+impl App {
+    pub(crate) fn remember_started_chat(&self, session_id: &str, chat: crate::chat::StartedChat) {
+        self.started_chats.lock().unwrap().insert(session_id.to_owned(), chat);
+    }
+
+    pub(crate) fn started_chat(&self, session_id: &str) -> Option<crate::chat::StartedChat> {
+        self.started_chats.lock().unwrap().get(session_id).cloned()
+    }
+
+    pub(crate) fn forget_started_chat(&self, session_id: &str) {
+        self.started_chats.lock().unwrap().remove(session_id);
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -170,6 +187,7 @@ impl App {
             state: Mutex::new(AppState { assistant_enabled: false, status, server_url, viewer: None, sign_in: None, error: None }),
             observer: Mutex::new(None),
             push_token: Mutex::new(None),
+            started_chats: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -328,6 +346,7 @@ impl App {
     pub async fn sign_out(&self) {
         let credentials = self.credentials.lock().unwrap().take();
         self.store.clear();
+        self.started_chats.lock().unwrap().clear();
         self.update(|s| {
             s.status = AuthStatus::SignedOut;
             s.viewer = None;
