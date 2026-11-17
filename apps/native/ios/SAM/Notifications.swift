@@ -77,24 +77,31 @@ struct RequestCard: View {
     let id: String
     let secret: Bool
     let approval: Bool
-    let hideResolved: Bool
+    let inChat: Bool
     @State private var model: RequestModel
     @State private var value = ""
     @State private var confirmedVersion: String?
-    init(app: App, project: String, session: String, id: String, secret: Bool, approval: Bool = false, hideResolved: Bool = false) {
-        self.project = project; self.session = session; self.id = id; self.secret = secret; self.approval = approval; self.hideResolved = hideResolved
+    /// A standalone card that loads and polls its own request.
+    init(app: App, project: String, session: String, id: String, secret: Bool, approval: Bool = false) {
+        self.project = project; self.session = session; self.id = id; self.secret = secret; self.approval = approval; inChat = false
         _model = State(initialValue: RequestModel(app: app))
+    }
+    /// A chat card for a request that `ChatRequests` already loaded and polls.
+    init(chat key: ChatRequestKey, project: String, model: RequestModel) {
+        self.project = project; session = key.session; id = key.id; secret = key.secret; approval = key.approval; inChat = true
+        _model = State(initialValue: model)
     }
     var body: some View {
         Group {
-            if !hideResolved || !requestIsResolved(status: model.state.status) {
-                if hideResolved {
-                    content.padding().glass(in: RoundedRectangle(cornerRadius: 20))
-                } else { content }
-            }
+            if inChat {
+                content.padding().glass(in: RoundedRectangle(cornerRadius: 20))
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("chat-request-\(id)")
+            } else { content }
         }
         .disabled(model.state.busy)
         .task {
+            guard !inChat else { return }
             while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(15)) }
         }
         .onDisappear { value = ""; confirmedVersion = nil }
@@ -147,6 +154,43 @@ struct RequestCard: View {
         }
     }
 }
+struct ChatRequestKey: Hashable {
+    let id: String
+    let session: String
+    let secret: Bool
+    let approval: Bool
+}
+
+/// Loads the requests referenced by a conversation before any card is shown.
+/// A card's status is unknown until its first response, so inserting cards
+/// eagerly made every already-resolved request flash in and then vanish.
+/// Polling lives here, not in the cards, so hidden requests keep refreshing
+/// and a reopened one can still appear.
+@MainActor @Observable final class ChatRequests {
+    private(set) var models: [ChatRequestKey: RequestModel] = [:]
+
+    func visible(_ key: ChatRequestKey) -> RequestModel? {
+        guard let model = models[key], requestShowsInChat(state: model.state) else { return nil }
+        return model
+    }
+
+    func poll(app: App, project: String, keys: [ChatRequestKey]) async {
+        models = models.filter { keys.contains($0.key) }
+        for key in keys where models[key] == nil { models[key] = RequestModel(app: app) }
+        let loads = keys.compactMap { key in models[key].map { (key, $0.core) } }
+        while !Task.isCancelled {
+            await withTaskGroup(of: Void.self) { group in
+                for (key, core) in loads {
+                    group.addTask {
+                        await core.load(projectId: project, sessionId: key.session, requestId: key.id, secret: key.secret, approval: key.approval)
+                    }
+                }
+            }
+            try? await Task.sleep(for: .seconds(15))
+        }
+    }
+}
+
 private func requestStatus(_ status: String) -> String {
     switch status {
     case "pending": String(localized: "Pending")

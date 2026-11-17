@@ -20,6 +20,7 @@ final class ChatScrollUITests: XCTestCase {
             print("CHAT_SCROLL_FINAL_OFFSETS \(Array(samples.suffix(4)))")
         }
         _ = try request("release-history")
+        _ = try request("release-requests")
         app.terminate()
     }
 
@@ -348,6 +349,28 @@ final class ChatScrollUITests: XCTestCase {
                                              object: app.staticTexts["Starting agent · 4 of 4"])
         XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 12), .completed)
         XCTAssertEqual(olderRequests, 0)
+    }
+
+    func testRequestCardsWaitForStatusAndResolvedOnesNeverAppear() throws {
+        // Hold every request read so the pre-load state stays on screen.
+        _ = try request("reset?requests=true&holdRequests=true")
+        launch()
+        let cards = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat-request-'"))
+        let deadline = Date().addingTimeInterval(10)
+        while (try request("stats")["requestLoads"] as! Int) < 3 && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+        XCTAssertGreaterThanOrEqual(try (request("stats")["requestLoads"] as! Int), 3, "Chat did not read its three requests")
+        XCTAssertEqual(cards.count, 0, "A card appeared before its status was known")
+        XCTAssertFalse(app.buttons["Refresh"].exists, "An empty request card was shown while loading")
+        capture("requests-loading")
+
+        _ = try request("release-requests")
+        let open = app.descendants(matching: .any)["chat-request-open-1"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Question open-1"].exists)
+        XCTAssertEqual(cards.count, 1, "Only the open request may be shown")
+        XCTAssertFalse(app.staticTexts["Question done-1"].exists)
+        XCTAssertFalse(app.staticTexts["Question done-2"].exists)
+        capture("requests-loaded")
     }
 
     func testHistoryCompletionDuringAnimatedJumpDoesNotRestoreTop() throws {

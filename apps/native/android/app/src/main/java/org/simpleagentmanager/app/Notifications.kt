@@ -94,7 +94,8 @@ fun RequestCard(app: App, project: String, session: String, id: String, secret: 
         }
     }
     // Keep polling while hidden so a genuinely reopened request can reappear.
-    if (hideResolved && requestIsResolved(state.status)) return
+    // Chat waits for the first load, so resolved requests never flash in.
+    if (hideResolved && !requestShowsInChat(state)) return
     val content: @Composable () -> Unit = {
         RequestContent(state, secret, approval, value, { value = it }, confirmedVersion, { confirmedVersion = it }, ::respond) {
             scope.launch { vm.load(project, session, id, secret, approval); snapshot.value = vm.state() }
