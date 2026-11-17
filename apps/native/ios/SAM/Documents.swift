@@ -161,7 +161,11 @@ struct DocumentGallery: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: shareActionPlacement) { shareButton }
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: closeActionPlacement) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
+                        .labelStyle(.iconOnly)
+                        .keyboardShortcut(.cancelAction)
+                }
             }
         }
         .onDisappear { shareFiles.removeAll() }
@@ -173,8 +177,11 @@ struct DocumentGallery: View {
 
     #if os(iOS)
     private var shareActionPlacement: ToolbarItemPlacement { .topBarLeading }
+    // A plain trailing item: confirmation placement would render a tinted, prominent button.
+    private var closeActionPlacement: ToolbarItemPlacement { .topBarTrailing }
     #else
     private var shareActionPlacement: ToolbarItemPlacement { .primaryAction }
+    private var closeActionPlacement: ToolbarItemPlacement { .cancellationAction }
     #endif
 
     /// Shares the displayed image's original file once its bytes have loaded.

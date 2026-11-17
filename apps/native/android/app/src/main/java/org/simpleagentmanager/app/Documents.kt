@@ -28,6 +28,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -224,7 +225,9 @@ internal fun GalleryLayout(
           IconButton(onClick = { share(document) }, enabled = canShare(document)) {
             Icon(Icons.Filled.Share, contentDescription = stringResource(R.string.document_share))
           }
-        TextButton(onClick = close) { Text(stringResource(R.string.document_done)) }
+        IconButton(onClick = close) {
+          Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.document_close))
+        }
       }
       HorizontalPager(
         pager, Modifier.weight(1f).fillMaxWidth(), key = { documents[it].fileId },
