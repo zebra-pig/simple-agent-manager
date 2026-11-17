@@ -22,7 +22,7 @@ XCTest screenshots remain available on failure;
 verbose simulator sysdiagnoses are disabled to bound collection time and disk use.
 The Xcode Cloud post-clone hook runs this suite and exports its PNG attachments.
 
-## Twelve real UI tests
+## Fifteen real UI tests
 
 - Opening and polling at latest without fetching earlier pages.
 - Jumping after multiple pages, with an observed intermediate rendered position.
@@ -40,6 +40,16 @@ The Xcode Cloud post-clone hook runs this suite and exports its PNG attachments.
 - Four repeated top-to-latest trips without draining history.
 - The exact top → tap down-arrow → release held response sequence.
 - All four provisioning stages and their disappearance when the agent starts.
+- Wide content (unbroken tokens, long links, tables, long commands) in portrait,
+  after a sideways drag, in landscape and back: every row stays within the
+  screen and the conversation is never wider than, or scrolled sideways in,
+  its scroll view.
+- A long agent reply between library images, a multi-attachment upload and a
+  pending request card, over four launches, polling, scrolling and a sideways
+  drag. With content padding this offset the column 16 points sideways on
+  roughly half of launches.
+- Full-bleed layout: the conversation draws behind the navigation bar and the
+  composer, while the resting latest row stays clear of both.
 
 HTTP completion is asserted before insertion checks. A read-only display-link
 probe samples the last layout, native presentation offset, content size and
@@ -60,6 +70,12 @@ Older pages extend its far end, leaving existing message coordinates unchanged.
 Visual order and VoiceOver message priorities remain chronological. SwiftUI owns
 one scroll position and its animated top-edge destination (the visual latest end).
 The normal private SAM conversation keeps its existing scroll implementation.
+
+The 16-point column inset is a scroll view content margin, not padding inside
+the lazy stack: a lazily realized row could be laid out at the full scroll width
+and leave the conversation scrolled sideways. The scroll view is not clipped:
+rows scroll behind the navigation bar and the composer, under a blurred fade
+below the bar, because the system scroll edge effect is off for the inverted list.
 
 Before publishing a changed reading snapshot, the Apple model captures the visible
 message and fractional viewport anchor. The same SwiftUI position owner applies

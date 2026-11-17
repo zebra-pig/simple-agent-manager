@@ -84,12 +84,19 @@ struct ChatView: View {
                         }
                     }
                     .scrollTargetLayout()
-                    .padding()
+                    .padding(.vertical)
                 }
+                // The column inset is a scroll view margin, not padding inside the
+                // content: lazily realized rows were laid out at the full scroll
+                // width and left the conversation scrolled sideways. Vertical
+                // padding stays in the content so prepends keep their anchor.
+                .contentMargins(.horizontal, 16, for: .scrollContent)
                 // Lay out from the newest end. Earlier pages append beyond the
                 // viewport, so lazy height estimates cannot move existing rows.
+                // Not clipped: rows scroll on behind the navigation bar and the
+                // composer, whose heights the scroll view already insets.
                 .scaleEffect(y: -1)
-                .clipped()
+                .modifier(ChatTopFade())
                 .coordinateSpace(name: "chatViewport")
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: ChatViewportHeight.self, value: geometry.size.height)
@@ -456,6 +463,27 @@ struct UserMessageView: View {
             }
             .padding(12)
             .glass(in: RoundedRectangle(cornerRadius: 18))
+        }
+    }
+}
+
+/// Rows scroll on behind the navigation bar. The system scroll edge effect
+/// is off for the inverted list, so blur them out to keep the title readable.
+private struct ChatTopFade: ViewModifier {
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            // The scroll view's frame starts below the bar: a 24-point fade
+            // there, grown up through the bar's safe area.
+            Color.clear.frame(height: 24).overlay {
+                Rectangle().fill(.thinMaterial)
+                    .mask(LinearGradient(stops: [.init(color: .black, location: 0),
+                                                 .init(color: .black, location: 0.8),
+                                                 .init(color: .clear, location: 1)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .ignoresSafeArea(edges: .top)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 }
