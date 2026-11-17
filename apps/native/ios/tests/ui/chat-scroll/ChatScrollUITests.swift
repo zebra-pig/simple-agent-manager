@@ -185,6 +185,27 @@ final class ChatScrollUITests: XCTestCase {
         capture("full-bleed-latest")
     }
 
+    func testPressingAMessageOpensItsCommentMenu() throws {
+        launch()
+        // The conversation is a mirrored scroll view; the message menu must
+        // wrap each row's own mirror or the pressed message turns upside down.
+        latest.press(forDuration: 1.5)
+        let comment = app.buttons["Comment"]
+        XCTAssertTrue(comment.waitForExistence(timeout: 10), "Pressing a message did not open its menu")
+        capture("message-menu")
+        // Taps during the menu's entrance animation are dropped; wait until it settles.
+        var frame = comment.frame
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.25)
+            if comment.frame == frame { break }
+            frame = comment.frame
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        comment.tap()
+        XCTAssertTrue(app.navigationBars["New comment"].waitForExistence(timeout: 10),
+                      "Choosing Comment did not open the comment sheet for the message")
+    }
+
     func testOpeningAndPollingAtBottomDoesNotDrainHistory() throws {
         launch()
         // Two production poll cycles, including changing message height.
