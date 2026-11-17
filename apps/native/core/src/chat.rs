@@ -105,21 +105,88 @@ fn deliveries(rows: &[timeline::Row]) -> Vec<MessageDelivery> {
 
 static NEXT_LOCAL_ID: AtomicU64 = AtomicU64::new(1);
 
+/// The first message of a chat this app just started, with its files. The server
+/// may store that message without its files (or not at all) until the agent
+/// starts and echoes its prompt, which can take minutes while a workspace boots.
+/// Until the chat has the files from the server, they are shown from here.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct StartedChat {
+    /// The message as submitted (`attachments::message_text`).
+    pub(crate) text: String,
+    pub(crate) attachments: Vec<crate::ChatDocument>,
+}
+
+impl StartedChat {
+    /// What the chat shows as its text: the default prompt for files alone is hidden.
+    fn display_text(&self) -> String {
+        if self.text == attachments::DEFAULT_ATTACHMENT_MESSAGE {
+            String::new()
+        } else {
+            self.text.clone()
+        }
+    }
+
+    fn file_ids(&self) -> impl Iterator<Item = &String> {
+        self.attachments.iter().map(|d| &d.file_id)
+    }
+
+    /// The server's transcript already carries these files.
+    fn on_server(&self, items: &[ChatItem]) -> bool {
+        items.iter().any(|i| match &i.content {
+            ChatContent::User { attachments, .. } => attachments.iter().map(|d| &d.file_id).eq(self.file_ids()),
+            _ => false,
+        })
+    }
+
+    /// Shows the files on the server's plain copy of the first message, if it has one.
+    fn show_in(&self, items: &mut [ChatItem]) {
+        let text = self.text.trim();
+        let first = items.iter_mut().find(|i| matches!(&i.content, ChatContent::User { .. }));
+        if let Some(ChatItem { content: ChatContent::User { text: shown, attachments }, .. }) = first {
+            if attachments.is_empty() && shown.trim() == text {
+                *shown = self.display_text();
+                *attachments = self.attachments.clone();
+            }
+        }
+    }
+
+    /// Pending until the chat shows the message with its files, like a follow-up.
+    fn outgoing(&self) -> OutgoingMessage {
+        OutgoingMessage {
+            id: format!("local-{}", NEXT_LOCAL_ID.fetch_add(1, Ordering::Relaxed)),
+            text: self.display_text(),
+            accepted: true,
+            delivery_intent: DeliveryIntent::Queue,
+            attachments: self.attachments.clone(),
+            baseline: 0,
+        }
+    }
+}
+
 #[derive(Default)]
 struct ChatHistory {
     rows: Vec<timeline::Row>,
     boundaries: std::collections::HashSet<String>,
     generation: u64,
     refreshing: bool,
+    started: Option<StartedChat>,
 }
 
 impl ChatHistory {
-    fn items(&self, working: bool) -> Vec<ChatItem> {
-        if self.boundaries.is_empty() {
+    fn items(&mut self, working: bool) -> Vec<ChatItem> {
+        let mut items = if self.boundaries.is_empty() {
             timeline::build(self.rows.clone(), working)
         } else {
             timeline::build_with_boundaries(self.rows.clone(), working, &self.boundaries)
+        };
+        if let Some(started) = &self.started {
+            if started.on_server(&items) {
+                self.started = None;
+            } else {
+                started.show_in(&mut items);
+            }
         }
+        items
     }
 }
 
@@ -169,10 +236,15 @@ observable_attachments!(ChatViewModel);
 impl ChatViewModel {
     /// Intent: show this session (first load or a switch).
     pub async fn load(&self, project_id: String, session_id: String) {
+        let started = self.app.started_chat(&session_id);
         self.update_data(|s, history| {
             if s.project_id != project_id || s.session_id != session_id {
                 *history = ChatHistory { generation: history.generation + 1, ..Default::default() };
                 *s = ChatState { project_id, session_id, ..Default::default() };
+            }
+            if let (None, Some(started)) = (&history.started, started) {
+                s.outbox.insert(0, started.outgoing());
+                history.started = Some(started);
             }
             s.loading = true;
         });
@@ -304,7 +376,11 @@ impl ChatViewModel {
                         }
                     }
                     s.deliveries = deliveries(&history.rows);
+                    let started = history.started.is_some();
                     s.items = history.items(s.working);
+                    if started && history.started.is_none() {
+                        self.app.forget_started_chat(&session_id);
+                    }
                     if let Some(provisioning) = provisioning {
                         s.provisioning = provisioning;
                     }

@@ -44,6 +44,7 @@ import { requireProjectCapability } from '../middleware/project-auth';
 import { operationDeps } from '../operation-ports';
 import { requireRepositoryAccess } from '../routes/projects/_helpers';
 import { type SubmitTaskSchema } from '../schemas';
+import { buildVisibleInitialMessage } from '../services/agent-bootstrap-prompt';
 import { resolveTaskAgentOverrides } from '../services/agent-profiles';
 import { generateBranchName } from '../services/branch-name';
 import { capacityPlacementSnapshotDbValues } from '../services/capacity-placement-snapshot';
@@ -610,7 +611,7 @@ export async function submitTaskImplementation(
       projectId,
       sessionId,
       'user',
-      message,
+      buildVisibleInitialMessage({ message, attachments: validatedAttachments, forked: !!fork }),
       null,
       ...(samReservation ? ([samReservation.initialMessageId] as const) : ([] as const))
     );

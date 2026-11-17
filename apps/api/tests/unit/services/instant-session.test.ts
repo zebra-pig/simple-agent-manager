@@ -59,6 +59,7 @@ vi.mock('../../../src/services/task-terminal-transition', () => ({
   transitionTaskToTerminal: mocks.transitionTaskToTerminal,
 }));
 
+import { buildVisibleInitialPrompt } from '../../../src/services/agent-bootstrap-prompt';
 import {
   acceptInstantSession,
   continueInstantSessionLaunch,
@@ -221,6 +222,51 @@ describe('launchInstantSession', () => {
       null,
       'reserved-message'
     );
+  });
+
+  it('persists the displayed first message with its attached files', async () => {
+    const { db } = makeDb();
+    const attachment = {
+      uploadId: '01M7GE2BN1VC90CZ76HN0FFKCQ',
+      filename: 'screenshot.png',
+      size: 4,
+      contentType: 'image/png',
+    };
+    await acceptInstantSession(db as never, env, {
+      ...(baseLaunchInput() as LaunchInstantSessionInput),
+      initialPrompt: 'enriched prompt with attachments',
+      displayMessage: 'Look at this',
+      attachments: [attachment],
+    });
+    const userMessages = mocks.projectData.persistMessage.mock.calls.filter(
+      (call) => call[3] === 'user'
+    );
+    expect(userMessages).toEqual([
+      [
+        env,
+        'project-1',
+        'chat-session-1',
+        'user',
+        buildVisibleInitialPrompt({ message: 'Look at this', attachments: [attachment] }),
+        null,
+      ],
+    ]);
+    expect(userMessages[0]![4]).toContain(
+      '/workspaces/.private/01M7GE2BN1VC90CZ76HN0FFKCQ/screenshot.png'
+    );
+  });
+
+  it('keeps a forked first message plain, matching its plain agent prompt', async () => {
+    const { db } = makeDb();
+    await acceptInstantSession(db as never, env, {
+      ...(baseLaunchInput() as LaunchInstantSessionInput),
+      displayMessage: 'Continue',
+      historicalContext: 'Earlier context',
+      attachments: [{ uploadId: 'upload-1', filename: 'a.png', size: 1, contentType: 'image/png' }],
+    });
+    expect(
+      mocks.projectData.persistMessage.mock.calls.filter((call) => call[3] === 'user')
+    ).toEqual([[env, 'project-1', 'chat-session-1', 'user', 'Continue', null]]);
   });
 
   it('creates a linked cf-container workspace, ACP session, and running agent session', async () => {

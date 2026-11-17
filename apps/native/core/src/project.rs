@@ -175,6 +175,11 @@ impl ProjectViewModel {
             match &result {
                 // Files added while this was on its way stay for the next task.
                 Ok(task) => {
+                    let documents = attached.iter().filter_map(crate::documents::from_attachment).collect::<Vec<_>>();
+                    if !documents.is_empty() {
+                        let started = crate::chat::StartedChat { text: message.clone(), attachments: documents };
+                        self.app.remember_started_chat(&task.session_id, started);
+                    }
                     s.submitted_session_id = Some(task.session_id.clone());
                     s.attachments.retain(|a| !attached.iter().any(|sent| sent.id == a.id));
                 }
