@@ -225,3 +225,28 @@ async fn answered_question_stays_resolved_after_refresh_and_cannot_be_answered_a
     assert!(!vm.state().can_respond);
     assert!(!vm.respond("p1".into(), "s1".into(), "a1".into(), false, false, "No".into(), false, None).await);
 }
+#[tokio::test]
+async fn chat_hides_request_cards_until_first_load_proves_them_open() {
+    let server = serve(Arc::new(|r| {
+        let resolved = r.path.ends_with("/done");
+        if r.path.ends_with("/broken") { return (500, "{}".into()); }
+        (200, json!({"request": {"reason": "Pick one", "options": ["A"], "canAnswer": !resolved,
+            "resolvedAt": if resolved { json!(1) } else { Value::Null },
+            "resolvedAnswer": if resolved { json!("A") } else { Value::Null }}}).to_string())
+    })).await;
+    let app = app(server);
+    let open = RequestViewModel::new(app.clone());
+    // Before any response the status is unknown, not "open".
+    assert!(!sam_core::request_shows_in_chat(open.state()));
+    open.load("p1".into(), "s1".into(), "open".into(), false, false).await;
+    assert!(sam_core::request_shows_in_chat(open.state()));
+
+    let done = RequestViewModel::new(app.clone());
+    done.load("p1".into(), "s1".into(), "done".into(), false, false).await;
+    assert!(!sam_core::request_shows_in_chat(done.state()));
+
+    let broken = RequestViewModel::new(app);
+    broken.load("p1".into(), "s1".into(), "broken".into(), false, false).await;
+    assert!(broken.state().error.is_some());
+    assert!(!sam_core::request_shows_in_chat(broken.state()));
+}

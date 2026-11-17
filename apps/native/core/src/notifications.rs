@@ -97,6 +97,14 @@ pub fn request_is_resolved(status: String) -> bool {
     matches!(status.as_str(), "answered" | "expired" | "fulfilled" | "declined" | "approved" | "denied" | "executed" | "cancelled")
 }
 
+/// Chat shows a request card only once it is known to be open. Before the first
+/// successful load its status is unknown, and showing an empty card would make
+/// every already-resolved request flash into the conversation and vanish.
+#[uniffi::export]
+pub fn request_shows_in_chat(state: RequestState) -> bool {
+    state.loaded && !request_is_resolved(state.status)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
 pub struct RequestState {
     pub title: String,
@@ -110,6 +118,8 @@ pub struct RequestState {
     pub existing_version: Option<String>,
     pub busy: bool,
     pub error: Option<UserError>,
+    /// True after the request has been read successfully at least once.
+    pub loaded: bool,
 }
 observable!(RequestViewModel, RequestState, RequestObserver);
 #[uniffi::export(async_runtime = "tokio")]
@@ -136,6 +146,7 @@ impl RequestViewModel {
                     s.error = Some(UserError::from(&e));
                 }
                 Ok(v) => {
+                    s.loaded = true;
                     let r = &v[if approval { "approval" } else { "request" }];
                     s.irreversible = matches!(r["action"].as_str(), Some("delete_workspace" | "delete_node"));
                     s.answer = r["resolvedAnswer"].as_str().map(str::to_owned);
