@@ -18,7 +18,14 @@ private struct ComposerTestScreen: View {
                 composer
             }
             .navigationTitle("Composer")
-            .navigationDestination(for: String.self) { _ in Text("Agent conversation") }
+            .navigationDestination(for: String.self) { _ in
+                VStack {
+                    Text("Agent conversation")
+                    // The iOS 27.2 bar back button is an unlabeled glass control that XCUITest
+                    // cannot query reliably, so the fixture offers its own pop.
+                    Button("Back to composer") { path.removeAll() }
+                }
+            }
         }
     }
 
