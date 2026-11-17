@@ -8,7 +8,7 @@ private final class SplitViewCredentials: CredentialStore, @unchecked Sendable {
 
 // Only the app entry point is replaced. The tests drive the production ProjectsView
 // split navigation, ProjectView, ChatView, the Rust view models and real loopback HTTP.
-// Run on an iPad (SAM_TEST_DEVICE_PREFIX=iPad) for the sidebar cases and on an iPhone
+// Run on an iPad (SAM_TEST_DEVICE_PREFIX=iPad) for the three-column cases and on an iPhone
 // for compact navigation; each case skips on the other idiom.
 @main struct SplitViewFixture: SwiftUI.App {
     private let app = App(store: SplitViewCredentials(), baseDomain: nil)
@@ -22,8 +22,14 @@ private final class SplitViewCredentials: CredentialStore, @unchecked Sendable {
 
     var body: some Scene {
         WindowGroup {
-            ProjectsView(app: app)
-                .task { await app.refreshViewer() }
+            // Tabs as in RootView, so the cases cover when project screens hide the tab bar.
+            TabView {
+                ProjectsView(app: app)
+                    .task { await app.refreshViewer() }
+                    .tabItem { Label("Projects", systemImage: "folder") }
+                Text(verbatim: "Inbox")
+                    .tabItem { Label("Notifications", systemImage: "bell") }
+            }
         }
     }
 }

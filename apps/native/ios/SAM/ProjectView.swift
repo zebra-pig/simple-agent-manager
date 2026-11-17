@@ -6,6 +6,8 @@ struct ProjectView: View {
     let app: App
     let changed: (Project?) -> Void
     let project: Project
+    /// The conversation shown beside this list, highlighted in it.
+    let selectedSessionId: String?
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
     @State private var search = ""
@@ -15,17 +17,19 @@ struct ProjectView: View {
     @State private var settings = false
     @State private var editing: ProfileEditing?
 
-    init(app: App, project: Project, changed: @escaping (Project?) -> Void, open: @escaping (SessionRef) -> Void) {
+    init(app: App, project: Project, selectedSessionId: String? = nil,
+         changed: @escaping (Project?) -> Void, open: @escaping (SessionRef) -> Void) {
         self.app = app
         self.changed = changed
         self.project = project
+        self.selectedSessionId = selectedSessionId
         self.open = open
         _model = State(initialValue: ProjectModel(app: app))
         _commands = State(initialValue: CommandsModel(app: app))
     }
 
     var body: some View {
-        List {
+        List(selection: selection) {
             ForEach(model.state.matchingSessions, id: \.id) { session in
                 Button {
                     open(SessionRef(projectId: project.id, sessionId: session.id))
@@ -33,6 +37,8 @@ struct ProjectView: View {
                     SessionRow(session: session)
                 }
                 .buttonStyle(.plain)
+                .tag(session.id)
+                .accessibilityIdentifier("session-\(session.id)")
             }
         }
         .overlay {
@@ -49,9 +55,7 @@ struct ProjectView: View {
         .onChange(of: search) { _, query in model.core.searchSessions(query: query) }
         .navigationTitle(project.name)
         .inlineTitle()
-        #if os(iOS)
-        .toolbar(.hidden, for: .tabBar)
-        #endif
+        .hidesTabBarWhenPushed()
         .refreshable { await model.core.load(projectId: project.id) }
         .interactiveKeyboardDismiss()
         .task { await model.core.load(projectId: project.id) }
@@ -81,6 +85,14 @@ struct ProjectView: View {
         .sheet(isPresented: $settings) { ProjectSettings(app: app, projectId: project.id, saved: changed) }
         .sheet(item: $editing) { ProfileEditor(model: model, profile: $0.profile) }
         .floatingErrors([model.state.error?.message])
+    }
+
+    /// Highlights the open conversation; keyboard selection opens one too.
+    /// A collapsed split view clears selection when popping back; that keeps the chat.
+    private var selection: Binding<String?> {
+        Binding(get: { selectedSessionId }) { id in
+            if let id, id != selectedSessionId { open(SessionRef(projectId: project.id, sessionId: id)) }
+        }
     }
 }
 

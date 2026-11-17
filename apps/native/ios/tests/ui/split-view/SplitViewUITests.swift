@@ -9,34 +9,54 @@ final class SplitViewUITests: XCTestCase {
         return app
     }
 
-    func testIPadNavigation() throws {
+    /// Mail-style columns: projects, the selected project's agents and the selected
+    /// conversation are all on screen together in landscape.
+    func testIPadThreeColumns() throws {
         let app = launch()
         defer { XCUIDevice.shared.orientation = .portrait }
         try XCTSkipIf(app.frame.width < 600, "iPad coverage")
-        XCTAssertTrue(app.staticTexts["Select a project"].waitForExistence(timeout: 15))
-        XCTAssertTrue(project("atlas", in: app).waitForExistence(timeout: 15))
-        capture("ipad-projects")
-        project("atlas", in: app).tap()
-        XCTAssertTrue(app.staticTexts["Build the dashboard"].waitForExistence(timeout: 10))
-        XCTAssertTrue(project("orchard", in: app).isHittable)
-        capture("ipad-project-sessions")
-        app.staticTexts["Build the dashboard"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["The dashboard layout is ready for review."].waitForExistence(timeout: 10))
-        XCTAssertLessThan(app.frame.width, app.frame.height)
-        capture("ipad-chat-portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(project("atlas", in: app).waitForExistence(timeout: 15))
         XCTAssertGreaterThan(app.frame.width, app.frame.height)
-        XCTAssertTrue(app.staticTexts["The dashboard layout is ready for review."].exists)
+        XCTAssertTrue(app.staticTexts["Select a project"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No conversation selected"].exists)
+        capture("ipad-projects")
+
+        project("atlas", in: app).tap()
+        XCTAssertTrue(waitHittable(session("atlas", in: app), timeout: 10))
         XCTAssertTrue(project("orchard", in: app).isHittable)
-        capture("ipad-chat-landscape")
+        XCTAssertTrue(app.staticTexts["No conversation selected"].exists)
+        capture("ipad-project-agents")
+
+        session("atlas", in: app).tap()
+        XCTAssertTrue(app.staticTexts["The dashboard layout is ready for review."].waitForExistence(timeout: 10))
+        // All three columns stay usable beside the conversation.
+        XCTAssertTrue(project("orchard", in: app).isHittable)
+        XCTAssertTrue(session("atlas", in: app).isHittable)
+        XCTAssertFalse(app.staticTexts["No conversation selected"].exists)
+        // The other tabs stay reachable beside the columns.
+        XCTAssertTrue(tab("Notifications", in: app).isHittable)
+        capture("ipad-three-columns")
+
         project("orchard", in: app).tap()
-        XCTAssertTrue(app.staticTexts["Improve onboarding"].waitForExistence(timeout: 10))
+        XCTAssertTrue(waitHittable(session("orchard", in: app), timeout: 10))
+        XCTAssertTrue(app.staticTexts["No conversation selected"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["The dashboard layout is ready for review."].exists)
-        capture("ipad-switched-project")
-        app.staticTexts["Improve onboarding"].firstMatch.tap()
+        session("orchard", in: app).tap()
         XCTAssertTrue(app.staticTexts["The onboarding flow now explains each step."].waitForExistence(timeout: 10))
+        XCTAssertTrue(session("orchard", in: app).isHittable)
+        capture("ipad-switched-project")
+
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertLessThan(app.frame.width, app.frame.height)
+        XCTAssertTrue(waitHittable(app.staticTexts["The onboarding flow now explains each step."]))
+        capture("ipad-chat-portrait")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(waitHittable(project("research", in: app)))
         project("research", in: app).tap()
         XCTAssertTrue(app.staticTexts["No sessions yet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["No conversation selected"].exists)
         XCTAssertFalse(app.staticTexts["The onboarding flow now explains each step."].exists)
         capture("ipad-empty-project")
     }
@@ -45,8 +65,9 @@ final class SplitViewUITests: XCTestCase {
         let app = launch(push: true)
         XCTAssertTrue(app.staticTexts["The onboarding flow now explains each step."].waitForExistence(timeout: 15))
         if app.frame.width > 600 {
-            // The sidebar is only on screen beside the conversation in regular width.
+            // The project's agents load beside the conversation in regular width.
             XCTAssertTrue(project("orchard", in: app).waitForExistence(timeout: 15))
+            XCTAssertTrue(session("orchard", in: app).waitForExistence(timeout: 10))
         }
         XCTAssertTrue(app.staticTexts["The onboarding flow now explains each step."].isHittable)
         XCTAssertFalse(app.staticTexts["The dashboard layout is ready for review."].exists)
@@ -58,14 +79,23 @@ final class SplitViewUITests: XCTestCase {
         try XCTSkipIf(app.frame.width > 600, "iPhone coverage")
         XCTAssertTrue(project("atlas", in: app).waitForExistence(timeout: 15))
         project("atlas", in: app).tap()
-        XCTAssertTrue(app.staticTexts["Build the dashboard"].waitForExistence(timeout: 10))
-        app.staticTexts["Build the dashboard"].firstMatch.tap()
+        XCTAssertTrue(waitHittable(session("atlas", in: app), timeout: 10))
+        session("atlas", in: app).tap()
         XCTAssertTrue(app.staticTexts["The dashboard layout is ready for review."].waitForExistence(timeout: 10))
+        // A pushed conversation hides the tab bar on iPhone.
+        let notifications = tab("Notifications", in: app)
+        XCTAssertFalse(notifications.exists && notifications.isHittable)
         capture("iphone-chat")
         goBack(in: app)
-        XCTAssertTrue(waitHittable(app.staticTexts["Build the dashboard"].firstMatch))
+        XCTAssertTrue(waitHittable(session("atlas", in: app)))
+        // Reopening the same agent after popping its conversation pushes it again.
+        session("atlas", in: app).tap()
+        XCTAssertTrue(waitHittable(app.staticTexts["The dashboard layout is ready for review."], timeout: 10))
+        goBack(in: app)
+        XCTAssertTrue(waitHittable(session("atlas", in: app)))
         goBack(in: app)
         XCTAssertTrue(waitHittable(project("orchard", in: app)))
+        XCTAssertTrue(waitHittable(tab("Notifications", in: app)))
         project("atlas", in: app).tap()
         XCTAssertTrue(app.staticTexts["Build the dashboard"].waitForExistence(timeout: 5))
         capture("iphone-project-reselected")
@@ -73,6 +103,14 @@ final class SplitViewUITests: XCTestCase {
 
     private func project(_ id: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: "project-\(id)").firstMatch
+    }
+
+    private func tab(_ label: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    private func session(_ project: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "session-\(project)-session").firstMatch
     }
 
     /// The iOS 27.2 bar back button is an unlabeled glass control outside any NavigationBar
