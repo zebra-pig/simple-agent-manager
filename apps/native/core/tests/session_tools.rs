@@ -86,7 +86,7 @@ async fn automation_lists_waits_and_stops_and_schedules_with_web_bodies() {
     let seen = posts.clone();
     let app = signed_in(Arc::new(move |r| {
         if r.method == "POST" {
-            seen.lock().unwrap().push((r.path.clone(), body(&r)));
+            seen.lock().unwrap().push((r.path.clone(), body(r)));
             return (200, json!({}).to_string());
         }
         let b = match r.path.as_str() {
@@ -134,7 +134,7 @@ async fn comments_create_reply_send_and_resolve_follow_web_composition() {
     let seen = posts.clone();
     let app = signed_in(Arc::new(move |r| {
         if r.method == "POST" {
-            seen.lock().unwrap().push((r.path.clone(), body(&r)));
+            seen.lock().unwrap().push((r.path.clone(), body(r)));
             return (201, json!({"thread": {"id": "new"}}).to_string());
         }
         let b = match r.path.as_str() {
@@ -190,7 +190,7 @@ async fn share_grants_renews_and_revokes_with_consent() {
             ("GET", "/api/projects/p/members") => (200, members().to_string()),
             ("GET", "/api/projects/p/sessions/s/access") => (200, access(json!([])).to_string()),
             ("POST", "/api/projects/p/sessions/s/access/grants") => {
-                seen.lock().unwrap().push((r.method.clone(), r.path.clone(), body(&r)));
+                seen.lock().unwrap().push((r.method.clone(), r.path.clone(), body(r)));
                 (201, json!({"grant": grant, "created": true, "renewed": false, "access": access(json!([grant]))}).to_string())
             }
             ("DELETE", "/api/projects/p/sessions/s/access/grants/bo") => {
@@ -230,7 +230,7 @@ async fn report_attaches_refs_only_with_consent() {
     let app = signed_in(Arc::new(move |r| match (r.method.as_str(), r.path.as_str()) {
         ("GET", "/api/auth/get-session") => (200, json!({"user": {"id": "me"}}).to_string()),
         ("POST", "/api/report-issue") => {
-            seen.lock().unwrap().push(body(&r));
+            seen.lock().unwrap().push(body(r));
             (201, json!({"ideaId": "idea1", "status": "draft", "refsAttached": true, "attachedRefKeys": ["sessionId"], "message": "Report submitted with 1 technical reference attached."}).to_string())
         }
         _ => (404, "{}".into()),
@@ -260,7 +260,7 @@ async fn retry_and_fork_prefill_and_submit_with_the_parent_task() {
             ("GET", path) if path.starts_with("/api/projects/p/sessions") => json!({"sessions": [], "total": 0}),
             ("GET", path) if path.starts_with("/api/projects/p/agent-profiles") => json!({"items": []}),
             ("POST", "/api/projects/p/tasks/submit") => {
-                seen.lock().unwrap().push(body(&r));
+                seen.lock().unwrap().push(body(r));
                 json!({"taskId": "t2", "sessionId": "s2", "branchName": "b", "status": "queued"})
             }
             _ => return (404, "{}".into()),
