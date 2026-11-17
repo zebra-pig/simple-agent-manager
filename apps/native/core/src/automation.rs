@@ -196,7 +196,9 @@ impl AutomationViewModel {
 
     /// Stops one wait (web's "Stop waiting"), then rereads the lists.
     pub async fn stop_waiting(&self, subscription_id: String, reason: Option<String>) -> bool {
-        let Some(state) = self.claim(|s| s.can_write && s.waits.iter().any(|w| w.id == subscription_id && w.can_stop)) else { return false };
+        let Some(state) = self.claim(|s| s.can_write && s.waits.iter().any(|w| w.id == subscription_id && w.can_stop)) else {
+            return false;
+        };
         let reason = reason.map(|r| r.trim().to_owned()).filter(|r| !r.is_empty());
         let body = match &reason {
             Some(reason) => serde_json::json!({"reason": reason}),
@@ -465,8 +467,13 @@ mod tests {
 
     #[test]
     fn filters_follow_web_decision_order() {
-        assert_eq!(describe_filter(&json!({"source": "sam.agent_channel", "subjectId": ["ops"]})).0, WaitEvent::Channel { names: vec!["ops".into()] });
-        let (event, subject) = describe_filter(&json!({"source": "github", "eventType": ["check_run.completed", "workflow_run.completed"], "subjectType": "commit", "subjectId": "abc"}));
+        assert_eq!(
+            describe_filter(&json!({"source": "sam.agent_channel", "subjectId": ["ops"]})).0,
+            WaitEvent::Channel { names: vec!["ops".into()] }
+        );
+        let (event, subject) = describe_filter(
+            &json!({"source": "github", "eventType": ["check_run.completed", "workflow_run.completed"], "subjectType": "commit", "subjectId": "abc"}),
+        );
         assert_eq!(event, WaitEvent::Ci);
         assert_eq!(subject, Some(WaitSubject { kind: "commit".into(), id: "abc".into() }));
         assert_eq!(describe_filter(&json!({"eventType": "push"})).0, WaitEvent::Known { event_type: "push".into() });
@@ -490,7 +497,11 @@ mod tests {
         assert!(waits[0].1.can_stop && !waits[0].0);
         assert!(waits[1].0 && !waits[1].1.can_stop);
         assert!(!waits[2].1.can_stop);
-        assert!(!parse_waits(&json!({"subscriptions": [{"id": "x", "state": "active", "owner": {"type": "human"}, "filter": {}}]}), false)[0].1.can_stop);
+        assert!(
+            !parse_waits(&json!({"subscriptions": [{"id": "x", "state": "active", "owner": {"type": "human"}, "filter": {}}]}), false)[0]
+                .1
+                .can_stop
+        );
     }
 
     #[test]

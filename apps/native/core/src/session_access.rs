@@ -108,10 +108,7 @@ impl SessionAccessViewModel {
             s.error = None;
         });
         let path = format!("{}/access", base(&project_id, &session_id));
-        let (access, members) = tokio::join!(
-            self.app.get::<Value>(&path),
-            members::project_members(&self.app, &project_id),
-        );
+        let (access, members) = tokio::join!(self.app.get::<Value>(&path), members::project_members(&self.app, &project_id),);
         let viewer = self.viewer();
         self.update(|s| {
             if s.project_id != project_id || s.session_id != session_id {
@@ -138,7 +135,8 @@ impl SessionAccessViewModel {
         if !acknowledged || !SHARE_DURATIONS.contains(&duration_minutes) {
             return false;
         }
-        let Some(state) = self.claim(|s| s.can_manage && (s.can_add || (s.can_renew && s.grants.iter().any(|g| g.grantee.id == user_id)))) else {
+        let Some(state) = self.claim(|s| s.can_manage && (s.can_add || (s.can_renew && s.grants.iter().any(|g| g.grantee.id == user_id))))
+        else {
             return false;
         };
         let name = state
@@ -176,7 +174,8 @@ impl SessionAccessViewModel {
         let Some(state) = self.claim(|s| s.grants.iter().any(|g| g.grantee.id == user_id) && (leaving || s.can_manage)) else {
             return false;
         };
-        let name = state.grants.iter().find(|g| g.grantee.id == user_id).and_then(|g| g.grantee.name.clone()).unwrap_or_else(|| user_id.clone());
+        let name =
+            state.grants.iter().find(|g| g.grantee.id == user_id).and_then(|g| g.grantee.name.clone()).unwrap_or_else(|| user_id.clone());
         let result: crate::error::Result<Value> =
             self.app.delete(&format!("{}/access/grants/{}", base(&state.project_id, &state.session_id), seg(&user_id))).await;
         self.settle(&state, result, |body| {
@@ -215,7 +214,12 @@ impl SessionAccessViewModel {
         claimed
     }
 
-    async fn settle(&self, state: &SessionAccessState, result: crate::error::Result<Value>, outcome: impl Fn(&Value) -> ShareOutcome) -> bool {
+    async fn settle(
+        &self,
+        state: &SessionAccessState,
+        result: crate::error::Result<Value>,
+        outcome: impl Fn(&Value) -> ShareOutcome,
+    ) -> bool {
         let viewer = self.viewer();
         let members = if result.is_ok() { members::project_members(&self.app, &state.project_id).await.ok() } else { None };
         let ok = result.is_ok();
@@ -245,11 +249,7 @@ fn base(project_id: &str, session_id: &str) -> String {
 
 fn person(v: &Value, viewer: &str) -> Option<AccessPerson> {
     let id = v["id"].as_str()?.to_owned();
-    Some(AccessPerson {
-        is_viewer: id == viewer,
-        name: v["name"].as_str().map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned),
-        id,
-    })
+    Some(AccessPerson { is_viewer: id == viewer, name: v["name"].as_str().map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned), id })
 }
 
 fn now_ms() -> i64 {
@@ -339,10 +339,18 @@ mod tests {
     #[test]
     fn candidates_exclude_viewer_owner_grantees_and_project_viewers() {
         let mut s = SessionAccessState::default();
-        apply(&mut s, &json!({"viewerAccess": "grantee", "owner": {"id": "o", "name": "Owner"}, "grants": [{"id": "g", "grantee": {"id": "me"}, "grantedBy": {"id": "o"}, "createdAt": 1, "expiresAt": 99, "durationMinutes": 5}], "serverTime": 0}), "me");
+        apply(
+            &mut s,
+            &json!({"viewerAccess": "grantee", "owner": {"id": "o", "name": "Owner"}, "grants": [{"id": "g", "grantee": {"id": "me"}, "grantedBy": {"id": "o"}, "createdAt": 1, "expiresAt": 99, "durationMinutes": 5}], "serverTime": 0}),
+            "me",
+        );
         assert!(s.can_manage && !s.can_renew);
         assert_eq!(s.viewer_expires_at, Some(99));
-        candidates(&mut s, &[member("me", "admin"), member("o", "owner"), member("b", "maintainer"), member("a", "admin"), member("v", "viewer")], "me");
+        candidates(
+            &mut s,
+            &[member("me", "admin"), member("o", "owner"), member("b", "maintainer"), member("a", "admin"), member("v", "viewer")],
+            "me",
+        );
         assert_eq!(s.candidates.iter().map(|c| c.user_id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
         candidates(&mut s, &[member("me", "admin"), member("v", "viewer")], "me");
         assert_eq!(s.no_candidates, Some(NoCandidates::OnlyViewers));

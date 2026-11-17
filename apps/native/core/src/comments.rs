@@ -116,10 +116,7 @@ impl CommentsViewModel {
         });
         let viewer = self.app.state().viewer.map(|v| v.id).unwrap_or_default();
         let path = format!("/api/projects/{}/sessions/{}/comments?anchorKind=message&limit={LIMIT}", seg(&project_id), seg(&session_id));
-        let (threads, members) = tokio::join!(
-            self.app.get::<Value>(&path),
-            members::project_members(&self.app, &project_id),
-        );
+        let (threads, members) = tokio::join!(self.app.get::<Value>(&path), members::project_members(&self.app, &project_id),);
         self.update(|s| {
             if s.project_id != project_id || s.session_id != session_id {
                 return;
@@ -174,7 +171,10 @@ impl CommentsViewModel {
         let Some(state) = self.claim(send_to_agent) else { return false };
         let mut result: crate::error::Result<Value> = self
             .app
-            .post(&format!("{}/comments/{}/replies", base(&state), seg(&thread_id)), &NewReply { body: &body, client_mutation_id: &client_id })
+            .post(
+                &format!("{}/comments/{}/replies", base(&state), seg(&thread_id)),
+                &NewReply { body: &body, client_mutation_id: &client_id },
+            )
             .await;
         if send_to_agent && result.is_ok() {
             result = self.send_request(&state, &thread_id, Some(&body), &format!("{client_id}:send")).await;
@@ -206,7 +206,13 @@ impl CommentsViewModel {
         self.settle(state, result).await
     }
 
-    async fn send_request(&self, state: &CommentsState, thread_id: &str, body: Option<&str>, client_id: &str) -> crate::error::Result<Value> {
+    async fn send_request(
+        &self,
+        state: &CommentsState,
+        thread_id: &str,
+        body: Option<&str>,
+        client_id: &str,
+    ) -> crate::error::Result<Value> {
         let mut payload = serde_json::json!({"clientMutationId": client_id});
         if let Some(body) = body {
             payload["body"] = body.into();
@@ -239,8 +245,7 @@ impl CommentsViewModel {
             }
         });
         let viewer = self.app.state().viewer.map(|v| v.id).unwrap_or_default();
-        let fresh: crate::error::Result<Value> =
-            self.app.get(&format!("{}/comments?anchorKind=message&limit={LIMIT}", base(&state))).await;
+        let fresh: crate::error::Result<Value> = self.app.get(&format!("{}/comments?anchorKind=message&limit={LIMIT}", base(&state))).await;
         if let Ok(body) = fresh {
             self.update(|s| {
                 if s.project_id == state.project_id && s.session_id == state.session_id {
@@ -338,7 +343,10 @@ mod tests {
     #[test]
     fn buckets_follow_the_last_actor_and_status() {
         let thread = |status: &str, author: &str, reply_author: Option<&str>| {
-            let replies: Vec<Value> = reply_author.into_iter().map(|a| json!({"id": "r", "author": {"kind": "human", "id": a}, "body": "", "createdAt": 5})).collect();
+            let replies: Vec<Value> = reply_author
+                .into_iter()
+                .map(|a| json!({"id": "r", "author": {"kind": "human", "id": a}, "body": "", "createdAt": 5}))
+                .collect();
             parse_thread(&json!({"id": "t", "anchor": {"kind": "message", "messageId": "m", "quote": null}, "author": {"kind": "human", "id": author, "name": "A"}, "body": "b", "status": status, "createdAt": 1, "replies": replies}), "me").unwrap()
         };
         assert_eq!(thread("open", "me", None).bucket, CommentBucket::Open);
@@ -351,7 +359,11 @@ mod tests {
 
     #[test]
     fn accepts_display_name_alias_and_skips_unanchored_rows() {
-        let t = parse_thread(&json!({"id": "t", "messageId": "m", "author": {"kind": "agent", "id": "a", "displayName": "Claude"}, "status": "open"}), "me").unwrap();
+        let t = parse_thread(
+            &json!({"id": "t", "messageId": "m", "author": {"kind": "agent", "id": "a", "displayName": "Claude"}, "status": "open"}),
+            "me",
+        )
+        .unwrap();
         assert_eq!(t.author.name.as_deref(), Some("Claude"));
         assert!(t.author.is_agent);
         assert!(parse_thread(&json!({"id": "t"}), "me").is_none());

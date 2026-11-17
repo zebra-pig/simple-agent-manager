@@ -163,7 +163,10 @@ async fn comments_create_reply_send_and_resolve_follow_web_composition() {
     assert!(comments.reopen("t2".into()).await);
     let posts = posts.lock().unwrap();
     let expected = [
-        ("/api/projects/p/sessions/s/comments", json!({"messageId": "m1", "body": "Fix this", "quote": "quoted", "clientMutationId": "c1"})),
+        (
+            "/api/projects/p/sessions/s/comments",
+            json!({"messageId": "m1", "body": "Fix this", "quote": "quoted", "clientMutationId": "c1"}),
+        ),
         ("/api/projects/p/sessions/s/comments/new/send", json!({"body": "Fix this", "clientMutationId": "c1:send"})),
         ("/api/projects/p/sessions/s/comments/t1/replies", json!({"body": "Because", "clientMutationId": "c2"})),
         ("/api/projects/p/sessions/s/comments/t1/resolve", json!({})),
@@ -202,7 +205,11 @@ async fn share_grants_renews_and_revokes_with_consent() {
     share.load("p".into(), "s".into(), true).await;
     let state = share.state();
     assert!(state.can_manage && state.can_renew && state.can_add);
-    assert_eq!(state.candidates.iter().map(|c| c.user_id.as_str()).collect::<Vec<_>>(), ["bo", "owner"], "the viewer, project viewers and removed members are not offered");
+    assert_eq!(
+        state.candidates.iter().map(|c| c.user_id.as_str()).collect::<Vec<_>>(),
+        ["bo", "owner"],
+        "the viewer, project viewers and removed members are not offered"
+    );
     assert!(!share.grant("bo".into(), 10, false).await, "no request without consent");
     assert!(!share.grant("bo".into(), 15, true).await, "only server durations");
     assert!(share.grant("bo".into(), 10, true).await);
@@ -266,7 +273,10 @@ async fn retry_and_fork_prefill_and_submit_with_the_parent_task() {
     let prompt = project.derive(DerivedKind::Retry, session("owner")).await;
     assert_eq!(prompt, "Original prompt");
     let derived = project.state().derived.unwrap();
-    assert_eq!((derived.parent_label.as_str(), derived.error_message.as_deref(), derived.prompt_loading), ("Fix login", Some("boom"), false));
+    assert_eq!(
+        (derived.parent_label.as_str(), derived.error_message.as_deref(), derived.prompt_loading),
+        ("Fix login", Some("boom"), false)
+    );
     assert_eq!(project.submit_task(prompt).await.unwrap().session_id, "s2");
     project.finish_submission("s2".into());
     assert!(project.state().derived.is_none(), "an accepted task ends the derivation");

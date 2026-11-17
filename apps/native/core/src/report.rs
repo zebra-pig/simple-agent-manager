@@ -102,7 +102,12 @@ impl ReportViewModel {
                         id: v["ideaId"].as_str().unwrap_or_default().to_owned(),
                         status: v["status"].as_str().unwrap_or_default().to_owned(),
                         message: v["message"].as_str().unwrap_or_default().to_owned(),
-                        attached: v["attachedRefKeys"].as_array().into_iter().flatten().filter_map(|k| k.as_str().map(str::to_owned)).collect(),
+                        attached: v["attachedRefKeys"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|k| k.as_str().map(str::to_owned))
+                            .collect(),
                     })
                 }
                 Err(e) => s.error = Some(UserError::from(&e)),
