@@ -8,9 +8,31 @@ import type { drizzle } from 'drizzle-orm/d1';
 
 import * as schema from '../db/schema';
 import { log } from '../lib/logger';
-import { errors } from '../middleware/error';
+import { AppError, errors } from '../middleware/error';
 
 type ChatDb = ReturnType<typeof drizzle<typeof schema>>;
+
+/** `errors.notFound` appends " not found" to a resource name; these messages are sentences. */
+export const NO_ACTIVE_WORKSPACE_MESSAGE = 'No active workspace found for this session';
+export function noActiveWorkspaceError(): AppError {
+  return new AppError(404, 'NOT_FOUND', NO_ACTIVE_WORKSPACE_MESSAGE);
+}
+
+const noLiveAgentErrors = new WeakSet<object>();
+
+/**
+ * Whether `error` is `resolveLiveAgentSessionForChat` reporting that no live agent can take a
+ * prompt right now (no live workspace, a stopped node, or no running agent session). Durable
+ * prompt delivery can still wake such a session, so callers may fall back to it.
+ */
+export function isNoLiveAgentError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && noLiveAgentErrors.has(error);
+}
+
+function noLiveAgent(error: AppError): AppError {
+  noLiveAgentErrors.add(error);
+  return error;
+}
 
 /**
  * Which workspace rows still bridge a chat session to a runtime: running, recovering or
@@ -99,7 +121,7 @@ export async function resolveLiveAgentSessionForChat(
 }> {
   const workspace = await resolveLiveWorkspaceForSession(db, { projectId, sessionId, userId });
   if (!workspace?.nodeId || !workspace.nodeStatus || !workspace.nodeRuntime) {
-    throw errors.notFound('No active workspace found for this session');
+    throw noLiveAgent(noActiveWorkspaceError());
   }
 
   const isContainer = workspace.nodeRuntime === 'cf-container';
@@ -107,8 +129,10 @@ export async function resolveLiveAgentSessionForChat(
     ? ['running', 'sleeping', 'recovery', 'error'].includes(workspace.nodeStatus)
     : workspace.nodeStatus === 'running';
   if (!nodeIsReachable) {
-    throw errors.conflict(
-      'The workspace node is no longer running. Start a new chat to create a fresh workspace.'
+    throw noLiveAgent(
+      errors.conflict(
+        'The workspace node is no longer running. Start a new chat to create a fresh workspace.'
+      )
     );
   }
 
@@ -127,7 +151,9 @@ export async function resolveLiveAgentSessionForChat(
     )
     .limit(1);
 
-  if (!agentSession) throw errors.notFound('No running agent session found');
+  if (!agentSession) {
+    throw noLiveAgent(new AppError(404, 'NOT_FOUND', 'No running agent session found'));
+  }
 
   return {
     workspace: {

@@ -20,7 +20,7 @@ import { errors } from '../middleware/error';
 import { requireProjectCapability } from '../middleware/project-auth';
 import { requireSessionWriter } from '../services/session-access';
 import { isSafeSleepDeferral, sleepWorkspaceSession } from '../services/session-sleep';
-import { resolveLiveWorkspaceForSession } from './chat-workspace-resolver';
+import { noActiveWorkspaceError, resolveLiveWorkspaceForSession } from './chat-workspace-resolver';
 import { resumeOwnedAgentSession } from './workspaces/agent-session-suspend-resume';
 
 export function registerChatSessionControlRoutes(chatRoutes: Hono<{ Bindings: Env }>): void {
@@ -40,7 +40,7 @@ export function registerChatSessionControlRoutes(chatRoutes: Hono<{ Bindings: En
       sessionId,
       userId: writer.ownerUserId,
     });
-    if (!workspace) throw errors.notFound('No active workspace found for this session');
+    if (!workspace) throw noActiveWorkspaceError();
 
     const result = await sleepWorkspaceSession(c.env, {
       workspaceId: workspace.id,
@@ -77,7 +77,7 @@ export function registerChatSessionControlRoutes(chatRoutes: Hono<{ Bindings: En
       sessionId,
       userId: writer.ownerUserId,
     });
-    if (!workspace) throw errors.notFound('No active workspace found for this session');
+    if (!workspace) throw noActiveWorkspaceError();
 
     return c.json(
       await resumeOwnedAgentSession(c.env, db, {
