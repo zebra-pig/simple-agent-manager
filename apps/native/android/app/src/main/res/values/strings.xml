@@ -586,4 +586,22 @@
     <string name="ref_node">Node</string>
     <string name="ref_error">Error</string>
     <string name="ref_diagnosis">Diagnosis</string>
+
+    <string name="ports_title">Ports</string>
+    <string name="ports_checking">Checking site access…</string>
+    <string name="ports_public">Public</string>
+    <string name="ports_private">Private</string>
+    <string name="ports_public_help">All workspace ports are accessible without SAM sign-in. Your site’s own authentication still applies.</string>
+    <string name="ports_private_help">Open sites securely using your SAM sign-in. They remain private to your workspace.</string>
+    <string name="ports_make_private">Make private</string>
+    <string name="ports_expose">Expose to public</string>
+    <string name="ports_share">Share link</string>
+    <string name="ports_open">Open site</string>
+    <string name="ports_number">Port %1$d</string>
+    <string name="ports_empty">Start a development server in this workspace, then refresh.</string>
+    <string name="ports_sleeping">Resume the workspace to access its sites.</string>
+    <string name="ports_gone">This workspace is no longer available.</string>
+    <string name="ports_waiting">Waiting for the workspace. Ports refresh automatically.</string>
+    <string name="ports_confirm">Expose all workspace ports?</string>
+    <string name="ports_confirm_help">Anyone with a port URL can access its site without signing in to SAM. This applies to every port in this workspace, including ports started later.</string>
 </resources>

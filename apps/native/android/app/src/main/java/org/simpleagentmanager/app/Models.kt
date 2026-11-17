@@ -149,6 +149,9 @@ class ProjectModel(application: Application) : AndroidViewModel(application) {
 
 class ChatModel(application: Application) : AndroidViewModel(application) {
     val app = (application as SamApplication).core
+    val ports = org.simpleagentmanager.core.PortsViewModel((application as SamApplication).core)
+    private val _portsState = MutableStateFlow(ports.state())
+    val portsState: StateFlow<org.simpleagentmanager.core.PortsState> = _portsState
     val tools = org.simpleagentmanager.core.ChatToolsViewModel((application as SamApplication).core)
     private val _toolsState = MutableStateFlow(tools.state())
     val toolsState: StateFlow<org.simpleagentmanager.core.ChatToolsState> = _toolsState
@@ -158,6 +161,9 @@ class ChatModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<ChatState> = _state
 
     init {
+        ports.setObserver(object : org.simpleagentmanager.core.PortsObserver {
+            override fun onStateChanged(state: org.simpleagentmanager.core.PortsState) { _portsState.value = state }
+        })
         tools.setObserver(object : org.simpleagentmanager.core.ChatToolsObserver {
             override fun onStateChanged(state: org.simpleagentmanager.core.ChatToolsState) { _toolsState.value = state }
         })
@@ -181,6 +187,8 @@ class ChatModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        ports.clearObserver()
+        ports.close()
         tools.clearObserver()
         tools.close()
         vm.clearObserver()

@@ -41,6 +41,7 @@ import Security
 
 @MainActor @Observable final class ChatModel {
     let core: ChatViewModel
+    let ports: PortsModel
     let tools: ChatToolsModel
     private(set) var state: ChatState
     /// A stable reading snapshot. Live changes catch up when returning to latest.
@@ -50,6 +51,7 @@ import Security
 
     init(app: App) {
         core = ChatViewModel(app: app)
+        ports = PortsModel(app: app)
         tools = ChatToolsModel(app: app)
         let initial = core.state()
         state = initial

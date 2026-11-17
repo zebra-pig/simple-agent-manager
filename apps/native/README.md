@@ -505,3 +505,28 @@ project search, deployment capability discovery, and `POST /api/projects`, `GET/
 /api/projects/:id`. PATCH sends only general settings, so other settings keep their values.
 Concurrent loads and mutations are serialized. Apple project creation and settings use a native
 grouped form with opaque section backgrounds and standard row separators.
+
+## Server ports
+
+Open **Session tools → Ports** for a workspace you own. Both mobile shells list
+servers detected by the workspace and refresh every ten seconds while visible.
+Sleeping/stopped workspaces show their lifecycle instead of an empty running list.
+
+**Open site** uses the native device-login cookie to request JSON from
+`GET /api/workspaces/:id/port-access?port=…`. The returned port-specific link opens
+in the system browser. SAM exchanges its short-lived `port_token` for the browser's
+HttpOnly port cookie and redirects to the clean URL. This needs no second SAM login
+and does not send the native account cookie to a development server. A site's own
+login still applies. Browser grants are transient and never used for sharing.
+
+**Expose to public** asks for confirmation and updates the existing workspace-wide
+`PATCH /api/workspaces/:id/ports-public` setting. It affects all current and future
+ports in that workspace. Public rows offer **Share link** with a clean URL.
+On Apple platforms, the **Expose to public** switch controls this setting; turn it off
+to make ports private. Android uses **Make private**. Valid owner browser grants continue
+to work. Server permission failures keep the last confirmed visibility and show an
+error. The existing endpoints require workspace ownership, so grantee/viewer sessions
+do not offer this tool. No server deployment changes are needed.
+
+Tests: `core/tests/ports.rs` (HTTP contracts) and the `ports` Apple UI suite
+(`bash apps/native/scripts/test.sh apple-ui <fresh-dir> ports`).

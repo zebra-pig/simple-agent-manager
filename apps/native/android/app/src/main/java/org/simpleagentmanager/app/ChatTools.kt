@@ -39,6 +39,7 @@ internal enum class ChatTool(val title: Int) {
 
 @Composable
 fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit, sheet: SessionSheet?, onSheet: (SessionSheet?) -> Unit, onOpenSession: (String) -> Unit) {
+    var showPorts by remember(chat.sessionId) { mutableStateOf(false) }
     var menu by remember(chat.sessionId) { mutableStateOf(false) }
     var tool by remember(chat.sessionId) { mutableStateOf<ChatTool?>(null) }
     var confirm by remember(chat.sessionId) { mutableStateOf(false) }
@@ -56,6 +57,9 @@ fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit, 
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.session_tools)) }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(24.dp), containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .96f)) {
+            if (session?.workspaceId != null && (session.viewerAccess == "owner" || (session.viewerAccess == null && session.isMine))) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.ports_title)) }, onClick = { menu = false; showPorts = true })
+            }
             ChatToolsMenuItems(chat, ending, onTool = { menu = false; tool = it },
                 onSheet = { menu = false; onSheet(it) }, onEnd = { menu = false; confirm = true })
         }
@@ -67,6 +71,11 @@ fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit, 
         dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel)) } },
     )
     sheet?.let { SessionSheetHost(it, model, chat, openUrl, onOpenSession, onClose = { onSheet(null) }) }
+    if (showPorts) {
+        ModalBottomSheet(onDismissRequest = { showPorts = false }) {
+            PortsScreen(model, session?.workspaceId.orEmpty(), openUrl)
+        }
+    }
     tool?.let { selected ->
         val state by model.toolsState.collectAsStateWithLifecycle()
         ModalBottomSheet(onDismissRequest = { tool = null }, containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .97f)) {
