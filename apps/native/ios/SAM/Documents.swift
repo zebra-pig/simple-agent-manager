@@ -91,6 +91,7 @@ struct DocumentGallery: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selection: String
     @State private var swipe = GallerySwipeNavigation()
+    @State private var shareFiles = GalleryShareFiles()
     #if os(macOS)
     @FocusState private var keyboardFocused: Bool
     #endif
@@ -115,13 +116,15 @@ struct DocumentGallery: View {
                     #if os(iOS)
                     TabView(selection: $selection) {
                         ForEach(Array(documents.enumerated()), id: \.element.fileId) { offset, document in
-                            GalleryPage(document: document, core: core, fallbackCore: fallbackCore, active: abs(offset - index) <= 1)
+                            GalleryPage(document: document, core: core, fallbackCore: fallbackCore, active: abs(offset - index) <= 1,
+                                        shareFiles: shareFiles)
                                 .tag(document.fileId)
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
                     #else
-                    GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true, swipe: swipe, onNavigate: move)
+                    GalleryPage(document: documents[index], core: core, fallbackCore: fallbackCore, active: true,
+                                shareFiles: shareFiles, swipe: swipe, onNavigate: move)
                         .id(selection)
                     #endif
 
@@ -156,12 +159,34 @@ struct DocumentGallery: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .toolbar { Button("Done") { dismiss() } }
+            .toolbar {
+                ToolbarItem(placement: shareActionPlacement) { shareButton }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
+        .onDisappear { shareFiles.removeAll() }
         #if os(macOS)
         .frame(minWidth: 300, minHeight: 360)
         #endif
         .floatingErrors([historyError])
+    }
+
+    #if os(iOS)
+    private var shareActionPlacement: ToolbarItemPlacement { .topBarLeading }
+    #else
+    private var shareActionPlacement: ToolbarItemPlacement { .primaryAction }
+    #endif
+
+    /// Shares the displayed image's original file once its bytes have loaded.
+    @ViewBuilder private var shareButton: some View {
+        if let index, let url = shareFiles.urls[documents[index].fileId] {
+            // Without an explicit preview the system thumbnails the file itself.
+            ShareLink(item: url) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        } else {
+            Button {} label: { Label("Share", systemImage: "square.and.arrow.up") }.disabled(true)
+        }
     }
 
     private func move(_ delta: Int) {
@@ -179,6 +204,7 @@ private struct GalleryPage: View {
     let core: ChatViewModel
     var fallbackCore: ChatViewModel?
     let active: Bool
+    var shareFiles: GalleryShareFiles?
     var swipe: GallerySwipeNavigation?
     var onNavigate: ((Int) -> Void)?
     @State private var image: CGImage?
@@ -215,6 +241,10 @@ private struct GalleryPage: View {
             if let bytes { decoded = await decodeImage(bytes) } else { decoded = nil }
             guard !Task.isCancelled else { return }
             image = decoded; failed = decoded == nil
+            // Only offer files that are known to decode as the displayed image.
+            if let bytes, decoded != nil {
+                await shareFiles?.store(bytes, fileId: document.fileId, filename: document.filename, mimeType: document.mimeType)
+            }
         }
     }
 }
