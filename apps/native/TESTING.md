@@ -44,6 +44,7 @@ bash apps/native/scripts/test.sh apple-ui .tmp/native-composer composer
 bash apps/native/scripts/test.sh apple-ui .tmp/native-errors errors
 bash apps/native/scripts/test.sh apple-ui .tmp/native-scroll chat-scroll
 bash apps/native/scripts/test.sh apple-ui .tmp/native-gallery gallery
+bash apps/native/scripts/test.sh apple-ui .tmp/native-lock app-lock
 bash apps/native/scripts/test.sh apple-ui .tmp/native-loading project-loading
 bash apps/native/scripts/test.sh apple-ui .tmp/native-commands slash-commands
 bash apps/native/scripts/test.sh apple-all .tmp/native-all
@@ -69,7 +70,8 @@ SAM_TEST_ONLY=NativeUITests/ChatScrollUITests/testActualJumpAfterMultiplePagesSt
   bash apps/native/scripts/test.sh apple-ui .tmp/native-jump chat-scroll
 ```
 
-`apple-ui` without a suite runs composer, errors, chat-scroll and gallery.
+`apple-ui` without a suite runs composer, errors, chat-scroll, gallery, session-tools
+and app-lock.
 `apple-all` also runs host, integration, project-loading and slash-commands.
 Attachment-picker tests require a seeded photo library and Files content; follow
 [ios/tests/ui/attachment-picker/README.md](ios/tests/ui/attachment-picker/README.md).

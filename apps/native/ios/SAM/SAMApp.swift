@@ -8,10 +8,11 @@ struct SAMApp: SwiftUI.App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     #endif
     @State private var app = AppModel()
+    @State private var lock = AppLock()
 
     var body: some Scene {
         WindowGroup {
-            RootView().environment(app)
+            RootView().environment(app).appLock(lock)
         }
     }
 }
