@@ -37,10 +37,10 @@ case "$mode" in
         bash "$here/ui/gallery/gallery-macos.sh" "$output/gallery"
         ;;
     ui)
-        if [ -n "${3:-}" ]; then suites=("$3"); else suites=(composer errors chat-scroll gallery); fi
+        if [ -n "${3:-}" ]; then suites=("$3"); else suites=(composer errors chat-scroll gallery session-tools); fi
         for suite in "${suites[@]}"; do
             case "$suite" in
-                composer|errors|chat-scroll|gallery) bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite" ;;
+                composer|errors|chat-scroll|gallery|session-tools) bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite" ;;
                 project-loading) sh "$here/ui/project-loading/project-loading.sh" "$output/$suite" ;;
                 slash-commands) bash "$here/ui/slash-commands/slash-commands.sh" "$output/$suite" ;;
                 *) echo "Unknown UI suite: $suite" >&2; exit 1 ;;

@@ -175,6 +175,9 @@ pub(crate) struct SubmitTask<'a> {
     pub agent_profile_id: Option<&'a str>,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub attachments: &'a [TaskAttachment],
+    /// Retry/Fork: the task this one continues (same project; the server checks).
+    #[serde(rename = "parentTaskId", skip_serializing_if = "Option::is_none")]
+    pub parent_task_id: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, uniffi::Record)]

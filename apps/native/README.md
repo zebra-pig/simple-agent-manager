@@ -166,11 +166,30 @@ cancelling a task asks for confirmation and uses the web's task-status transitio
   only when reported by the provider. These are usage windows, not an assumed credit
   balance; their observation and reset times are shown. Owner-only infrastructure endpoints
   are not called for teammates.
-- Related, Automation, Comments, Share, Retry, Fork and Report are marked **(web)**. They
-  hand off to the corresponding web panel or prefilled composer with `?tool=...`.
-  `useRequestedSessionTool` waits for web's authoritative available-action list, consumes
-  the query once, and never accepts Complete/Cancel from a URL. The matching web change
-  must deploy alongside the native app for these direct handoffs.
+- **Related** lists the ideas, library files and pull requests linked to the chat
+  (`/sessions/:id/links`). Files open in Quick Look, pull requests in the browser, ideas
+  on web. `LinkedWorkViewModel` drops malformed rows and repairs totals as web does.
+- **Automation** shows what the chat waits for (`/event-subscriptions?sessionId=`) and
+  what is set to message it (schedules and standing watches, at most two pages each).
+  SAM's agent-to-agent relays are hidden unless asked for. Owners, admins and maintainers
+  can stop a wait and schedule a reminder to this chat; managed waits are not stoppable.
+  `AutomationViewModel` classifies filters (`WaitEvent`) and row states; shells word them.
+- **Comments** is the chat's comment inbox with web's buckets (Needs you, With agent,
+  Open, Resolved). Threads open with replies, Resolve/Reopen and Send to agent (owner or
+  grantee only). Touch and hold a user or agent message, then Comment, to start a thread.
+  Commenting needs `task:write`; Send to agent posts the comment, then `/send`.
+- **Share** lists the owner and active grants, adds a teammate for 5, 10, 30 or 60
+  minutes after an explicit acknowledgement that it runs on the owner's accounts, and
+  renews (owner only), revokes or leaves. A grantee cannot share past their own access.
+- **Retry** and **Fork** open a composer prefilled like web (the original prompt, or the
+  fork briefing with parent IDs) with the profile picker. Nothing is sent until Send; the
+  new task carries `parentTaskId`, then the Projects stack opens the new chat.
+- **Report** submits `/api/report-issue`; technical references are attached only when
+  the reporter turns them on.
+
+Android shows the same tools in bottom sheets over the same view models. Touch and hold a
+message for Comment there too. Run `bash scripts/test.sh apple-ui <dir> session-tools` to
+drive all of them on an iOS simulator.
 
 Apple tool surfaces use Liquid Glass with the existing material fallback. Android uses
 neutral translucent surfaces, a light rim and a subtle gradient. File/diff parsing and API

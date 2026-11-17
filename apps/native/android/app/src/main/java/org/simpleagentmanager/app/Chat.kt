@@ -3,6 +3,7 @@ package org.simpleagentmanager.app
 import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
@@ -34,7 +35,8 @@ import org.simpleagentmanager.core.*
 import org.simpleagentmanager.core.ChatContent as Content
 
 @Composable
-fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl: (String) -> Unit) {
+fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl: (String) -> Unit, onOpenSession: (String) -> Unit = {}) {
+    var sheet by remember(route.sessionId) { mutableStateOf<SessionSheet?>(null) }
     val state by model.state.collectAsStateWithLifecycle()
     var draft by rememberSaveable(route.sessionId) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -51,7 +53,7 @@ fun ChatScreen(route: Route.Chat, model: ChatModel, onBack: () -> Unit, openUrl:
     }
     if (state.projectId == route.projectId && state.sessionId == route.sessionId) {
         ChatContent(state, draft, { draft = it }, onBack, openUrl, model::attach, model::detach,
-            toolsMenu = { ChatToolsMenu(model, state, openUrl) }, documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
+            toolsMenu = { ChatToolsMenu(model, state, openUrl, sheet, { sheet = it }, onOpenSession) }, onComment = { sheet = SessionSheet.NewComment(it) }, documentCard = { document -> DocumentCard(document, state.items.mapNotNull { (it.content as? Content.Document)?.document }, model.vm) },
             attachmentCard = { document -> DocumentCard(document, state.items.flatMap { (it.content as? Content.User)?.attachments ?: emptyList() } + state.outbox.flatMap { it.attachments }, model.vm, compactImage = true) },
             onDeliveryIntent = { model.vm.setDeliveryIntent(it) },
             onInterrupt = { scope.launch { model.vm.interrupt() } },
@@ -75,6 +77,7 @@ fun ChatContent(
     onDeliveryIntent: (DeliveryIntent) -> Unit = {},
     onInterrupt: () -> Unit = {},
     onLoadOlder: () -> Unit = {},
+    onComment: ((messageId: String) -> Unit)? = null,
     toolsMenu: @Composable () -> Unit = {}, documentCard: @Composable (ChatDocument) -> Unit = {}, serverUrl: String = "", requestCard: @Composable (RequestRef) -> Unit = {}, onSend: () -> Unit,
 ) {
     val list = listState
@@ -153,11 +156,13 @@ fun ChatContent(
                     val document = (item.content as? Content.Document)?.document
                     val user = item.content as? Content.User
                     if (document != null) documentCard(document)
-                    else if (user != null) Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
-                        UserBubble(user.text, user.attachments, attachmentCard)
-                        state.deliveries.firstOrNull { it.messageId == item.id }?.let { Text(deliveryLabel(it.status), style = MaterialTheme.typography.labelSmall) }
+                    else CommentMenu(if (commentable(item)) onComment else null, item.id) {
+                        if (user != null) Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
+                            UserBubble(user.text, user.attachments, attachmentCard)
+                            state.deliveries.firstOrNull { it.messageId == item.id }?.let { Text(deliveryLabel(it.status), style = MaterialTheme.typography.labelSmall) }
+                        }
+                        else TimelineItem(item, openUrl)
                     }
-                    else TimelineItem(item, openUrl)
                 }
                 items(state.outbox, key = { it.id }) {
                     Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
@@ -294,4 +299,19 @@ private fun deliveryLabel(status: String): String = when (status) {
     "unconfirmed" -> stringResource(R.string.message_unconfirmed)
     "not_delivered" -> stringResource(R.string.message_not_delivered)
     else -> stringResource(R.string.message_steering)
+}
+
+/** Touch and hold a user or agent message to comment on it. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun CommentMenu(onComment: ((String) -> Unit)?, messageId: String, content: @Composable () -> Unit) {
+    if (onComment == null) return content()
+    var open by remember(messageId) { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { open = true }, indication = null,
+        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() })) {
+        content()
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text(stringResource(R.string.st_comment)) }, onClick = { open = false; onComment(messageId) })
+        }
+    }
 }

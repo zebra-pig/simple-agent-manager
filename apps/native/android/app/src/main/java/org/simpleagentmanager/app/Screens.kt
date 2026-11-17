@@ -169,7 +169,7 @@ fun Root(
                     projects.load()
                     if (updated != null) session.push(Route.Project(updated.id, updated.name))
                 }
-                is Route.Chat -> ChatScreen(route, chat, onBack = session::pop, openUrl = openUrl)
+                is Route.Chat -> ChatScreen(route, chat, onBack = session::pop, openUrl = openUrl) { session.push(Route.Chat(route.projectId, it)) }
                 is Route.ProfileEditor -> ProfileEditorScreen(route, project, onBack = session::pop)
             }
         }

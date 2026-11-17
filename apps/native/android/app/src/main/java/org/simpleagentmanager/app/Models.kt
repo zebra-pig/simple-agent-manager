@@ -209,3 +209,47 @@ class ProjectManagementModel(application: Application) : AndroidViewModel(applic
     }
     override fun onCleared() { vm.clearObserver(); vm.close() }
 }
+
+/** The session tools that used to hand off to web: one Rust view model each. */
+class SessionToolsModel(application: Application) : AndroidViewModel(application) {
+    private val core = (application as SamApplication).core
+    val related = org.simpleagentmanager.core.LinkedWorkViewModel(core)
+    val automation = org.simpleagentmanager.core.AutomationViewModel(core)
+    val comments = org.simpleagentmanager.core.CommentsViewModel(core)
+    val access = org.simpleagentmanager.core.SessionAccessViewModel(core)
+    val report = org.simpleagentmanager.core.ReportViewModel(core)
+
+    private val _related = MutableStateFlow(related.state())
+    val relatedState: StateFlow<org.simpleagentmanager.core.LinkedWorkState> = _related
+    private val _automation = MutableStateFlow(automation.state())
+    val automationState: StateFlow<org.simpleagentmanager.core.AutomationState> = _automation
+    private val _comments = MutableStateFlow(comments.state())
+    val commentsState: StateFlow<org.simpleagentmanager.core.CommentsState> = _comments
+    private val _access = MutableStateFlow(access.state())
+    val accessState: StateFlow<org.simpleagentmanager.core.SessionAccessState> = _access
+    private val _report = MutableStateFlow(report.state())
+    val reportState: StateFlow<org.simpleagentmanager.core.ReportState> = _report
+
+    init {
+        related.setObserver(object : org.simpleagentmanager.core.LinkedWorkObserver {
+            override fun onStateChanged(state: org.simpleagentmanager.core.LinkedWorkState) { _related.value = state }
+        })
+        automation.setObserver(object : org.simpleagentmanager.core.AutomationObserver {
+            override fun onStateChanged(state: org.simpleagentmanager.core.AutomationState) { _automation.value = state }
+        })
+        comments.setObserver(object : org.simpleagentmanager.core.CommentsObserver {
+            override fun onStateChanged(state: org.simpleagentmanager.core.CommentsState) { _comments.value = state }
+        })
+        access.setObserver(object : org.simpleagentmanager.core.SessionAccessObserver {
+            override fun onStateChanged(state: org.simpleagentmanager.core.SessionAccessState) { _access.value = state }
+        })
+        report.setObserver(object : org.simpleagentmanager.core.ReportObserver {
+            override fun onStateChanged(state: org.simpleagentmanager.core.ReportState) { _report.value = state }
+        })
+    }
+
+    override fun onCleared() {
+        related.clearObserver(); automation.clearObserver(); comments.clearObserver(); access.clearObserver(); report.clearObserver()
+        related.close(); automation.close(); comments.close(); access.close(); report.close()
+    }
+}

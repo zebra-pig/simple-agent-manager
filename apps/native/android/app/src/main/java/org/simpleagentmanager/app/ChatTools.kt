@@ -38,7 +38,7 @@ internal enum class ChatTool(val title: Int) {
 }
 
 @Composable
-fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit) {
+fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit, sheet: SessionSheet?, onSheet: (SessionSheet?) -> Unit, onOpenSession: (String) -> Unit) {
     var menu by remember(chat.sessionId) { mutableStateOf(false) }
     var tool by remember(chat.sessionId) { mutableStateOf<ChatTool?>(null) }
     var confirm by remember(chat.sessionId) { mutableStateOf(false) }
@@ -57,7 +57,7 @@ fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit) 
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(24.dp), containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .96f)) {
             ChatToolsMenuItems(chat, ending, onTool = { menu = false; tool = it },
-                onWeb = { menu = false; openUrl(model.vm.webToolUrl(it)) }, onEnd = { menu = false; confirm = true })
+                onSheet = { menu = false; onSheet(it) }, onEnd = { menu = false; confirm = true })
         }
     }
     if (confirm && end != null) AlertDialog(
@@ -66,6 +66,7 @@ fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit) 
         confirmButton = { TextButton(onClick = { confirm = false; ending = true; scope.launch { try { model.vm.endTask() } finally { ending = false } } }) { Text(stringResource(end)) } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel)) } },
     )
+    sheet?.let { SessionSheetHost(it, model, chat, openUrl, onOpenSession, onClose = { onSheet(null) }) }
     tool?.let { selected ->
         val state by model.toolsState.collectAsStateWithLifecycle()
         ModalBottomSheet(onDismissRequest = { tool = null }, containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .97f)) {
@@ -75,7 +76,7 @@ fun ChatToolsMenu(model: ChatModel, chat: ChatState, openUrl: (String) -> Unit) 
 }
 
 @Composable
-internal fun ChatToolsMenuItems(chat: ChatState, ending: Boolean, onTool: (ChatTool) -> Unit, onWeb: (WebChatTool) -> Unit, onEnd: () -> Unit) {
+internal fun ChatToolsMenuItems(chat: ChatState, ending: Boolean, onTool: (ChatTool) -> Unit, onSheet: (SessionSheet) -> Unit, onEnd: () -> Unit) {
     val session = chat.session
     val drives = session?.let { it.viewerAccess == "owner" || it.viewerAccess == "grantee" || (it.viewerAccess == null && it.isMine) } == true
     val end = if (drives) when (session?.task?.status) {
@@ -89,20 +90,20 @@ internal fun ChatToolsMenuItems(chat: ChatState, ending: Boolean, onTool: (ChatT
         ToolMenuItem(ChatTool.Git) { onTool(it) }
     }
     ToolMenuItem(ChatTool.Timeline) { onTool(it) }
-    WebToolMenuItem(R.string.tool_related) { onWeb(WebChatTool.RELATED) }
+    SheetMenuItem(R.string.tool_related) { onSheet(SessionSheet.Related) }
     ToolMenuItem(ChatTool.Resources) { onTool(it) }
-    WebToolMenuItem(R.string.tool_automation) { onWeb(WebChatTool.AUTOMATION) }
-    WebToolMenuItem(R.string.tool_comments) { onWeb(WebChatTool.COMMENTS) }
+    SheetMenuItem(R.string.tool_automation) { onSheet(SessionSheet.Automation) }
+    SheetMenuItem(R.string.tool_comments) { onSheet(SessionSheet.Comments) }
     HorizontalDivider(Modifier.padding(vertical = 6.dp))
     ToolMenuItem(ChatTool.Progress) { onTool(it) }
-    if (session?.viewerAccess != null) WebToolMenuItem(R.string.tool_share) { onWeb(WebChatTool.SHARE) }
+    if (session?.viewerAccess != null) SheetMenuItem(R.string.tool_share) { onSheet(SessionSheet.Share) }
     val task = session?.task
     if (task != null) {
-        if (!(task.status == "cancelled" && task.terminalReason == "snapshot_expired")) WebToolMenuItem(R.string.tool_retry) { onWeb(WebChatTool.RETRY) }
-        WebToolMenuItem(R.string.tool_fork) { onWeb(WebChatTool.FORK) }
+        if (!(task.status == "cancelled" && task.terminalReason == "snapshot_expired")) SheetMenuItem(R.string.tool_retry) { onSheet(SessionSheet.Derived(DerivedKind.RETRY)) }
+        SheetMenuItem(R.string.tool_fork) { onSheet(SessionSheet.Derived(DerivedKind.FORK)) }
     }
     HorizontalDivider(Modifier.padding(vertical = 6.dp))
-    if (chat.reportEnabled) WebToolMenuItem(R.string.tool_report) { onWeb(WebChatTool.REPORT) }
+    if (chat.reportEnabled) SheetMenuItem(R.string.tool_report) { onSheet(SessionSheet.Report) }
     if (end != null) DropdownMenuItem(text = { Text(stringResource(end)) }, enabled = !ending, onClick = { onEnd() })
     ToolMenuItem(ChatTool.Details) { onTool(it) }
 }
@@ -111,9 +112,7 @@ internal fun ChatToolsMenuItems(chat: ChatState, ending: Boolean, onTool: (ChatT
 private fun ToolMenuItem(tool: ChatTool, onSelect: (ChatTool) -> Unit) = DropdownMenuItem(text = { Text(stringResource(tool.title)) }, onClick = { onSelect(tool) })
 
 @Composable
-private fun WebToolMenuItem(title: Int, onClick: () -> Unit) = DropdownMenuItem(
-    text = { Text(stringResource(R.string.web_tool_label, stringResource(title))) }, onClick = onClick,
-)
+private fun SheetMenuItem(title: Int, onClick: () -> Unit) = DropdownMenuItem(text = { Text(stringResource(title)) }, onClick = onClick)
 
 /** Neutral, translucent surfaces with a light rim, shared by the tools. */
 @Composable

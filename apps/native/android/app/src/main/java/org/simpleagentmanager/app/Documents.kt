@@ -92,21 +92,7 @@ fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: Ch
           busy = true
           failed = false
           try {
-            val bytes = core.documentBytes(document.fileId)
-            if (bytes == null) failed = true
-            else {
-              val uri = sharedDocumentUri(context, label, bytes)
-              val type = document.mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream"
-              val intent =
-                Intent(Intent.ACTION_VIEW)
-                  .setDataAndType(uri, type)
-                  .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-              try {
-                context.startActivity(intent)
-              } catch (_: ActivityNotFoundException) {
-                failed = true
-              }
-            }
+            failed = !openLibraryFile(context, core, document.fileId, label, document.mimeType)
           } catch (_: java.io.IOException) {
             failed = true
           } finally {
@@ -355,5 +341,19 @@ internal fun SquareImageTile(thumbnail: ImageBitmap?, label: String, side: Dp) {
         drawLine(color, Offset(size.width * .35f, size.height * .45f), Offset(size.width * .9f, size.height), 1.5.dp.toPx())
       }
     }
+  }
+}
+
+/** Opens a library file in a viewer, via the shared cache. False if it could not. */
+internal suspend fun openLibraryFile(context: android.content.Context, core: ChatViewModel, fileId: String, label: String, mimeType: String): Boolean {
+  val bytes = core.documentBytes(fileId) ?: return false
+  val uri = sharedDocumentUri(context, label.ifEmpty { "File" }, bytes)
+  val type = mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+  val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+  return try {
+    context.startActivity(intent)
+    true
+  } catch (_: ActivityNotFoundException) {
+    false
   }
 }

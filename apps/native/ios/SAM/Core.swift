@@ -199,3 +199,69 @@ extension Relay: ProjectManagementObserver where State == ProjectManagementState
 extension Relay: CommandsObserver where State == CommandsState {
     func onStateChanged(state: CommandsState) { send(state) }
 }
+
+/// Session tools that run natively (formerly handed off to web): one wrapper per view model.
+@MainActor @Observable final class LinkedWorkModel {
+    let core: LinkedWorkViewModel
+    private(set) var state: LinkedWorkState
+    init(app: App) {
+        core = LinkedWorkViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+extension Relay: LinkedWorkObserver where State == LinkedWorkState {
+    func onStateChanged(state: LinkedWorkState) { send(state) }
+}
+
+@MainActor @Observable final class AutomationModel {
+    let core: AutomationViewModel
+    private(set) var state: AutomationState
+    init(app: App) {
+        core = AutomationViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+extension Relay: AutomationObserver where State == AutomationState {
+    func onStateChanged(state: AutomationState) { send(state) }
+}
+
+@MainActor @Observable final class CommentsModel {
+    let core: CommentsViewModel
+    private(set) var state: CommentsState
+    init(app: App) {
+        core = CommentsViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+extension Relay: CommentsObserver where State == CommentsState {
+    func onStateChanged(state: CommentsState) { send(state) }
+}
+
+@MainActor @Observable final class SessionAccessModel {
+    let core: SessionAccessViewModel
+    private(set) var state: SessionAccessState
+    init(app: App) {
+        core = SessionAccessViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+extension Relay: SessionAccessObserver where State == SessionAccessState {
+    func onStateChanged(state: SessionAccessState) { send(state) }
+}
+
+@MainActor @Observable final class ReportModel {
+    let core: ReportViewModel
+    private(set) var state: ReportState
+    init(app: App) {
+        core = ReportViewModel(app: app)
+        state = core.state()
+        core.setObserver(observer: Relay { [weak self] in self?.state = $0 })
+    }
+}
+extension Relay: ReportObserver where State == ReportState {
+    func onStateChanged(state: ReportState) { send(state) }
+}
