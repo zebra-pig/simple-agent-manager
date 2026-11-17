@@ -31,6 +31,18 @@ mod provisioning;
 mod server;
 mod session;
 mod timeline;
+mod automation;
+pub use automation::*;
+mod comments;
+pub use comments::*;
+mod linked_work;
+pub use linked_work::*;
+mod members;
+pub use members::ProjectMember;
+mod report;
+pub use report::*;
+mod session_access;
+pub use session_access::*;
 
 pub use agent_profiles::{
     permission_modes, profile_draft, profile_runtimes, supported_efforts, task_modes, workspace_profiles, AgentOption, AgentProfile,
