@@ -111,10 +111,12 @@ current device-test suite; JVM success does not establish real device behavior.
 
 ## CI and evidence
 
-`ios/ci_scripts/ci_post_clone.sh` runs the same Apple runner: host/integration (headless XCTest) for
-macOS, the six default/extra simulator suites for iOS. Xcode Cloud builds the
-production application afterward. These checks run in Xcode Cloud, not the Linux
-GitHub Actions workflow; a green GitHub check alone is not Apple test evidence.
+Xcode Cloud does not run tests: Cloud minutes are expensive, so
+`ios/ci_scripts/ci_post_clone.sh` only builds the Rust core and bindings before
+the archive. Run the Apple suites ad hoc on a build Mac with `scripts/test.sh`
+(`apple-all`, or the suites a change touches) before merging native changes.
+The Linux GitHub Actions workflow doesn't run them either; a green GitHub check
+alone is not Apple test evidence.
 
 Each Apple invocation writes `test-run.json` with source revision, dirty state,
 command, toolchain, time and exit status. XCTest suites retain `.xcresult`, logs
