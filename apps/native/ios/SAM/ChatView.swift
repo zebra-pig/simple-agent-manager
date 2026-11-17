@@ -60,20 +60,12 @@ struct ChatView: View {
                             }.frame(maxWidth: .infinity, alignment: .trailing).scaleEffect(y: -1)
                         }
                         ForEach(Array(chat.transcript.items.enumerated()).reversed(), id: \.element.id) { index, message in
-                            VStack(alignment: .leading, spacing: 0) {
-                                if case let .document(document) = message.content {
-                                    DocumentCard(document: document, documents: chat.transcript.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
-                                } else if case let .user(text, attachments) = message.content {
-                                    VStack(alignment: .trailing, spacing: 4) {
-                                        UserMessageView(text: text, attachments: attachments, core: chat.core)
-                                        if let delivery = chat.transcript.deliveries.first(where: { $0.messageId == message.id }) {
-                                            MessageDeliveryLabel(status: delivery.status)
-                                        }
-                                    }
-                                } else { TimelineItemView(item: message) }
-                            }
-                            .contextMenu { if commentable(message) { Button("Comment", systemImage: "text.bubble") { sessionSheet = .newComment(message.id) } } }
-                            .scaleEffect(y: -1).id(message.id)
+                            messageRow(message)
+                            .scaleEffect(y: -1)
+                            .modifier(MessageCommentMenu(enabled: commentable(message)) {
+                                sessionSheet = .newComment(message.id)
+                            } preview: { messageRow(message) })
+                            .id(message.id)
                                 .accessibilityElement(children: .contain)
                                 .accessibilityIdentifier("chat-message-\(message.id)")
                                 .accessibilitySortPriority(Double(chat.transcript.items.count - index))
@@ -305,6 +297,21 @@ struct ChatView: View {
         }
     }
 
+    @ViewBuilder private func messageRow(_ message: ChatItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if case let .document(document) = message.content {
+                DocumentCard(document: document, documents: chat.transcript.items.compactMap { if case let .document(d) = $0.content { return d }; return nil }, core: chat.core)
+            } else if case let .user(text, attachments) = message.content {
+                VStack(alignment: .trailing, spacing: 4) {
+                    UserMessageView(text: text, attachments: attachments, core: chat.core)
+                    if let delivery = chat.transcript.deliveries.first(where: { $0.messageId == message.id }) {
+                        MessageDeliveryLabel(status: delivery.status)
+                    }
+                }
+            } else { TimelineItemView(item: message) }
+        }
+    }
+
     /// Web takes new comments on user and agent messages, not on notices or tool activity.
     private func commentable(_ message: ChatItem) -> Bool {
         switch message.content {
@@ -514,6 +521,35 @@ private struct ChatTopFade: ViewModifier {
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+        }
+    }
+}
+
+/// The comment menu for a chat row. The conversation is drawn in a vertically
+/// mirrored scroll view and each row mirrors itself back. With the menu inside
+/// the row's mirror, the press highlight snapshotted the row with only the scroll
+/// view's mirror, so a pressed message turned upside down. Wrapping the row's
+/// mirror fixes the highlight, and an explicit preview, rendered on its own,
+/// keeps the lifted message upright and full size (the default one is squashed).
+/// Rows that cannot be commented on get no menu, so pressing them does nothing.
+private struct MessageCommentMenu<Preview: View>: ViewModifier {
+    let enabled: Bool
+    let comment: () -> Void
+    @ViewBuilder let preview: () -> Preview
+    /// The preview is laid out outside the list, so give it the row's width.
+    @State private var width: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+                .contextMenu {
+                    Button("Comment", systemImage: "text.bubble", action: comment)
+                } preview: {
+                    preview().frame(width: max(width, 1)).padding(12)
+                }
+        } else {
+            content
         }
     }
 }
