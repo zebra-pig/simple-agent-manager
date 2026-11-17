@@ -187,8 +187,9 @@ cancelling a task asks for confirmation and uses the web's task-status transitio
 - **Report** submits `/api/report-issue`; technical references are attached only when
   the reporter turns them on.
 
-`WebChatTool`/`web_tool_url` remain for Android, which still hands these tools to web.
-Run `bash scripts/test.sh apple-ui <dir> session-tools` to drive all of them on a simulator.
+Android shows the same tools in bottom sheets over the same view models. Touch and hold a
+message for Comment there too. Run `bash scripts/test.sh apple-ui <dir> session-tools` to
+drive all of them on an iOS simulator.
 
 Apple tool surfaces use Liquid Glass with the existing material fallback. Android uses
 neutral translucent surfaces, a light rim and a subtle gradient. File/diff parsing and API

@@ -514,33 +514,6 @@ impl ChatViewModel {
     }
 }
 
-/// Tools handed to web open a panel or a prefilled composer; never execute an action.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum WebChatTool {
-    Related,
-    Automation,
-    Comments,
-    Share,
-    Retry,
-    Fork,
-    Report,
-}
-#[uniffi::export]
-impl ChatViewModel {
-    pub fn web_tool_url(&self, tool: WebChatTool) -> String {
-        let name = match tool {
-            WebChatTool::Related => "related",
-            WebChatTool::Automation => "automation",
-            WebChatTool::Comments => "comments",
-            WebChatTool::Share => "share",
-            WebChatTool::Retry => "retry",
-            WebChatTool::Fork => "fork",
-            WebChatTool::Report => "report",
-        };
-        format!("{}?tool={name}", self.web_url())
-    }
-}
-
 impl ChatViewModel {
     async fn catch_up(&self, base: &str, latest: &timeline::Row) -> crate::error::Result<Vec<timeline::Row>> {
         let mut after = cursor(latest);

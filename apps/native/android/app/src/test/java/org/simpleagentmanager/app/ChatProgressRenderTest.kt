@@ -44,7 +44,7 @@ class ChatProgressRenderTest {
                 ChatContent(chat, "", {}, {}, {}, {}, {}, toolsMenu = {
                     TextButton(onClick = { menu = true }) { Text("Session tools") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        ChatToolsMenuItems(chat, false, onTool = { menu = false; progress = it == ChatTool.Progress }, onWeb = {}, onEnd = {})
+                        ChatToolsMenuItems(chat, false, onTool = { menu = false; progress = it == ChatTool.Progress }, onSheet = {}, onEnd = {})
                     }
                 }, requestCard = { Text("Request ${it.id}") }, onSend = {})
                 if (progress) ModalBottomSheet(onDismissRequest = { progress = false }) {

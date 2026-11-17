@@ -62,7 +62,8 @@ import org.simpleagentmanager.core.workspaceProfiles
  * opens the project's profiles, with "Edit" and "New profile" for the editor.
  */
 @Composable
-internal fun ProfileRow(state: ProjectState, onSelect: (String) -> Unit, onEdit: (profileId: String?) -> Unit) {
+/** `onEdit` null: choose only (no editor reachable from here). */
+internal fun ProfileRow(state: ProjectState, onSelect: (String) -> Unit, onEdit: ((profileId: String?) -> Unit)?) {
     var open by remember { mutableStateOf(false) }
     val selected = state.profiles.firstOrNull { it.id == state.selectedProfileId }
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -92,6 +93,7 @@ internal fun ProfileRow(state: ProjectState, onSelect: (String) -> Unit, onEdit:
                         },
                     )
                 }
+                if (onEdit == null) return@DropdownMenu
                 if (state.profiles.isNotEmpty()) HorizontalDivider()
                 if (selected != null && selected.editable) {
                     DropdownMenuItem(

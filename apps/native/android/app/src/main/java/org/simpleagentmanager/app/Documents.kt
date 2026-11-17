@@ -86,33 +86,7 @@ fun DocumentCard(document: ChatDocument, documents: List<ChatDocument>, core: Ch
           busy = true
           failed = false
           try {
-            val bytes = core.documentBytes(document.fileId)
-            if (bytes == null) failed = true
-            else {
-              val file =
-                withContext(Dispatchers.IO) {
-                  val folder = File(context.cacheDir, "documents").apply { mkdirs() }
-                  // Expire old previews; only this narrow directory is shared with the OS.
-                  folder
-                    .listFiles()
-                    ?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }
-                    ?.forEach { it.deleteRecursively() }
-                  val dir = File(folder, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
-                  File(dir, File(label).name.takeUnless { it == "." || it == ".." } ?: "File")
-                    .apply { writeBytes(bytes) }
-                }
-              val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-              val type = document.mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream"
-              val intent =
-                Intent(Intent.ACTION_VIEW)
-                  .setDataAndType(uri, type)
-                  .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-              try {
-                context.startActivity(intent)
-              } catch (_: ActivityNotFoundException) {
-                failed = true
-              }
-            }
+            failed = !openLibraryFile(context, core, document.fileId, label, document.mimeType)
           } catch (_: java.io.IOException) {
             failed = true
           } finally {
@@ -300,5 +274,30 @@ internal fun SquareImageTile(thumbnail: ImageBitmap?, label: String, side: Dp) {
         drawLine(color, Offset(size.width * .35f, size.height * .45f), Offset(size.width * .9f, size.height), 1.5.dp.toPx())
       }
     }
+  }
+}
+
+/** Writes a library file to the shared cache and opens it in a viewer. False if it could not. */
+internal suspend fun openLibraryFile(context: android.content.Context, core: ChatViewModel, fileId: String, label: String, mimeType: String): Boolean {
+  val bytes = core.documentBytes(fileId) ?: return false
+  val file =
+    withContext(Dispatchers.IO) {
+      val folder = File(context.cacheDir, "documents").apply { mkdirs() }
+      // Expire old previews; only this narrow directory is shared with the OS.
+      folder
+        .listFiles()
+        ?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }
+        ?.forEach { it.deleteRecursively() }
+      val dir = File(folder, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
+      File(dir, File(label).name.takeUnless { it == "." || it == ".." || it.isEmpty() } ?: "File").apply { writeBytes(bytes) }
+    }
+  val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+  val type = mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+  val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+  return try {
+    context.startActivity(intent)
+    true
+  } catch (_: ActivityNotFoundException) {
+    false
   }
 }
