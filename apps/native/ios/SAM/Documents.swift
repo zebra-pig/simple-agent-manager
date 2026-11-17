@@ -349,14 +349,15 @@ struct ImageTile: View {
     let image: Image?
     let side: CGFloat
     var body: some View {
-        ZStack {
-            Color.secondary.opacity(0.12)
-            if let image { image.resizable().scaledToFill() }
-            else { Image(systemName: "photo").foregroundStyle(.secondary) }
-        }
-        .frame(width: side, height: side)
-        .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        Color.secondary.opacity(0.12)
+            .frame(width: side, height: side)
+            .overlay {
+                // Fill without letting the wider/taller image grow the tile's frame.
+                if let image { image.resizable().scaledToFill().frame(width: side, height: side).clipped() }
+                else { Image(systemName: "photo").foregroundStyle(.secondary) }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
