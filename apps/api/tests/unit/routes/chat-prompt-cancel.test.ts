@@ -740,6 +740,109 @@ describe('POST /sessions/:sessionId/attention/:markerId/resolve', () => {
     );
   });
 
+  // Production 2026-11-17: the agent asked, its turn ended and the conversation slept. Tapping
+  // an option answered "No active workspace found for this session" while a typed reply woke
+  // the agent. The answer now takes the typed reply's durable path whenever no live agent is
+  // reachable.
+  describe('when no live agent is reachable', () => {
+    beforeEach(() => {
+      vi.mocked(projectDataService.acceptPromptDelivery).mockResolvedValue({
+        message: { id: 'delivery-1' },
+        transcriptMessageId: 'msg-1',
+      } as never);
+    });
+
+    it.each([
+      ['the conversation slept and its workspace is gone', { workspace: null }],
+      [
+        'the VM node stopped',
+        {
+          workspace: { id: 'ws-1', nodeId: 'node-1', nodeStatus: 'stopped' },
+          agentSession: { id: 'agent-sess-1' },
+        },
+      ],
+      [
+        'no agent session is running',
+        {
+          workspace: { id: 'ws-1', nodeId: 'node-1', nodeStatus: 'running' },
+          agentSession: null,
+        },
+      ],
+    ] as const)('queues the answer as a durable prompt when %s', async (_case, rows) => {
+      setupDrizzle(rows as Parameters<typeof setupDrizzle>[0]);
+
+      const response = await postAnswer();
+
+      expect(response.status).toBe(200);
+      expect(mocks.sendPromptToAgentOnNode).not.toHaveBeenCalled();
+      expect(projectDataService.acceptPromptDelivery).toHaveBeenCalledWith(
+        expect.anything(),
+        'proj-1',
+        expect.objectContaining({
+          deliveryId: 'attention-answer:chat-1:marker-1',
+          targetSessionId: 'chat-1',
+          displayContent: 'Approve',
+          deliveryContent: 'Approve',
+          senderType: 'human',
+          senderId: 'user-1',
+          sourceKind: 'user_followup',
+          metadata: expect.objectContaining({
+            attentionMarkerId: 'marker-1',
+            wake: expect.objectContaining({ trigger: 'attention_answer' }),
+          }),
+        })
+      );
+      expect(projectDataService.completeAttentionAnswer).toHaveBeenCalledWith(
+        expect.anything(),
+        'proj-1',
+        'chat-1',
+        'marker-1',
+        'Approve'
+      );
+      expect(projectDataService.releaseAttentionAnswer).not.toHaveBeenCalled();
+      await expect(response.json()).resolves.toEqual({
+        resolved: true,
+        alreadyResolved: false,
+        answer: 'Approve',
+        queued: true,
+      });
+    });
+
+    it('keeps the claim when the durable queue outcome is unknown', async () => {
+      setupDrizzle({ workspace: null });
+      vi.mocked(projectDataService.acceptPromptDelivery).mockRejectedValue(
+        new Error('project data unavailable')
+      );
+
+      const response = await postAnswer();
+
+      expect(response.status).toBe(500);
+      expect(projectDataService.completeAttentionAnswer).not.toHaveBeenCalled();
+      expect(projectDataService.releaseAttentionAnswer).not.toHaveBeenCalled();
+    });
+
+    it('still reports a sentence-shaped error when durable delivery is disabled', async () => {
+      setupDrizzle({ workspace: null });
+
+      const response = await app.request(
+        '/api/projects/proj-1/sessions/chat-1/attention/marker-1/resolve',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answer: 'Approve' }),
+        },
+        { DATABASE: {} as D1Database, DURABLE_PROMPT_DELIVERY_ENABLED: 'false' } as Env
+      );
+
+      expect(response.status).toBe(404);
+      expect(projectDataService.acceptPromptDelivery).not.toHaveBeenCalled();
+      expect(projectDataService.releaseAttentionAnswer).toHaveBeenCalledOnce();
+      await expect(response.json()).resolves.toMatchObject({
+        message: 'No active workspace found for this session',
+      });
+    });
+  });
+
   it('rejects an answer outside the stored options without contacting the agent', async () => {
     vi.mocked(projectDataService.prepareAttentionAnswer).mockResolvedValue({
       status: 'invalid_option',

@@ -9,6 +9,7 @@ import type { Hono } from 'hono';
 
 import * as schema from '../db/schema';
 import { parseAttentionOptions } from '../durable-objects/project-data/attention';
+import { resolveDurableExecutionConfig } from '../durable-objects/project-data/durable-execution-config';
 import type { Env } from '../env';
 import { agentWakeRecord } from '../lib/agent-wake-policy';
 import { markRejectedBeforeEffects } from '../lib/operation-effect-boundary';
@@ -27,9 +28,11 @@ import { authorizeAgentWake } from '../services/agent-wake-authorization';
 import { getCommentContextLimits } from '../services/collaboration-settings';
 import { getConnectorReadLimits } from '../services/connector-read-settings';
 import * as projectDataService from '../services/project-data';
+import { type AuthorizedSendChat, sendChat } from '../services/send-chat';
 import { recordSharedSessionAnswer } from '../services/session-access';
 import { getSessionMessageLimit } from './chat-message-query';
 import { preparePromptForLiveAgent, sendPreparedPromptToLiveAgent } from './chat-prompt-forward';
+import { isNoLiveAgentError } from './chat-workspace-resolver';
 
 /** The `request_human_input` category stored with the question, or null when absent/unknown. */
 function parseAttentionCategory(metadata: string | null): HumanInputCategory | null {
@@ -168,7 +171,7 @@ export async function answerAttention(
 ) {
   const db = drizzle(env.DATABASE, { schema });
 
-  await requireProjectCapability(db, projectId, userId, 'task:write');
+  const project = await requireProjectCapability(db, projectId, userId, 'task:write');
   // The answer reaches the agent as a new prompt, so the agent-wake policy decides.
   const { writer, wake } = await authorizeAgentWake(env, {
     projectId,
@@ -224,6 +227,20 @@ export async function answerAttention(
       content: answer,
     });
   } catch (cause) {
+    // An agent usually asks and then ends its turn, so by the time the person answers the
+    // conversation may have slept or its node stopped. A typed reply wakes it through durable
+    // prompt delivery; the answer takes the same path instead of failing with
+    // "No active workspace found for this session".
+    if (isNoLiveAgentError(cause) && resolveDurableExecutionConfig(env).deliveryEnabled) {
+      return answerAttentionThroughDurableDelivery(env, {
+        userId,
+        projectId,
+        sessionId,
+        markerId,
+        answer,
+        authorized: { project, writer, wake },
+      });
+    }
     // Resolution/enrichment failed before the mutating request began, so this
     // claim is definitively safe to retry.
     await projectDataService.releaseAttentionAnswer(env, projectId, sessionId, markerId, answer);
@@ -241,4 +258,52 @@ export async function answerAttention(
   // shared-answer audit event instead; an owner's answer is the owner acting for themself.
   await recordSharedSessionAnswer(env, writer, { markerId, wake: agentWakeRecord(wake) });
   return { resolved: true, alreadyResolved: false, answer };
+}
+
+export function attentionAnswerDeliveryId(sessionId: string, markerId: string): string {
+  return `attention-answer:${sessionId}:${markerId}`;
+}
+
+/**
+ * Queue an attention answer as the person's durable follow-up, which wakes a sleeping
+ * session exactly like a typed reply. The stable delivery id makes a retried answer
+ * idempotent. Failures before the first side effect release the claim; anything after it
+ * has an unknown outcome and keeps the claim, as on the live path.
+ */
+async function answerAttentionThroughDurableDelivery(
+  env: Env,
+  input: {
+    userId: string;
+    projectId: string;
+    sessionId: string;
+    markerId: string;
+    answer: string;
+    authorized: AuthorizedSendChat;
+  }
+) {
+  const { userId, projectId, sessionId, markerId, answer, authorized } = input;
+  let effectStarted = false;
+  try {
+    await sendChat(
+      env,
+      userId,
+      projectId,
+      sessionId,
+      { content: answer },
+      authorized,
+      async () => {
+        effectStarted = true;
+      },
+      {
+        deliveryId: attentionAnswerDeliveryId(sessionId, markerId),
+        metadata: { attentionMarkerId: markerId },
+      }
+    );
+  } catch (cause) {
+    if (effectStarted) throw cause;
+    await projectDataService.releaseAttentionAnswer(env, projectId, sessionId, markerId, answer);
+    throw cause instanceof Error ? markRejectedBeforeEffects(cause) : cause;
+  }
+  await projectDataService.completeAttentionAnswer(env, projectId, sessionId, markerId, answer);
+  return { resolved: true, alreadyResolved: false, answer, queued: true };
 }

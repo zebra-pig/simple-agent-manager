@@ -72,6 +72,13 @@ function matchesRequest(
   );
 }
 
+/** Extra identity for a durable delivery that answers something (an agent's question). */
+export interface SendChatDelivery {
+  /** Stable id, so a retried answer is accepted once. */
+  deliveryId?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export async function sendChat(
   env: Env,
   userId: string,
@@ -79,7 +86,8 @@ export async function sendChat(
   sessionId: string,
   body: v.InferOutput<typeof SendChatMessageSchema>,
   authorized?: AuthorizedSendChat,
-  assertEffectAllowed?: () => Promise<void>
+  assertEffectAllowed?: () => Promise<void>,
+  delivery?: SendChatDelivery
 ) {
   const db = drizzle(env.DATABASE, { schema });
 
@@ -142,6 +150,7 @@ export async function sendChat(
       : enrichedMessage;
     await assertEffectAllowed?.();
     const accepted = await projectDataService.acceptPromptDelivery(env, projectId, {
+      ...(delivery?.deliveryId ? { deliveryId: delivery.deliveryId } : {}),
       targetSessionId: sessionId,
       displayContent: buildVisibleInitialPrompt({ message: content, attachments }),
       deliveryContent: buildVisibleInitialPrompt({ message: deliveryMessage, attachments }),
@@ -152,6 +161,7 @@ export async function sendChat(
       sourceKind: 'user_followup',
       ttlMs: durableConfig.ttlMs,
       metadata: {
+        ...delivery?.metadata,
         userId,
         wake: agentWakeRecord(wake),
         ...(names
