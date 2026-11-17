@@ -39,18 +39,22 @@ case "$mode" in
         ;;
     ui)
         if [ -n "${3:-}" ]; then suites=("$3"); else suites=(composer errors chat-scroll gallery session-tools app-lock split-view ports); fi
+        # Run every suite and fail at the end, so one run reports all failing suites.
+        failed=()
+        run() { "$@" || failed+=("$suite"); }
         for suite in "${suites[@]}"; do
             case "$suite" in
-                composer|errors|chat-scroll|gallery|session-tools|app-lock|ports) bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite" ;;
+                composer|errors|chat-scroll|gallery|session-tools|app-lock|ports) run bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite" ;;
                 split-view)
                     # Sidebar cases need a regular-width iPad; compact navigation runs on an iPhone.
-                    bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite-iphone"
-                    SAM_TEST_DEVICE_PREFIX=iPad bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite-ipad" ;;
-                project-loading) sh "$here/ui/project-loading/project-loading.sh" "$output/$suite" ;;
-                slash-commands) bash "$here/ui/slash-commands/slash-commands.sh" "$output/$suite" ;;
+                    run bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite-iphone"
+                    SAM_TEST_DEVICE_PREFIX=iPad run bash "$here/support/run-ui.sh" "$here/ui/$suite" "$output/$suite-ipad" ;;
+                project-loading) run sh "$here/ui/project-loading/project-loading.sh" "$output/$suite" ;;
+                slash-commands) run bash "$here/ui/slash-commands/slash-commands.sh" "$output/$suite" ;;
                 *) echo "Unknown UI suite: $suite" >&2; exit 1 ;;
             esac
         done
+        if [ ${#failed[@]} -gt 0 ]; then echo "Failed UI suites: ${failed[*]}" >&2; exit 1; fi
         ;;
     all)
         bash "$0" host "$output/host"

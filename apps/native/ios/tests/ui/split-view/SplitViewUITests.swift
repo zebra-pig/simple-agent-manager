@@ -62,10 +62,10 @@ final class SplitViewUITests: XCTestCase {
         app.staticTexts["Build the dashboard"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["The dashboard layout is ready for review."].waitForExistence(timeout: 10))
         capture("iphone-chat")
-        backButton("Atlas", in: app).tap()
-        XCTAssertTrue(app.staticTexts["Build the dashboard"].firstMatch.isHittable)
-        backButton("Projects", in: app).tap()
-        XCTAssertTrue(project("orchard", in: app).isHittable)
+        goBack(in: app)
+        XCTAssertTrue(waitHittable(app.staticTexts["Build the dashboard"].firstMatch))
+        goBack(in: app)
+        XCTAssertTrue(waitHittable(project("orchard", in: app)))
         project("atlas", in: app).tap()
         XCTAssertTrue(app.staticTexts["Build the dashboard"].waitForExistence(timeout: 5))
         capture("iphone-project-reselected")
@@ -75,10 +75,24 @@ final class SplitViewUITests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: "project-\(id)").firstMatch
     }
 
-    /// iOS 27.2 reports bar back buttons as type Other, so match them at any type.
-    private func backButton(_ title: String, in app: XCUIApplication) -> XCUIElement {
-        app.navigationBars.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier == 'BackButton' OR label == %@", title)).firstMatch
+    /// The iOS 27.2 bar back button is an unlabeled glass control outside any NavigationBar
+    /// element, so prefer the system BackButton when it is exposed and otherwise use the
+    /// interactive edge-swipe pop that NavigationStack supports on every version.
+    private func goBack(in app: XCUIApplication) {
+        // A collapsed split view keeps hidden bars from other columns; tap the visible one.
+        let deadline = Date().addingTimeInterval(3)
+        repeat {
+            let buttons = app.descendants(matching: .any).matching(identifier: "BackButton").allElementsBoundByIndex
+            if let back = buttons.first(where: { $0.exists && $0.isHittable }) { back.tap(); return }
+            usleep(200_000)
+        } while Date() < deadline
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
+    }
+
+    private func waitHittable(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func capture(_ name: String) {
