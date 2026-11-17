@@ -99,7 +99,10 @@ final class GalleryUITests: XCTestCase {
             for number in 2...8 { app.swipeLeft(); assertImage(number) }
             app.swipeLeft(); assertImage(8)
         }
-        app.buttons["Done"].tap()
+        let bar = app.navigationBars["8.png"]
+        XCTAssertTrue(bar.buttons["Close"].exists, "The gallery closes with an X button")
+        XCTAssertFalse(bar.buttons["Done"].exists, "The gallery no longer shows a Done button")
+        bar.buttons["Close"].tap()
         XCTAssertTrue(image.waitForExistence(timeout: 5))
         image.tap(); assertImage(7)
         app.swipeLeft(); assertImage(8)

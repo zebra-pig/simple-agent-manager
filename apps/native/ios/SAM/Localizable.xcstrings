@@ -1,6 +1,10 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Close" : {
+      "comment" : "Accessibility label of the image gallery's X button that dismisses it.",
+      "extractionState" : "manual"
+    },
     "Share" : {
       "comment" : "Gallery toolbar button that shares the displayed image's original file.",
       "extractionState" : "manual"

@@ -77,4 +77,14 @@ class DocumentGalleryTest {
         compose.onNodeWithContentDescription("Share").performClick()
         compose.runOnIdle { assertEquals(listOf("image-3", "image-4"), shared) }
     }
+
+    @Test fun closeButtonIsAnXThatDismissesTheGallery() {
+        var closed = 0
+        compose.setContent { MaterialTheme {
+            DocumentGalleryContent(documents.take(2), "image-0", { ImageBitmap(120, 240) }, { closed++ })
+        } }
+        compose.onNodeWithText("Done").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Close").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, closed) }
+    }
 }
