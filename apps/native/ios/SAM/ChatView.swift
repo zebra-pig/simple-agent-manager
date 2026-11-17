@@ -158,9 +158,7 @@ struct ChatView: View {
         }
         .navigationTitle(chat.state.session?.topic ?? String(localized: "Session"))
         .inlineTitle()
-        #if os(iOS)
-        .toolbar(.hidden, for: .tabBar)
-        #endif
+        .hidesTabBarWhenPushed()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {

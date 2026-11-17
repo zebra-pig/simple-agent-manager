@@ -1,17 +1,23 @@
 import SwiftUI
 
+/// Projects, a project's agents and the selected conversation in Mail-style
+/// columns. Regular width shows the columns side by side; compact width
+/// collapses them into one stack (Projects → Agents → Conversation).
 struct ProjectsView: View {
     let app: App
     let onPush: () -> Void
     @State private var list: ProjectListModel
     @State private var selectedProjectId: String?
-    @State private var path: [SessionRef] = []
-    @State private var pendingSession: SessionRef?
+    @State private var selectedSession: SessionRef?
+    @State private var columns: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var query = ""
     @State private var showingAccount = false
     @State private var creating = false
     @State private var push = PushRouter.shared
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
 
     init(app: App, onPush: @escaping () -> Void = {}) {
         self.app = app
@@ -27,7 +33,7 @@ struct ProjectsView: View {
         }
     }
 
-    /// Keep the detail root's identity stable while a notification's project is loading.
+    /// Keep the agents column's identity stable while a notification's project is loading.
     private var selectedProject: Project? {
         guard let id = selectedProjectId else { return nil }
         return list.state.projects.first(where: { $0.id == id })
@@ -35,72 +41,34 @@ struct ProjectsView: View {
     }
 
     var body: some View {
-        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-            List(selection: $selectedProjectId) {
-                ForEach(projects, id: \.id) { project in
-                    // Explicit selection keeps arriving rows from replacing a notification's chat route.
-                    Button { selectProject(project.id) } label: {
-                        ProjectRow(project: project)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .tag(project.id)
-                    .accessibilityIdentifier("project-\(project.id)")
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $preferredCompactColumn) {
+            projectList
+        } content: {
+            Group {
+                if let project = selectedProject {
+                    ProjectView(app: app, project: project, selectedSessionId: selectedSession?.sessionId,
+                                changed: projectChanged, open: openSession)
+                        .id(project.id)
+                } else {
+                    ContentUnavailableView("Select a project", systemImage: "folder",
+                                           description: Text("Choose a project to see its agents and start a task."))
                 }
             }
-            .overlay {
-                if list.state.projects.isEmpty && list.state.error == nil {
-                    ContentUnavailableView("No projects", systemImage: "folder",
-                                           description: Text("Tap + to create your first project."))
-                }
-            }
-            .initialLoading(list.state.loading)
-            .floatingErrors([list.state.error?.message])
-            .navigationTitle("Projects")
-            .searchable(text: $query)
-            .refreshable { await list.core.load() }
-            .task { await list.core.load() }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button("New project", systemImage: "plus") { creating = true }
-                }
-                ToolbarItem(placement: .navigation) {
-                    Button("Account", systemImage: "person.crop.circle") { showingAccount = true }
-                }
-            }
-            .sheet(isPresented: $creating) {
-                ProjectSettings(app: app) { project in
-                    Task {
-                        await list.core.load()
-                        if let project { selectProject(project.id) }
-                    }
-                }
-            }
-            .sheet(isPresented: $showingAccount) { AccountView().macSheet() }
-            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 380)
+            .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 440)
         } detail: {
-            NavigationStack(path: $path) {
-                Group {
-                    if let project = selectedProject {
-                        ProjectView(app: app, project: project, changed: projectChanged, open: openSession)
-                            .id(project.id)
-                            .task { openPendingSession(for: project.id) }
-                    } else {
-                        ContentUnavailableView("Select a project", systemImage: "folder",
-                                               description: Text("Choose a project to see its sessions and start a task."))
-                    }
-                }
-                .navigationDestination(for: SessionRef.self) { ref in
-                    ChatView(app: app, ref: ref)
-                }
+            if let ref = selectedSession {
+                // A fresh conversation per session, like a pushed destination.
+                ChatView(app: app, ref: ref).id(ref)
+            } else {
+                ContentUnavailableView("No conversation selected", systemImage: "bubble.left.and.bubble.right",
+                                       description: Text("Choose an agent to see its conversation."))
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .environment(\.hidesTabBar, collapsed)
         .onChange(of: selectedProjectId) { _, id in
             // A push selects its project and session together; keep that route.
-            if path.last?.projectId != id { path.removeAll() }
-            preferredCompactColumn = id == nil ? .sidebar : .detail
+            if selectedSession?.projectId != id { selectedSession = nil }
         }
         .onChange(of: push.pending, initial: true) { _, ref in
             guard let ref else { return }
@@ -110,33 +78,75 @@ struct ProjectsView: View {
         }
     }
 
+    /// Compact width stacks the columns, so agents and chats are pushed screens.
+    private var collapsed: Bool {
+        #if os(iOS)
+        sizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
+    private var projectList: some View {
+        List(selection: $selectedProjectId) {
+            ForEach(projects, id: \.id) { project in
+                // Explicit selection keeps arriving rows from replacing a notification's chat route.
+                Button { selectProject(project.id) } label: {
+                    ProjectRow(project: project)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .tag(project.id)
+                .accessibilityIdentifier("project-\(project.id)")
+                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+            }
+        }
+        .overlay {
+            if list.state.projects.isEmpty && list.state.error == nil {
+                ContentUnavailableView("No projects", systemImage: "folder",
+                                       description: Text("Tap + to create your first project."))
+            }
+        }
+        .initialLoading(list.state.loading)
+        .floatingErrors([list.state.error?.message])
+        .navigationTitle("Projects")
+        .searchable(text: $query)
+        .refreshable { await list.core.load() }
+        .task { await list.core.load() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("New project", systemImage: "plus") { creating = true }
+            }
+            ToolbarItem(placement: .navigation) {
+                Button("Account", systemImage: "person.crop.circle") { showingAccount = true }
+            }
+        }
+        .sheet(isPresented: $creating) {
+            ProjectSettings(app: app) { project in
+                Task {
+                    await list.core.load()
+                    if let project { selectProject(project.id) }
+                }
+            }
+        }
+        .sheet(isPresented: $showingAccount) { AccountView().macSheet() }
+        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+    }
+
     private func selectProject(_ id: String) {
-        pendingSession = nil
+        if selectedProjectId != id { selectedSession = nil }
         selectedProjectId = id
-        path.removeAll()
-        preferredCompactColumn = .detail
+        preferredCompactColumn = .content
     }
 
     private func openSession(_ ref: SessionRef) {
-        if selectedProjectId == ref.projectId && pendingSession == nil {
-            path = [ref]
-        } else {
-            // Let the selected project's detail root mount before pushing its chat.
-            pendingSession = ref
-            selectedProjectId = ref.projectId
-        }
+        selectedSession = ref
+        selectedProjectId = ref.projectId
         preferredCompactColumn = .detail
     }
 
-    private func openPendingSession(for projectId: String) {
-        guard let ref = pendingSession, ref.projectId == projectId else { return }
-        pendingSession = nil
-        path = [ref]
-    }
-
     private func projectChanged(_ updated: Project?) {
-        pendingSession = nil
-        path.removeAll()
+        selectedSession = nil
         if let updated {
             selectedProjectId = updated.id
         } else {

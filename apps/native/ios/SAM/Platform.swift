@@ -2,7 +2,18 @@
 
 import SwiftUI
 
+extension EnvironmentValues {
+    /// Whether a project or chat screen hides the tab bar. Only a pushed (compact)
+    /// screen should: beside other columns on iPad it would strand the other tabs.
+    @Entry var hidesTabBar = true
+}
+
 extension View {
+    /// Hides the tab bar on a pushed screen, unless it sits in a split view column.
+    func hidesTabBarWhenPushed() -> some View {
+        modifier(TabBarHiding())
+    }
+
     func inlineTitle() -> some View {
         #if os(iOS)
         navigationBarTitleDisplayMode(.inline)
@@ -43,6 +54,18 @@ extension View {
         frame(minWidth: 480, minHeight: 520)
         #else
         self
+        #endif
+    }
+}
+
+private struct TabBarHiding: ViewModifier {
+    @Environment(\.hidesTabBar) private var hides
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.toolbar(hides ? .hidden : .automatic, for: .tabBar)
+        #else
+        content
         #endif
     }
 }
