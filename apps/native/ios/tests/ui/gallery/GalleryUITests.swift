@@ -103,6 +103,9 @@ final class GalleryUITests: XCTestCase {
         XCTAssertTrue(share.waitForExistence(timeout: 5))
         let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: share)
         wait(for: [enabled], timeout: 10)
+        let gallery = XCTAttachment(screenshot: app.screenshot())
+        gallery.name = "gallery-share-button"; gallery.lifetime = .keepAlways
+        add(gallery)
         share.tap()
         let sheet = app.otherElements["ActivityListView"]
         XCTAssertTrue(sheet.waitForExistence(timeout: 10), "The system share sheet must open")
