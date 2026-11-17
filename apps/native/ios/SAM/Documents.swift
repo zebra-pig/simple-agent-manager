@@ -34,16 +34,13 @@ struct DocumentCard: View {
             }
             else { Task { await openFile() } }
         } label: {
-            if compactImage && document.isImage {
-                ImageTile(image: image, side: 120)
+            if document.isImage {
+                ImageTile(image: image, side: compactImage ? 120 : 160)
             } else {
             VStack(alignment: .leading, spacing: 6) {
-                if document.isImage {
-                    ImageTile(image: image, side: 160)
-                }
                 HStack {
                     if loading { ProgressView().controlSize(.small) }
-                    else { Image(systemName: document.isImage ? "photo.on.rectangle" : "doc") }
+                    else { Image(systemName: "doc") }
                     Text(verbatim: document.label).lineLimit(2)
                 }.font(.callout)
                 if !document.caption.isEmpty { Text(verbatim: document.caption).font(.caption).foregroundStyle(.secondary) }
@@ -51,7 +48,7 @@ struct DocumentCard: View {
                 if document.unavailable { Text("File no longer available").font(.caption).foregroundStyle(.secondary) }
                 else if document.fileId.isEmpty { Text("Preparing file…").font(.caption).foregroundStyle(.secondary) }
                 else if failed { Text("File unavailable. Tap to retry.").font(.caption).foregroundStyle(.secondary) }
-                else { Text(document.isImage ? String(localized: "Open gallery") : String(localized: "Open file")).font(.caption2).foregroundStyle(.secondary) }
+                else { Text("Open file").font(.caption2).foregroundStyle(.secondary) }
             }.padding(10).frame(maxWidth: 260, alignment: .leading)
                 .glass(in: RoundedRectangle(cornerRadius: 16))
             }

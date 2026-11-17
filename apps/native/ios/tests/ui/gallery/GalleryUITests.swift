@@ -37,6 +37,17 @@ final class GalleryUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "^[0-9]+ of [0-9]+( loaded)?$")).count, 0, file: file, line: line)
     }
 
+    func testImageCardIsOnlyASquareTappableImage() throws {
+        app.launch()
+        let image = app.buttons["7.png"]
+        XCTAssertTrue(image.waitForExistence(timeout: 15))
+        // No bubble, filename, size or "Open gallery" line: the hit area is the 160pt square tile.
+        XCTAssertEqual(image.frame.width, 160, accuracy: 1)
+        XCTAssertEqual(image.frame.height, 160, accuracy: 1)
+        image.tap()
+        assertImage(7)
+    }
+
     func testLoadedImagesRemainSwipeableWhileOlderHistoryIsHeld() throws {
         app.launch()
         let image = app.buttons["7.png"]
