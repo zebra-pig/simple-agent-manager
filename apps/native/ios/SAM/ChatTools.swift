@@ -15,6 +15,18 @@ enum ChatTool: String, Identifiable {
     }
 }
 
+/// Session tools with their own screens and view models (formerly web hand-offs).
+enum SessionSheet: Identifiable, Hashable {
+    case related, automation, comments, share, report, retry, fork
+    case newComment(String)
+    var id: String {
+        switch self {
+        case let .newComment(message): "comment-\(message)"
+        default: String(describing: self)
+        }
+    }
+}
+
 struct ChatToolView: View {
     let tool: ChatTool
     let chat: ChatModel

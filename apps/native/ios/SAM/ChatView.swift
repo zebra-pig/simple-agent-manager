@@ -18,6 +18,8 @@ struct ChatView: View {
     @State private var followsLatest = true
     @State private var scrollControl = ChatScrollControl(inverted: true)
     @State private var tool: ChatTool?
+    @State private var sessionSheet: SessionSheet?
+    @State private var comments: CommentsModel
     @State private var confirmEnd = false
     @State private var ending = false
     @Environment(\.openURL) private var openURL
@@ -30,6 +32,7 @@ struct ChatView: View {
                            project: ref.projectId, session: ref.sessionId)
         _chat = State(initialValue: model ?? ChatModel(app: app))
         _commands = State(initialValue: CommandsModel(app: app))
+        _comments = State(initialValue: CommentsModel(app: app))
     }
 
     var body: some View {
@@ -72,7 +75,9 @@ struct ChatView: View {
                                         }
                                     }
                                 } else { TimelineItemView(item: message) }
-                            }.scaleEffect(y: -1).id(message.id)
+                            }
+                            .contextMenu { if commentable(message) { Button("Comment", systemImage: "text.bubble") { sessionSheet = .newComment(message.id) } } }
+                            .scaleEffect(y: -1).id(message.id)
                                 .accessibilityElement(children: .contain)
                                 .accessibilityIdentifier("chat-message-\(message.id)")
                                 .accessibilitySortPriority(Double(chat.transcript.items.count - index))
@@ -162,23 +167,25 @@ struct ChatView: View {
                             Button("Git", systemImage: "arrow.triangle.branch") { tool = .git }
                         }
                         Button("Timeline", systemImage: "clock") { tool = .timeline }
-                        webTool("Related", icon: "link", action: .related)
+                        Button("Related", systemImage: "link") { sessionSheet = .related }
                         Button("Resources", systemImage: "chart.xyaxis.line") { tool = .resources }
-                        webTool("Automation", icon: "arrow.trianglehead.2.clockwise", action: .automation)
-                        webTool("Comments", icon: "text.bubble", action: .comments)
+                        Button("Automation", systemImage: "arrow.trianglehead.2.clockwise") { sessionSheet = .automation }
+                        Button("Comments", systemImage: "text.bubble") { sessionSheet = .comments }
                     }
                     Section("Session") {
                         Button("Progress", systemImage: "list.bullet.clipboard") { tool = .progress }
                         if let session = chat.state.session {
-                            if session.viewerAccess != nil { webTool("Share", icon: "person.2", action: .share) }
+                            if session.viewerAccess != nil { Button("Share", systemImage: "person.2") { sessionSheet = .share } }
                             if session.task != nil {
-                                if !(session.task?.status == "cancelled" && session.task?.terminalReason == "snapshot_expired") { webTool("Retry", icon: "arrow.clockwise", action: .retry) }
-                                webTool("Fork", icon: "arrow.triangle.branch", action: .fork)
+                                if !(session.task?.status == "cancelled" && session.task?.terminalReason == "snapshot_expired") {
+                                    Button("Retry", systemImage: "arrow.clockwise") { sessionSheet = .retry }
+                                }
+                                Button("Fork", systemImage: "arrow.triangle.branch") { sessionSheet = .fork }
                             }
                         }
                     }
                     Section {
-                        if chat.state.reportEnabled { webTool("Report", icon: "flag", action: .report) }
+                        if chat.state.reportEnabled { Button("Report", systemImage: "flag") { sessionSheet = .report } }
                         if let end = endLabel {
                             Button(end, systemImage: "checkmark.circle") { confirmEnd = true }.disabled(ending)
                         }
@@ -196,6 +203,7 @@ struct ChatView: View {
                 .modifier(ChatGalleryPresentation(chat: chat, app: app))
         }
         .modifier(ChatGalleryPresentation(chat: chat, app: app))
+        .sheet(item: $sessionSheet) { sheet in sessionSheetView(sheet) }
         .confirmationDialog(endLabel ?? String(localized: "Complete"), isPresented: $confirmEnd) {
             Button(endLabel ?? String(localized: "Complete"), role: .destructive) { ending = true; Task { await chat.core.endTask(); ending = false } }
         } message: { Text("This ends the task and stops its agent.") }
@@ -255,11 +263,31 @@ struct ChatView: View {
             ? "Steer the agent…" : "Queue next…"
     }
 
-    private func webTool(_ title: LocalizedStringKey, icon: String, action: WebChatTool) -> some View {
-        Button {
-            if let url = URL(string: chat.core.webToolUrl(tool: action)) { openURL(url) }
-        } label: {
-            Label { Text(title) + Text(" (web)") } icon: { Image(systemName: icon) }
+    @ViewBuilder private func sessionSheetView(_ sheet: SessionSheet) -> some View {
+        switch sheet {
+        case .related: RelatedWorkView(app: app, ref: ref, chat: chat.core)
+        case .automation: AutomationView(app: app, ref: ref)
+        case .comments: CommentsView(ref: ref, chat: chat, model: comments)
+        case let .newComment(messageId): NewCommentView(messageId: messageId, chat: chat, model: comments, ref: ref)
+        case .share:
+            ShareView(app: app, ref: ref, shareable: chat.state.session.map { $0.status == .active || $0.status == .sleeping } ?? false,
+                      topic: chat.state.session?.topic)
+        case .report:
+            ReportIssueView(app: app, refs: ReportRefs(sessionId: ref.sessionId, taskId: chat.state.session?.taskId ?? chat.state.session?.task?.id,
+                                                       nodeId: chat.tools.state.workspace?.nodeId))
+        case .retry, .fork:
+            if let session = chat.state.session {
+                // The Projects stack opens the new chat, wherever this one was opened from.
+                DerivedTaskView(app: app, kind: sheet == .retry ? .retry : .fork, ref: ref, session: session) { PushRouter.shared.pending = $0 }
+            }
+        }
+    }
+
+    /// Web takes new comments on user and agent messages, not on notices or tool activity.
+    private func commentable(_ message: ChatItem) -> Bool {
+        switch message.content {
+        case .user, .agent: true
+        default: false
         }
     }
 
