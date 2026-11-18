@@ -11,13 +11,18 @@ struct ChatView: View {
     @ChatDraft private var draft: String
     @State private var submission = ChatSubmission()
     @State private var historyCancellation = 0
+    @State private var followsLatest = true
+    #if os(iOS)
+    @State private var transcriptControl = ChatTranscriptControl()
+    #else
     @State private var historyInteraction = 0
     @State private var historyGestureActive = false
     @GestureState private var historyDragging = false
     @State private var visibleMessage: String?
     @State private var viewportHeight: CGFloat = 0
-    @State private var followsLatest = true
-    @State private var scrollControl = ChatScrollControl(inverted: true)
+    @State private var scrollControl = ChatScrollControl()
+    @State private var scrollProxy: ScrollViewProxy?
+    #endif
     @State private var tool: ChatTool?
     @State private var sessionSheet: SessionSheet?
     @State private var comments: CommentsModel
@@ -37,116 +42,20 @@ struct ChatView: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ZStack(alignment: .bottom) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        Color.clear.frame(height: 1).id("latest")
-                            .modifier(ChatBottomTracking(followsLatest: $followsLatest))
-                        if let provisioning = chat.transcript.provisioning {
-                            ProvisioningView(state: provisioning).scaleEffect(y: -1)
-                        }
-                        // Only requests already known to be open get a row.
-                        ForEach(requestKeys, id: \.self) { key in
-                            if let model = requests.visible(key) {
-                                RequestCard(chat: key, project: ref.projectId, model: model).scaleEffect(y: -1)
-                            }
-                        }
-                        ForEach(chat.transcript.outbox.reversed(), id: \.id) { message in
-                            VStack(alignment: .trailing, spacing: 4) {
-                                UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
-                                if message.deliveryIntent == .steer { MessageDeliveryLabel(status: "steering") }
-                                else { Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary) }
-                            }.frame(maxWidth: .infinity, alignment: .trailing).scaleEffect(y: -1)
-                        }
-                        ForEach(Array(chat.transcript.items.enumerated()).reversed(), id: \.element.id) { index, message in
-                            messageRow(message)
-                            .scaleEffect(y: -1)
-                            .modifier(MessageCommentMenu(enabled: commentable(message)) {
-                                sessionSheet = .newComment(message.id)
-                            } preview: { messageRow(message) })
-                            .id(message.id)
-                                .accessibilityElement(children: .contain)
-                                .accessibilityIdentifier("chat-message-\(message.id)")
-                                .accessibilitySortPriority(Double(chat.transcript.items.count - index))
-                                .background(GeometryReader { geometry in
-                                    Color.clear.preference(key: ChatMessageFrames.self,
-                                        value: [message.id: geometry.frame(in: .named("chatViewport"))])
-                                })
-                        }
-                        if chat.state.hasMore || chat.state.loadingHistory {
-                            ChatHistoryPager(loading: chat.state.loadingHistory, error: chat.state.historyError?.message, viewportHeight: viewportHeight, cancellation: historyCancellation, interaction: historyInteraction) {
-                                Task { await chat.core.loadOlder() }
-                            }.scaleEffect(y: -1)
-                        }
-                    }
-                    .scrollTargetLayout()
-                    .padding(.vertical)
-                }
-                // The column inset is a scroll view margin, not padding inside the
-                // content: lazily realized rows were laid out at the full scroll
-                // width and left the conversation scrolled sideways. Vertical
-                // padding stays in the content so prepends keep their anchor.
-                .contentMargins(.horizontal, 16, for: .scrollContent)
-                // Lay out from the newest end. Earlier pages append beyond the
-                // viewport, so lazy height estimates cannot move existing rows.
-                // Rows scroll on behind the composer, whose height the scroll
-                // view already insets.
-                .scaleEffect(y: -1)
-                // Stop at the navigation bar so it stays a plain system bar: the
-                // inverted list can't use the system scroll edge effect. Rows still
-                // run on behind the composer at the bottom.
-                .mask(Rectangle().ignoresSafeArea(edges: .bottom))
-                .coordinateSpace(name: "chatViewport")
-                .background(GeometryReader { geometry in
-                    Color.clear.preference(key: ChatViewportHeight.self, value: geometry.size.height)
-                })
-                .onPreferenceChange(ChatMessageFrames.self) { scrollControl.messageFrames = $0 }
-                .onPreferenceChange(ChatViewportHeight.self) {
-                    viewportHeight = $0
-                    scrollControl.viewportHeight = $0
-                }
-                .onAppear {
-                    chat.willUpdateItems = {
-                        if !followsLatest { scrollControl.preserveReadingPosition(using: proxy) }
-                    }
-                }
-                .onDisappear { chat.willUpdateItems = nil }
-                .modifier(ChatScrollTracking(control: scrollControl, followsLatest: followsLatest, visibleMessage: $visibleMessage))
-                .interactiveKeyboardDismiss()
-                .simultaneousGesture(DragGesture()
-                    .updating($historyDragging) { _, dragging, _ in dragging = true }
-                    .onChanged { gesture in
-                        scrollControl.readManually()
-                        if !historyGestureActive, gesture.translation.height > abs(gesture.translation.width) {
-                            historyGestureActive = true
-                            chat.browseHistory()
-                            historyInteraction += 1
-                        }
-                    })
-                .onChange(of: historyDragging) { _, dragging in
-                    if !dragging { historyGestureActive = false }
-                }
-                .onChange(of: chat.transcript.items) {
-                    if followsLatest && !chat.state.loadingHistory { scrollControl.jump(using: proxy, to: "latest", animated: false) }
-                }
-                .onChange(of: followsLatest) { _, latest in
-                    if latest { chat.showLatest() } else { chat.browseHistory() }
-                }
-                .onChange(of: chat.state.outbox) {
+        ZStack(alignment: .bottom) {
+            conversation
+            if !followsLatest {
+                ChatJumpButton {
                     historyCancellation += 1
-                    scrollControl.jump(using: proxy, to: "latest", animated: false)
                     chat.showLatest()
-                }
-                if !followsLatest {
-                    ChatJumpButton {
-                        // Cancel any pending pager entry when leaving history.
-                        historyCancellation += 1
-                        scrollControl.jump(using: proxy, to: "latest")
-                        chat.showLatest()
-                    }
+                    jumpToLatest(animated: true)
                 }
             }
+        }
+        .onChange(of: chat.state.outbox) {
+            historyCancellation += 1
+            chat.showLatest()
+            jumpToLatest(animated: false)
         }
         .overlay {
             if chat.state.items.isEmpty && chat.state.loading { ProgressView() }
@@ -228,8 +137,150 @@ struct ChatView: View {
         .floatingErrors([chat.state.error?.message, chat.state.interruptError?.message, chat.state.historyError?.message])
     }
 
-    /// Requests from notifications and from the conversation, newest-first in
-    /// the inverted list, in the order the cards appear.
+    /// Everything below the messages, oldest first: what was sent but not yet
+    /// in the transcript, open requests, and provisioning progress.
+    private var rows: [ChatRow] {
+        let transcript = chat.transcript
+        var rows = transcript.items.map(ChatRow.message)
+        rows += transcript.outbox.map(ChatRow.outbox)
+        rows += requestKeys.reversed().filter { requests.visible($0) != nil }.map(ChatRow.request)
+        if let provisioning = transcript.provisioning { rows.append(.provisioning(provisioning)) }
+        return rows
+    }
+
+    @ViewBuilder private func rowView(_ row: ChatRow) -> some View {
+        switch row {
+        case let .message(message):
+            messageRow(message)
+                .environment(\.selectionComment, commentable(message) ? { sessionSheet = .newComment(message.id) } : nil)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("chat-message-\(message.id)")
+        case let .outbox(message):
+            VStack(alignment: .trailing, spacing: 4) {
+                UserMessageView(text: message.text, attachments: message.attachments, core: chat.core)
+                if message.deliveryIntent == .steer { MessageDeliveryLabel(status: "steering") }
+                else { Text(message.accepted ? "Queued" : "Sending…").font(.caption).foregroundStyle(.secondary) }
+            }.frame(maxWidth: .infinity, alignment: .trailing)
+        case let .request(key):
+            if let model = requests.visible(key) {
+                RequestCard(chat: key, project: ref.projectId, model: model)
+            }
+        case let .provisioning(state):
+            ProvisioningView(state: state)
+        }
+    }
+
+    private var earlier: ChatTranscriptEarlier? {
+        guard chat.state.hasMore || chat.state.loadingHistory else { return nil }
+        return ChatTranscriptEarlier(loading: chat.state.loadingHistory, failed: chat.state.historyError != nil)
+    }
+
+    private func follow(_ latest: Bool) {
+        if latest { chat.showLatest() } else { chat.browseHistory() }
+    }
+
+    #if os(iOS)
+    /// A plain, upright collection view that runs on behind the navigation bar
+    /// and the composer, with the system's scroll edge effect under the bar.
+    private var conversation: some View {
+        GeometryReader { geometry in
+            ChatTranscript(rows: rows, earlier: earlier, control: transcriptControl,
+                           insets: geometry.safeAreaInsets,
+                           followsLatest: Binding(get: { followsLatest }, set: { latest in
+                               followsLatest = latest
+                               follow(latest)
+                           }),
+                           browse: { chat.browseHistory() },
+                           loadEarlier: { Task { await chat.core.loadOlder() } },
+                           comment: { row in
+                               guard case let .message(message) = row, commentable(message) else { return nil }
+                               return { sessionSheet = .newComment(message.id) }
+                           }) { row in
+                ChatRowHost { rowView(row) }
+            }
+            .ignoresSafeArea(.container)
+        }
+    }
+
+    private func jumpToLatest(animated: Bool) {
+        transcriptControl.jumpToLatest(animated: animated)
+    }
+    #else
+    /// macOS keeps a SwiftUI scroll view, upright, where `textSelection`
+    /// already selects ranges.
+    private var conversation: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if let earlier {
+                        ChatHistoryPager(loading: earlier.loading, error: chat.state.historyError?.message,
+                                         viewportHeight: viewportHeight, cancellation: historyCancellation,
+                                         interaction: historyInteraction) {
+                            Task { await chat.core.loadOlder() }
+                        }
+                    }
+                    ForEach(rows) { row in
+                        rowView(row)
+                            .contextMenu {
+                                if case let .message(message) = row, commentable(message) {
+                                    Button("Comment", systemImage: "text.bubble") { sessionSheet = .newComment(message.id) }
+                                }
+                            }
+                            .background(GeometryReader { geometry in
+                                Color.clear.preference(key: ChatMessageFrames.self,
+                                    value: [row.id: geometry.frame(in: .named("chatViewport"))])
+                            })
+                    }
+                    Color.clear.frame(height: 1).id("latest")
+                        .modifier(ChatBottomTracking(followsLatest: $followsLatest))
+                }
+                .scrollTargetLayout()
+                .padding()
+            }
+            .coordinateSpace(name: "chatViewport")
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: ChatViewportHeight.self, value: geometry.size.height)
+            })
+            .onPreferenceChange(ChatMessageFrames.self) { scrollControl.messageFrames = $0 }
+            .onPreferenceChange(ChatViewportHeight.self) {
+                viewportHeight = $0
+                scrollControl.viewportHeight = $0
+            }
+            .onAppear {
+                scrollProxy = proxy
+                chat.willUpdateItems = {
+                    if !followsLatest { scrollControl.preserveReadingPosition(using: proxy) }
+                }
+            }
+            .onDisappear { chat.willUpdateItems = nil }
+            .modifier(ChatScrollTracking(control: scrollControl, followsLatest: followsLatest, visibleMessage: $visibleMessage))
+            .simultaneousGesture(DragGesture()
+                .updating($historyDragging) { _, dragging, _ in dragging = true }
+                .onChanged { gesture in
+                    scrollControl.readManually()
+                    if !historyGestureActive, abs(gesture.translation.height) > abs(gesture.translation.width) {
+                        historyGestureActive = true
+                        chat.browseHistory()
+                        historyInteraction += 1
+                    }
+                })
+            .onChange(of: historyDragging) { _, dragging in
+                if !dragging { historyGestureActive = false }
+            }
+            .onChange(of: chat.transcript.items) {
+                if followsLatest && !chat.state.loadingHistory { scrollControl.jump(using: proxy, to: "latest", animated: false) }
+            }
+            .onChange(of: followsLatest) { _, latest in follow(latest) }
+        }
+    }
+
+    private func jumpToLatest(animated: Bool) {
+        guard let scrollProxy else { return }
+        scrollControl.jump(using: scrollProxy, to: "latest", animated: animated)
+    }
+    #endif
+
+    /// Requests from notifications and from the conversation, newest first.
     private var requestKeys: [ChatRequestKey] {
         let transcript = chat.transcript
         let notified = transcript.notifications.compactMap { item -> ChatRequestKey? in
@@ -357,7 +408,7 @@ struct TimelineItemView: View {
         case let .user(text, _):
             HStack {
                 Spacer(minLength: 40)
-                Text(verbatim: text).textSelection(.enabled).padding(12)
+                SelectableText(verbatim: text).padding(12)
                     .glass(in: RoundedRectangle(cornerRadius: 18))
             }
         case let .agent(_, blocks):
@@ -379,9 +430,7 @@ struct TimelineItemView: View {
                                 if call.kind == .execute {
                                     CodeView(code: title, language: nil)
                                 } else {
-                                    Text(verbatim: title)
-                                        .font(.callout)
-                                        .textSelection(.enabled)
+                                    SelectableText(verbatim: title, style: .callout)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
@@ -424,7 +473,7 @@ struct TimelineItemView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(notice.headline ?? (notice.source == .workspace ? String(localized: "Report from the workspace") : String(localized: "Conversation context")))
                     .font(.callout.weight(.medium))
-                if let detail = notice.detail { DisclosureGroup("Details") { Text(verbatim: detail).font(.callout).textSelection(.enabled) } }
+                if let detail = notice.detail { DisclosureGroup("Details") { SelectableText(verbatim: detail, style: .callout).frame(maxWidth: .infinity, alignment: .leading) } }
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
                 .glass(in: RoundedRectangle(cornerRadius: 16), tint: notice.severity == .error ? .red.opacity(0.1) : nil)
         }
@@ -499,7 +548,7 @@ struct UserMessageView: View {
                         }
                     }
                 }
-                if !text.isEmpty { Text(verbatim: text).textSelection(.enabled).multilineTextAlignment(.leading) }
+                if !text.isEmpty { SelectableText(verbatim: text) }
             }
             .padding(12)
             .glass(in: RoundedRectangle(cornerRadius: 18))
@@ -507,31 +556,27 @@ struct UserMessageView: View {
     }
 }
 
-/// The comment menu for a chat row. The conversation is drawn in a vertically
-/// mirrored scroll view and each row mirrors itself back. With the menu inside
-/// the row's mirror, the press highlight snapshotted the row with only the scroll
-/// view's mirror, so a pressed message turned upside down. Wrapping the row's
-/// mirror fixes the highlight, and an explicit preview, rendered on its own,
-/// keeps the lifted message upright and full size (the default one is squashed).
-/// Rows that cannot be commented on get no menu, so pressing them does nothing.
-private struct MessageCommentMenu<Preview: View>: ViewModifier {
-    let enabled: Bool
-    let comment: () -> Void
-    @ViewBuilder let preview: () -> Preview
-    /// The preview is laid out outside the list, so give it the row's width.
-    @State private var width: CGFloat = 0
+/// One row of the agent conversation.
+enum ChatRow: Identifiable, Equatable {
+    case message(ChatItem)
+    case outbox(OutgoingMessage)
+    case request(ChatRequestKey)
+    case provisioning(ProvisioningState)
 
-    func body(content: Content) -> some View {
-        if enabled {
-            content
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .contextMenu {
-                    Button("Comment", systemImage: "text.bubble", action: comment)
-                } preview: {
-                    preview().frame(width: max(width, 1)).padding(12)
-                }
-        } else {
-            content
+    /// Message ids are the server's; the other rows can't collide with them.
+    var id: String {
+        switch self {
+        case let .message(message): message.id
+        case let .outbox(message): "#outbox-\(message.id)"
+        case let .request(key): "#request-\(key.session)-\(key.id)"
+        case .provisioning: "#provisioning"
         }
     }
+}
+
+/// Evaluates a row inside its own body, so a hosted row observes the models
+/// it reads (deliveries, request status) and updates itself.
+struct ChatRowHost<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View { content() }
 }

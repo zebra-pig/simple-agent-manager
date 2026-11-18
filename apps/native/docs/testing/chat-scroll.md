@@ -22,7 +22,7 @@ XCTest screenshots remain available on failure;
 verbose simulator sysdiagnoses are disabled to bound collection time and disk use.
 The Xcode Cloud post-clone hook runs this suite and exports its PNG attachments.
 
-## Fifteen real UI tests
+## Real UI tests
 
 - Opening and polling at latest without fetching earlier pages.
 - Jumping after multiple pages, with an observed intermediate rendered position.
@@ -50,10 +50,13 @@ The Xcode Cloud post-clone hook runs this suite and exports its PNG attachments.
   roughly half of launches.
 - Full-bleed layout: the conversation draws behind the navigation bar and the
   composer, while the resting latest row stays clear of both.
+- Pressing message text selects a word in place, not the whole message. Its edit
+  menu offers Comment, and Copy then Paste into the composer yields only that word.
+  Pressing a message opens the comment sheet from that menu.
 
 HTTP completion is asserted before insertion checks. A read-only display-link
-probe samples the last layout, native presentation offset, content size and
-insets. Raw layout callbacks are also logged: they can include intermediate
+probe samples the transcript's visible rows (through its diffable data source),
+content offset, content size and insets. Raw layout callbacks are also logged: they can include intermediate
 passes that never reach the display, so they are not sufficient evidence alone.
 Probe batches are acknowledged in order. Tests wait for delivery through the
 measured interval before evaluating captured frames, with a failure deadline.
@@ -61,27 +64,46 @@ The animation check requires nonzero travel and a rendered intermediate position
 it does not impose a minimum frame rate on a shared build machine.
 XCTest screenshot attachments complement the measurements.
 XCTest waits for quiescence before subsequent commands; the suite does not claim
-an automated finger interruption in the middle of a 0.35-second jump animation.
+an automated finger interruption in the middle of a 0.5-second jump animation.
 
 ## Implementation
 
-The agent conversation uses a newest-first logical lazy stack with upright rows.
-Older pages extend its far end, leaving existing message coordinates unchanged.
-Visual order and VoiceOver message priorities remain chronological. SwiftUI owns
-one scroll position and its animated top-edge destination (the visual latest end).
-The normal private SAM conversation keeps its existing scroll implementation.
+On iOS the agent conversation is an upright `UICollectionView`
+(`ChatTranscript`), oldest row at the top, rows hosted with
+`UIHostingConfiguration`. Nothing is mirrored. Earlier versions flipped a SwiftUI
+lazy stack upside down. That broke the system scroll edge effect, context-menu
+previews and in-place text selection. Signal-iOS, ChatLayout, MessageKit and
+zulip-flutter all stay upright and correct the offset instead. Element X,
+Telegram, exyte/Chat and Stream Chat flip.
 
-The 16-point column inset is a scroll view content margin, not padding inside
-the lazy stack: a lazily realized row could be laid out at the full scroll width
-and leave the conversation scrolled sideways. The scroll view is not clipped:
-rows scroll behind the navigation bar and the composer, under a blurred fade
-below the bar, because the system scroll edge effect is off for the inverted list.
+`ChatTranscriptLayout` is a single-column, self-sizing layout. Three rules keep
+what the reader sees still:
 
-Before publishing a changed reading snapshot, the Apple model captures the visible
-message and fractional viewport anchor. The same SwiftUI position owner applies
-that identity anchor synchronously, preserving active scroll velocity. Explicit
-jumps invalidate reading preservation; another real drag resumes manual reading.
-There is no UIScrollView offset-writing or timed restoration/retry loop.
+- While following the latest row, every layout pass pins the bottom.
+- A data change (an earlier page, a resolved card) captures the first visible
+  row and its distance from the top before applying the snapshot. It restores
+  that distance in the same pass, before anything is drawn.
+- When a row measures itself, the layout moves the content offset by the height
+  change in the same invalidation (`contentOffsetAdjustment`). It does so when the
+  row starts above the visible top, or when it is measured for the first time
+  above a row the reader already sees. Rows the reader expands, or scrolls onto,
+  grow downward.
+
+The jump to latest is a 0.5-second eased animation driven per display frame.
+Its destination follows the bottom as rows measure themselves on the way. An
+earlier page arriving mid-jump shifts the start instead of restarting it.
+Measurements are keyed by row identity, so they follow a row when a page is
+inserted before it.
+
+The transcript draws behind the navigation bar, under the system scroll edge
+effect, and behind the composer. Its insets come from the SwiftUI safe area.
+The 16-point column inset is the hosting configuration's margin.
+
+Message text is a non-editable `UITextView` (`SelectableText`): a press
+selects a word with handles, the loupe and the system edit menu, and the edit
+menu leads with Comment. The collection view's own context menu (Comment) only
+opens for presses beside the text. macOS keeps a SwiftUI scroll view, where
+`textSelection(.enabled)` already selects ranges.
 
 While history is being read, live changes remain in the current core state and a
 stable rendered transcript receives only newly fetched older items. Returning to

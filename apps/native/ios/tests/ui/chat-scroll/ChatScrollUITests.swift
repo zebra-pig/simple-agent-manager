@@ -50,6 +50,8 @@ final class ChatScrollUITests: XCTestCase {
     }
 
     private var latest: XCUIElement { app.staticTexts["LATEST MESSAGE"] }
+    /// The production transcript: an upright collection view.
+    private var transcript: XCUIElement { app.collectionViews["chat-transcript"] }
     private var jump: XCUIElement { app.buttons["Jump to latest"] }
     private var olderRequests: Int { (try! request("stats"))["older"] as! Int }
 
@@ -63,7 +65,7 @@ final class ChatScrollUITests: XCTestCase {
         // Real touch gestures trigger the production pager and HTTP request.
         for _ in 0..<50 {
             if olderRequests >= count { return }
-            app.scrollViews.firstMatch.swipeDown(velocity: .fast)
+            transcript.swipeDown(velocity: .fast)
         }
         XCTFail("Did not load earlier page \(count)")
     }
@@ -123,22 +125,22 @@ final class ChatScrollUITests: XCTestCase {
         launch()
         assertRowsWithinScreenWidth("portrait")
         for step in 1...3 {
-            app.scrollViews.firstMatch.swipeDown()
+            transcript.swipeDown()
             assertRowsWithinScreenWidth("scrolled-\(step)")
         }
         // A sideways drag must not pan the conversation.
-        app.scrollViews.firstMatch.swipeLeft()
+        transcript.swipeLeft()
         assertRowsWithinScreenWidth("swiped-left")
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1)
         assertRowsWithinScreenWidth("landscape")
-        app.scrollViews.firstMatch.swipeUp()
+        transcript.swipeUp()
         assertRowsWithinScreenWidth("landscape-scrolled")
         XCUIDevice.shared.orientation = .portrait
         Thread.sleep(forTimeInterval: 1)
         assertRowsWithinScreenWidth("portrait-after-rotation")
         for step in 1...3 {
-            app.scrollViews.firstMatch.swipeUp()
+            transcript.swipeUp()
             assertRowsWithinScreenWidth("portrait-after-rotation-\(step)")
         }
     }
@@ -157,15 +159,38 @@ final class ChatScrollUITests: XCTestCase {
         // Polling refreshes the card and transcript; the column must not move.
         Thread.sleep(forTimeInterval: 6)
         assertRowsWithinScreenWidth("after-polling")
-        app.scrollViews.firstMatch.swipeDown()
+        transcript.swipeDown()
         assertRowsWithinScreenWidth("scrolled")
-        app.scrollViews.firstMatch.swipeUp(velocity: .fast)
+        transcript.swipeUp(velocity: .fast)
         assertRowsWithinScreenWidth("returned")
-        app.scrollViews.firstMatch.swipeLeft()
+        transcript.swipeLeft()
         assertRowsWithinScreenWidth("swiped-left")
     }
 
-    func testConversationStopsAtNavigationBarAndDrawsBehindComposer() throws {
+    /// An action in an edit menu (a menu item) or a context menu (a button).
+    private func menuAction(_ title: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)",
+            title, XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
+    }
+
+    /// Taps during a menu's entrance animation are dropped; wait until it settles.
+    private func tapWhenSettled(_ element: XCUIElement) {
+        var frame = element.frame
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.25)
+            if element.frame == frame { break }
+            frame = element.frame
+        }
+        element.tap()
+    }
+
+    private var composer: XCUIElement {
+        let placeholders = ["Reply to the agent…", "Steer the agent…", "Queue next…"]
+        return app.textViews.matching(NSPredicate(format: "placeholderValue IN %@ OR label IN %@",
+                                                  placeholders, placeholders)).firstMatch
+    }
+
+    func testConversationDrawsBehindNavigationBarAndComposer() throws {
         launch()
         let start = Date().timeIntervalSince1970
         Thread.sleep(forTimeInterval: 0.5)
@@ -174,25 +199,24 @@ final class ChatScrollUITests: XCTestCase {
         let visibleMinY = try XCTUnwrap(sample["visibleMinY"] as? Double)
         let visibleMaxY = try XCTUnwrap(sample["visibleMaxY"] as? Double)
         let navigationBar = app.navigationBars.firstMatch.frame
-        let composer = app.textViews.firstMatch.frame
-        // A plain system bar: no rows behind it, and no gap below it.
-        XCTAssertEqual(visibleMinY, navigationBar.maxY, accuracy: 1,
-            "Chat content should start at the navigation bar's bottom edge (visible from \(visibleMinY))")
+        let composer = composer.frame
+        // An upright scroll view runs on behind both bars, under the system's
+        // scroll edge effect; nothing clips it at the navigation bar.
+        XCTAssertLessThanOrEqual(visibleMinY, 1, "Chat content is clipped below the top of the window (visible from \(visibleMinY))")
         XCTAssertGreaterThanOrEqual(visibleMaxY, windowHeight - 1,
             "Chat content is clipped above the bottom edge (visible to \(visibleMaxY) of \(windowHeight))")
-        // Content may pass behind the composer, but the resting latest row stays readable.
+        // Content may pass behind the bars, but the resting latest row stays readable.
         XCTAssertLessThanOrEqual(latest.frame.maxY, composer.minY, "Latest row rests behind the composer")
         XCTAssertGreaterThanOrEqual(latest.frame.minY, navigationBar.maxY, "Latest row rests behind the navigation bar")
-        capture("standard-bar-latest")
+        capture("full-bleed-latest")
     }
 
     func testPressingAMessageOpensItsCommentMenu() throws {
         launch()
-        // The conversation is a mirrored scroll view; the message menu must
-        // wrap each row's own mirror or the pressed message turns upside down.
+        // Pressing message text selects a word; its edit menu offers Comment.
         latest.press(forDuration: 1.5)
-        let comment = app.buttons["Comment"]
-        XCTAssertTrue(comment.waitForExistence(timeout: 10), "Pressing a message did not open its menu")
+        let comment = menuAction("Comment")
+        XCTAssertTrue(comment.waitForExistence(timeout: 10), "Pressing a message did not offer Comment")
         capture("message-menu")
         // Taps during the menu's entrance animation are dropped; wait until it settles.
         var frame = comment.frame
@@ -205,6 +229,33 @@ final class ChatScrollUITests: XCTestCase {
         comment.tap()
         XCTAssertTrue(app.navigationBars["New comment"].waitForExistence(timeout: 10),
                       "Choosing Comment did not open the comment sheet for the message")
+    }
+
+    func testMessageTextSelectsAWordNotTheWholeMessage() throws {
+        launch()
+        let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Message ")).allElementsBoundByIndex
+            .last { $0.isHittable }
+        let message = try XCTUnwrap(row, "No message text on screen")
+        // Press the first word, "Message": a range, with the system's handles and menu.
+        message.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+            .withOffset(CGVector(dx: 12, dy: 8)).press(forDuration: 1.2)
+        let copy = menuAction("Copy")
+        XCTAssertTrue(copy.waitForExistence(timeout: 10), "Pressing message text did not select it")
+        XCTAssertTrue(menuAction("Comment").exists, "The selection menu does not offer Comment")
+        capture("word-selected")
+        tapWhenSettled(copy)
+        // A selection must not pin, scroll or reload the conversation under it.
+        XCTAssertTrue(message.isHittable)
+        // Paste into the app's own composer: the copied text is only the word.
+        let editor = composer
+        editor.tap()
+        editor.tap()
+        let paste = menuAction("Paste")
+        XCTAssertTrue(paste.waitForExistence(timeout: 10), "The composer offered no Paste")
+        tapWhenSettled(paste)
+        let pasted = NSPredicate(format: "value == %@", "Message")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: pasted, object: editor)], timeout: 5), .completed,
+                       "Pasted \(editor.value ?? "nothing") instead of the selected word")
     }
 
     func testOpeningAndPollingAtBottomDoesNotDrainHistory() throws {
@@ -242,7 +293,7 @@ final class ChatScrollUITests: XCTestCase {
         XCTAssertEqual(olderRequests, requests, "Jump or polling rearmed the pager")
         capture("multiple-pages-jump-settled")
         // The user can leave the bottom again and make a second explicit jump.
-        app.scrollViews.firstMatch.swipeDown()
+        transcript.swipeDown()
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.tap()
         assertAtLatest()
@@ -261,7 +312,7 @@ final class ChatScrollUITests: XCTestCase {
         let requests = olderRequests
         XCUIDevice.shared.orientation = .landscapeLeft
         assertAtLatest()
-        app.scrollViews.firstMatch.swipeDown()
+        transcript.swipeDown()
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.tap()
         assertAtLatest()
@@ -290,7 +341,7 @@ final class ChatScrollUITests: XCTestCase {
 
     func testPollingDoesNotPullAnOlderReadingPositionToBottom() throws {
         launch()
-        app.scrollViews.firstMatch.swipeDown()
+        transcript.swipeDown()
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Message "))
             .allElementsBoundByIndex.first { $0.isHittable }!
@@ -395,10 +446,16 @@ final class ChatScrollUITests: XCTestCase {
             print("CHAT_SCROLL_PAGE_\(page) before=\(y) after=\(retained.frame.minY) layouts=\(layouts)")
             XCTAssertFalse(layouts.isEmpty, "No insertion layout samples were captured")
             XCTAssertGreaterThan(rendered.count, 3, "Missing display-link samples during insertion")
-            for sample in rendered {
+            for (index, sample) in rendered.enumerated() {
                 let rows = sample["rows"] as! [[String: Any]]
                 let reading = rows.first { $0["id"] as? String == id }
-                XCTAssertNotNil(reading, "A displayed frame briefly showed a different page")
+                if reading.map({ abs(($0["y"] as! Double) - offset) > 1 }) ?? true {
+                    for nearby in rendered[max(0, index - 3)...min(rendered.count - 1, index + 3)] {
+                        let summary = (nearby["rows"] as! [[String: Any]]).map { "\($0["id"]!)@\($0["y"]!)" }
+                        print("CHAT_SCROLL_NEAR t=\(nearby["time"]!) y=\(nearby["y"]!) h=\(nearby["contentHeight"]!) rows=\(summary)")
+                    }
+                }
+                XCTAssertNotNil(reading, "A displayed frame briefly showed a different page: \(id) at \(offset), frame \(sample)")
                 XCTAssertEqual(reading!["y"] as! Double, offset, accuracy: 1,
                                "A displayed frame shifted the reading position")
             }
@@ -497,8 +554,8 @@ final class ChatScrollUITests: XCTestCase {
         reachOlderPage(1)
         // Leave and reenter the pager while its first request is held, recording
         // a pending entry. Then release it from rendered animation samples.
-        app.scrollViews.firstMatch.swipeUp()
-        for _ in 0..<4 { app.scrollViews.firstMatch.swipeDown(velocity: .fast) }
+        transcript.swipeUp()
+        for _ in 0..<4 { transcript.swipeDown(velocity: .fast) }
         XCTAssertEqual(try request("stats")["inFlight"] as? Int, 1)
         _ = try request("release-on-scroll")
         jump.tap()

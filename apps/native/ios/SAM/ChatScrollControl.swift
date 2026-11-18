@@ -3,13 +3,9 @@ import SwiftUI
 /// Requests destinations; SwiftUI owns both animation and lazy-layout correction.
 /// Never drive the underlying UIScrollView while a scrollPosition binding owns it.
 @MainActor @Observable final class ChatScrollControl {
-    let inverted: Bool
     @ObservationIgnored var messageFrames: [String: CGRect] = [:]
     @ObservationIgnored var viewportHeight: CGFloat = 0
     @ObservationIgnored private var followsDestination = false
-    @ObservationIgnored fileprivate var preservePosition: ((String, UnitPoint) -> Void)?
-
-    init(inverted: Bool = false) { self.inverted = inverted }
 
     fileprivate struct Request: Equatable {
         let token = UUID()
@@ -24,9 +20,7 @@ import SwiftUI
     func preserveReadingPosition(using proxy: ScrollViewProxy) {
         guard !followsDestination,
               let anchor = ChatHistoryAnchor.capture(frames: messageFrames, viewportHeight: viewportHeight) else { return }
-        let point = inverted ? UnitPoint(x: 0.5, y: 1 - anchor.point.y) : anchor.point
-        if let preservePosition { preservePosition(anchor.id, point) }
-        else { proxy.scrollTo(anchor.id, anchor: point) }
+        proxy.scrollTo(anchor.id, anchor: anchor.point)
     }
 
     func jump(using proxy: ScrollViewProxy, to id: String, animated: Bool = true) {
@@ -54,56 +48,13 @@ struct ChatScrollTracking: ViewModifier {
     let followsLatest: Bool
     @Binding var visibleMessage: String?
     @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 18, macOS 15, *), control.inverted {
-            content.modifier(InvertedChatScrollTracking(control: control,
-                visibleMessage: $visibleMessage))
-        } else if #available(iOS 18, macOS 15, *) {
+        if #available(iOS 18, macOS 15, *) {
             content.modifier(SemanticChatScrollTracking(control: control,
                 visibleMessage: $visibleMessage, followsLatest: followsLatest))
         } else {
-            content.defaultScrollAnchor(control.inverted ? .top : .bottom)
-                .scrollPosition(id: $visibleMessage, anchor: control.inverted ? .bottom : .top)
+            content.defaultScrollAnchor(.bottom)
+                .scrollPosition(id: $visibleMessage, anchor: .top)
         }
-    }
-}
-
-/// The newest row is at the scroll view's logical origin. Loading older rows
-/// extends its far end without changing any existing row's content coordinates.
-@available(iOS 18, macOS 15, *)
-private struct InvertedChatScrollTracking: ViewModifier {
-    let control: ChatScrollControl
-    @Binding var visibleMessage: String?
-    @State private var position = ScrollPosition(idType: String.self)
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        edges(content)
-            .defaultScrollAnchor(.top, for: .initialOffset)
-            .defaultScrollAnchor(.top, for: .alignment)
-            .scrollPosition($position)
-            .onAppear {
-                control.preservePosition = { id, anchor in
-                    var transaction = Transaction(animation: nil)
-                    transaction.scrollPositionUpdatePreservesVelocity = true
-                    withTransaction(transaction) { position.scrollTo(id: id, anchor: anchor) }
-                }
-            }
-            .onDisappear { control.preservePosition = nil }
-            .onChange(of: position.viewID(type: String.self)) { _, id in visibleMessage = id }
-            .onChange(of: control.request) { _, request in
-                guard let request else { return }
-                withAnimation(request.animated && !reduceMotion ? .easeInOut(duration: 0.35) : nil) {
-                    if let id = request.destination { position.scrollTo(id: id, anchor: request.anchor) }
-                    else { position.scrollTo(edge: .top) }
-                }
-            }
-    }
-
-    @ViewBuilder private func edges(_ content: Content) -> some View {
-        if #available(iOS 26, macOS 26, *) {
-            // The system's directional edge blur assumes an upright view.
-            content.scrollEdgeEffectHidden()
-        } else { content }
     }
 }
 
