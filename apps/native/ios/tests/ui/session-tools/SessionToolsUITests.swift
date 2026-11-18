@@ -159,9 +159,18 @@ final class SessionToolsUITests: XCTestCase {
 
     func testCommentingOnAMessageFromItsMenu() throws {
         let message = text("The login session expires after an hour. Please fix the token refresh.")
+        // Pressing the text selects a word; its edit menu leads with Comment.
         message.press(forDuration: 1.2)
-        let comment = app.buttons["Comment"]
+        let comment = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)",
+            "Comment", XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
         waitFor(comment, 5)
+        // Taps during the menu's entrance animation are dropped; wait until it settles.
+        var frame = comment.frame
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.25)
+            if comment.frame == frame { break }
+            frame = comment.frame
+        }
         comment.tap()
         let field = app.textFields["Add a comment…"]
         waitFor(field)
