@@ -107,13 +107,14 @@ struct ChatTranscript<Row: Identifiable & Equatable, Content: View>: UIViewRepre
             }.margins(.horizontal, 16).margins(.vertical, 0)
         }
 
-        func apply(rows newRows: [Row], earlier newEarlier: ChatTranscriptEarlier?) {
+        func apply(rows incoming: [Row], earlier newEarlier: ChatTranscriptEarlier?) {
             guard let view, let dataSource else { return }
+            let newRows = incoming.uniquedByID()
             let newIDs = (newEarlier == nil ? [] : [Self.pagerID]) + newRows.map(\.id)
             var changed = newRows.filter { row in rows[row.id].map { $0 != row } ?? false }.map(\.id)
             if newEarlier != nil, earlier != nil, newEarlier != earlier { changed.append(Self.pagerID) }
             let identical = newIDs == ids && changed.isEmpty && (newEarlier == nil) == (earlier == nil)
-            rows = Dictionary(newRows.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+            rows = Dictionary(uniqueKeysWithValues: newRows.map { ($0.id, $0) })
             earlier = newEarlier
             if identical {
                 checkEarlier()
