@@ -291,8 +291,9 @@ struct ChatView: View {
         let referenced = transcript.requests.map {
             ChatRequestKey(id: $0.id, session: $0.sessionId ?? ref.sessionId, secret: $0.secret, approval: $0.approval)
         }
-        var seen = Set<ChatRequestKey>()
-        return (notified.reversed() + referenced.reversed()).filter { seen.insert($0).inserted }
+        // One card per request: two notifications for a request can differ in kind.
+        var seen = Set<[String]>()
+        return (notified.reversed() + referenced.reversed()).filter { seen.insert([$0.session, $0.id]).inserted }
     }
 
     private var replyComposer: some View {

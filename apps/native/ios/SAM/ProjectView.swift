@@ -333,31 +333,6 @@ struct Composer<Accessory: View>: View {
 
 }
 
-/// Keeps the editor's identity and keyboard focus while its controls move below a wrapped draft.
-private struct ComposerInputLayout: Layout {
-    var lineHeight: CGFloat
-
-    private func metrics(width: CGFloat, subviews: Subviews) -> (expanded: Bool, field: CGSize, height: CGFloat) {
-        let collapsed = subviews[0].sizeThatFits(ProposedViewSize(width: max(1, width - 112), height: nil))
-        let expanded = collapsed.height > lineHeight * 1.5
-        let field = expanded ? subviews[0].sizeThatFits(ProposedViewSize(width: max(1, width - 32), height: nil)) : collapsed
-        return (expanded, field, expanded ? 16 + field.height + 8 + 44 + 8 : max(56, field.height + 16))
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 320
-        return CGSize(width: width, height: metrics(width: width, subviews: subviews).height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let m = metrics(width: bounds.width, subviews: subviews)
-        subviews[0].place(at: CGPoint(x: bounds.minX + (m.expanded ? 16 : 56), y: bounds.minY + (m.expanded ? 16 : (bounds.height - m.field.height) / 2)), proposal: ProposedViewSize(width: max(1, bounds.width - (m.expanded ? 32 : 112)), height: m.field.height))
-        let y = bounds.minY + (m.expanded ? bounds.height - 52 : (bounds.height - 44) / 2)
-        subviews[1].place(at: CGPoint(x: bounds.minX + 8, y: y), proposal: ProposedViewSize(width: 44, height: 44))
-        subviews[2].place(at: CGPoint(x: bounds.maxX - 52, y: y), proposal: ProposedViewSize(width: 44, height: 44))
-    }
-}
-
 extension Composer where Accessory == EmptyView {
     init(placeholder: LocalizedStringKey, text: Binding<String>, busy: Bool, files: ComposerFiles?, commands: [SlashCommand] = [],
          send: @escaping () -> Void) {
