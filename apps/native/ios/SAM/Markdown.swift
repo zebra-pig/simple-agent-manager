@@ -6,16 +6,16 @@ struct MarkdownView: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
-                case let .paragraph(spans): Text(styled(spans)).textSelection(.enabled)
+                case let .paragraph(spans): SelectableText(spans: spans)
                 case let .heading(level, spans):
-                    Text(styled(spans, baseFont: (level == 1 ? Font.title2 : level == 2 ? Font.title3 : Font.headline).weight(.semibold))).padding(.top, 6)
+                    SelectableText(spans: spans, style: level == 1 ? .title2 : level == 2 ? .title3 : .headline).padding(.top, 6)
                 case let .listItem(depth, marker, spans):
                     HStack(alignment: .top, spacing: 8) {
                         Text(verbatim: markerText(marker)).frame(minWidth: 20, alignment: .leading).foregroundStyle(.secondary)
-                        Text(styled(spans)).textSelection(.enabled)
+                        SelectableText(spans: spans)
                     }.padding(.leading, CGFloat(depth) * 20)
                 case let .quote(spans):
-                    HStack { RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.3)).frame(width: 3); Text(styled(spans)).foregroundStyle(.secondary).textSelection(.enabled) }.fixedSize(horizontal: false, vertical: true)
+                    HStack { RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.3)).frame(width: 3); SelectableText(spans: spans, secondary: true) }.fixedSize(horizontal: false, vertical: true)
                 case let .code(language, code): CodeView(code: code, language: language)
                 case let .table(header, rows):
                     ScrollView(.horizontal) {
@@ -68,7 +68,7 @@ struct CodeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let language, !language.isEmpty { Text(verbatim: language).font(.caption).foregroundStyle(.secondary) }
-            ScrollView(.horizontal) { Text(verbatim: code).font(.callout.monospaced()).textSelection(.enabled).fixedSize(horizontal: true, vertical: false) }
+            ScrollView(.horizontal) { SelectableText(verbatim: code, style: .code).fixedSize(horizontal: true, vertical: false) }
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
@@ -77,19 +77,11 @@ struct CodeView: View {
 /// Keep reasoning readable without exposing inline Markdown delimiters.
 struct ThinkingView: View {
     let text: String
-    var font: Font = .callout
-
-    private var formatted: AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
-    }
+    var style: SelectableText.Style = .callout
 
     var body: some View {
         DisclosureGroup("Thinking") {
-            Text(formatted)
-                .font(font)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+            SelectableText(inlineMarkdown: text, style: style, secondary: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

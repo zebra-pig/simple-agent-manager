@@ -12,48 +12,36 @@ private final class ScrollFixtureCredentials: CredentialStore, @unchecked Sendab
 // Only the app entry point is replaced in an isolated build copy. The UI tests
 // navigate the production ChatView, Rust model, HTTP transport, pager and button.
 @main struct SAMScrollFixture: SwiftUI.App {
-    @State private var viewportHeight: CGFloat = 0
     private let app = App(store: ScrollFixtureCredentials(), baseDomain: nil)
     var body: some Scene {
         WindowGroup {
             NavigationStack {
                 ChatView(app: app, ref: SessionRef(projectId: "fixture", sessionId: "fixture"))
                     .background(ScrollSamples().allowsHitTesting(false))
-                    .onPreferenceChange(ChatViewportHeight.self) { viewportHeight = $0 }
-                    .onPreferenceChange(ChatMessageFrames.self) { frames in
-                        let visible = frames.filter { $0.value.maxY > 0 && $0.value.minY < viewportHeight }
-                            .sorted { $0.value.minY < $1.value.minY }
-                        ScrollRenderedLayout.rows = visible.map {
-                            ["id": $0.key, "y": $0.value.minY, "height": $0.value.height] as [String: Any]
-                        }
-                        let anchor = ChatHistoryAnchor.capture(frames: frames, viewportHeight: viewportHeight)
-                        let payload: [String: Any] = ["time": Date().timeIntervalSince1970,
-                            "height": viewportHeight, "id": anchor?.id ?? "none", "point": anchor?.point.y ?? 0,
-                            "rows": visible.map { ["id": $0.key, "y": $0.value.minY, "height": $0.value.height] as [String: Any] }]
-                        ScrollRenderedLayout.layouts.append(payload)
-                    }
             }
         }
     }
 }
 
-// Preference callbacks can describe intermediate layout passes that never reach
-// the display. Sample the latest completed layout at display-link cadence too.
+// The display-link samples double as layout records for the `layout` endpoint.
 private enum ScrollRenderedLayout {
-    static var rows: [[String: Any]] = []
     static var layouts: [[String: Any]] = []
 }
 
-// Read-only instrumentation of the rendered scroll view. Sampling presentation
-// offsets lets the XCTest prove movement between frames of the real button tap;
+// Read-only instrumentation of the rendered transcript. Sampling every display
+// frame lets the XCTest prove movement between frames of the real button tap.
+// UIScrollView moves its own model offset each frame (no Core Animation), so
+// model values are what is drawn; presentation layers lag a non-animated change;
 // it never writes offsets, calls layoutIfNeeded, or changes production state.
+// Rows are the collection view's visible items, identified through its
+// diffable data source; y is measured from the top of the scroll view's frame.
 private struct ScrollSamples: UIViewRepresentable {
     func makeUIView(context: Context) -> SampleView { SampleView() }
     func updateUIView(_ view: SampleView, context: Context) {}
 
     final class SampleView: UIView {
         private var displayLink: CADisplayLink?
-        private weak var chatScroll: UIScrollView?
+        private weak var chatScroll: ChatTranscriptView?
         private var samples: [[String: Any]] = []
         private var sending = false
 
@@ -67,8 +55,8 @@ private struct ScrollSamples: UIViewRepresentable {
             }
         }
 
-        private func findScroll(in view: UIView) -> UIScrollView? {
-            if let scroll = view as? UIScrollView,
+        private func findScroll(in view: UIView) -> ChatTranscriptView? {
+            if let scroll = view as? ChatTranscriptView,
                scroll.bounds.height > 300, scroll.contentSize.height > scroll.bounds.height {
                 return scroll
             }
@@ -93,15 +81,32 @@ private struct ScrollSamples: UIViewRepresentable {
             return rect
         }
 
+        private func visibleRows(_ scroll: ChatTranscriptView) -> [[String: Any]] {
+            let source = scroll.dataSource as? UICollectionViewDiffableDataSource<Int, String>
+            let offset = scroll.contentOffset.y
+            return scroll.indexPathsForVisibleItems.sorted().compactMap { path in
+                guard let id = source?.itemIdentifier(for: path), !id.hasPrefix("#"),
+                      let cell = scroll.cellForItem(at: path) else { return nil }
+                let frame = cell.frame
+                let y = frame.minY - offset
+                guard frame.height > 0, y + frame.height > 0, y < scroll.bounds.height else { return nil }
+                return ["id": id, "y": y, "height": frame.height]
+            }
+        }
+
         @objc private func sample() {
             if chatScroll == nil, let window { chatScroll = findScroll(in: window) }
             guard let scroll = chatScroll else { return }
+            let now = Date().timeIntervalSince1970
+            let rows = visibleRows(scroll)
+            ScrollRenderedLayout.layouts.append(["time": now, "height": scroll.bounds.height,
+                                                 "id": (rows.first?["id"] as? String) ?? "none", "rows": rows])
             samples.append([
-                "time": Date().timeIntervalSince1970,
-                "rows": ScrollRenderedLayout.rows,
+                "time": now,
+                "rows": rows,
                 "y": scroll.layer.presentation()?.bounds.origin.y ?? scroll.contentOffset.y,
-                "distanceToLatest": max(0,
-                    (scroll.layer.presentation()?.bounds.origin.y ?? scroll.contentOffset.y) + scroll.adjustedContentInset.top),
+                "distanceToLatest": max(0, scroll.maxOffset
+                    - scroll.contentOffset.y),
                 "bottom": max(-scroll.adjustedContentInset.top,
                     scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom),
                 "height": scroll.bounds.height,
