@@ -26,6 +26,9 @@ private final class ScrollFixtureCredentials: CredentialStore, @unchecked Sendab
 // The display-link samples double as layout records for the `layout` endpoint.
 private enum ScrollRenderedLayout {
     static var layouts: [[String: Any]] = []
+    /// Frames where rows drew over one another, or a row's content did not
+    /// fit its cell for several frames in a row.
+    static var defects: [[String: Any]] = []
 }
 
 // Read-only instrumentation of the rendered transcript. Sampling every display
@@ -33,6 +36,7 @@ private enum ScrollRenderedLayout {
 // UIScrollView moves its own model offset each frame (no Core Animation), so
 // model values are what is drawn; presentation layers lag a non-animated change;
 // it never writes offsets, calls layoutIfNeeded, or changes production state.
+// The defect check measures each visible cell's hosted row (a sizing query).
 // Rows are the collection view's visible items, identified through its
 // diffable data source; y is measured from the top of the scroll view's frame.
 private struct ScrollSamples: UIViewRepresentable {
@@ -44,6 +48,9 @@ private struct ScrollSamples: UIViewRepresentable {
         private weak var chatScroll: ChatTranscriptView?
         private var samples: [[String: Any]] = []
         private var sending = false
+        private var frameCount = 0
+        /// Consecutive measured frames each row's content overflowed its cell.
+        private var overflowing: [String: Int] = [:]
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -94,10 +101,49 @@ private struct ScrollSamples: UIViewRepresentable {
             }
         }
 
+        /// Rows as drawn this frame, including any animation in flight: no
+        /// two may overlap. Every third frame, each row's content is measured
+        /// against its cell; content that stays taller than its cell draws
+        /// over the next row.
+        private func checkDefects(_ scroll: ChatTranscriptView, at now: TimeInterval) {
+            frameCount += 1
+            let source = scroll.dataSource as? UICollectionViewDiffableDataSource<Int, String>
+            let cells = scroll.indexPathsForVisibleItems.sorted().compactMap { path -> (String, UICollectionViewCell)? in
+                guard let id = source?.itemIdentifier(for: path), let cell = scroll.cellForItem(at: path), !cell.isHidden else { return nil }
+                return (id, cell)
+            }
+            // A presentation layer lags a change made without animation until
+            // the next commit; only an animation in flight draws elsewhere.
+            let drawn: [(String, CGRect)] = cells.map { (id: String, cell: UICollectionViewCell) -> (String, CGRect) in
+                let animating = !(cell.layer.animationKeys() ?? []).isEmpty
+                return (id, animating ? cell.layer.presentation()?.frame ?? cell.frame : cell.frame)
+            }.filter { $0.1.height > 0 }
+            for (upper, lower) in zip(drawn, drawn.dropFirst()) where lower.1.minY < upper.1.maxY - 1 {
+                ScrollRenderedLayout.defects.append(["time": now, "kind": "overlap", "upper": upper.0, "lower": lower.0,
+                                                     "upperMaxY": upper.1.maxY, "lowerMinY": lower.1.minY])
+            }
+            guard frameCount % 3 == 0 else { return }
+            var still: [String: Int] = [:]
+            for (id, cell) in cells {
+                let fitted = cell.contentView.systemLayoutSizeFitting(
+                    CGSize(width: cell.bounds.width, height: 0),
+                    withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height
+                guard fitted - cell.bounds.height > 2 else { continue }
+                let count = (overflowing[id] ?? 0) + 1
+                still[id] = count
+                if count == 3 {
+                    ScrollRenderedLayout.defects.append(["time": now, "kind": "overflow", "id": id,
+                                                         "content": fitted, "cell": cell.bounds.height])
+                }
+            }
+            overflowing = still
+        }
+
         @objc private func sample() {
             if chatScroll == nil, let window { chatScroll = findScroll(in: window) }
             guard let scroll = chatScroll else { return }
             let now = Date().timeIntervalSince1970
+            checkDefects(scroll, at: now)
             let rows = visibleRows(scroll)
             ScrollRenderedLayout.layouts.append(["time": now, "height": scroll.bounds.height,
                                                  "id": (rows.first?["id"] as? String) ?? "none", "rows": rows])
@@ -128,9 +174,11 @@ private struct ScrollSamples: UIViewRepresentable {
                 sending = true
                 let batch = samples
                 let layouts = ScrollRenderedLayout.layouts
-                let payload: [String: Any] = ["samples": batch, "layouts": layouts]
+                let defects = ScrollRenderedLayout.defects
+                let payload: [String: Any] = ["samples": batch, "layouts": layouts, "defects": defects]
                 samples.removeAll(keepingCapacity: true)
                 ScrollRenderedLayout.layouts.removeAll(keepingCapacity: true)
+                ScrollRenderedLayout.defects.removeAll(keepingCapacity: true)
                 var request = URLRequest(url: URL(string: "http://127.0.0.1:SAM_TEST_PORT/measurements")!)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -142,6 +190,7 @@ private struct ScrollSamples: UIViewRepresentable {
                             // A failed transport must not silently discard display frames.
                             self.samples.insert(contentsOf: batch, at: 0)
                             ScrollRenderedLayout.layouts.insert(contentsOf: layouts, at: 0)
+                            ScrollRenderedLayout.defects.insert(contentsOf: defects, at: 0)
                         }
                         self.sending = false
                     }
