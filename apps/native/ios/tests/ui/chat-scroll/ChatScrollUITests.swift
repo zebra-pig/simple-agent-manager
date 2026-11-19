@@ -15,6 +15,11 @@ final class ChatScrollUITests: XCTestCase {
         // XCTest's automatic failure artifact is a video on current Xcode.
         // Always attach a still image and the final measured state as well.
         capture("final-" + name)
+        // Every frame of every scenario: rows never draw over one another.
+        Thread.sleep(forTimeInterval: 0.5)
+        if let defects = (try? request("defects"))?["defects"] as? [[String: Any]], !defects.isEmpty {
+            XCTFail("\(defects.count) frames drew rows over one another; first: \(defects.prefix(5))")
+        }
         if let stats = try? request("stats") { print("CHAT_SCROLL_FINAL_STATS \(stats)") }
         if let trace = try? request("trace"), let samples = trace["samples"] as? [[String: Any]] {
             print("CHAT_SCROLL_FINAL_OFFSETS \(Array(samples.suffix(4)))")
@@ -296,6 +301,78 @@ final class ChatScrollUITests: XCTestCase {
         transcript.swipeDown()
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.tap()
+        assertAtLatest()
+    }
+
+    /// The drawn rows on screen, top to bottom, must not overlap.
+    private func assertRowsDoNotOverlap(_ phase: String, file: StaticString = #filePath, line: UInt = #line) {
+        let screen = app.windows.firstMatch.frame
+        let rows = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'chat-message-'"))
+            .allElementsBoundByIndex
+            .compactMap { row -> (String, CGRect)? in
+                guard row.exists else { return nil }
+                let frame = row.frame
+                guard !frame.isEmpty, frame.maxY > screen.minY, frame.minY < screen.maxY else { return nil }
+                return (row.identifier, frame)
+            }
+            .sorted { $0.1.minY < $1.1.minY }
+        XCTAssertGreaterThan(rows.count, 1, "\(phase): fewer than two rows on screen", file: file, line: line)
+        for (upper, lower) in zip(rows, rows.dropFirst()) where lower.1.minY < upper.1.maxY - 1 {
+            capture("overlap-\(phase)")
+            print("CHAT_SCROLL_ROWS \(phase) \(rows.map { "\($0.0)=\($0.1.minY)...\($0.1.maxY)" })")
+            return XCTFail("\(phase): \(upper.0) (\(upper.1.minY)...\(upper.1.maxY)) overlaps \(lower.0) (\(lower.1.minY)...\(lower.1.maxY))",
+                           file: file, line: line)
+        }
+    }
+
+    /// Disclosures on screen: Activity groups, Thinking, and tool Output.
+    private var disclosures: [XCUIElement] {
+        let screen = app.windows.firstMatch.frame
+        let bar = app.navigationBars.firstMatch.frame
+        let composer = composer.frame
+        return app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Activity' OR label == 'Thinking' OR label == 'Output'"))
+            .allElementsBoundByIndex
+            .filter { $0.exists && $0.isHittable && $0.frame.minY > bar.maxY && $0.frame.maxY < min(composer.minY, screen.maxY) }
+    }
+
+    func testExpandingAndCollapsingRowsNeverOverlapsMessages() throws {
+        _ = try request("reset?mixed=true")
+        launch()
+        assertRowsDoNotOverlap("launch")
+        // Read further up, where activity, thinking and replies alternate.
+        for step in 0..<6 {
+            if step > 0 { transcript.swipeDown() }
+            Thread.sleep(forTimeInterval: 0.5)
+            for (index, _) in disclosures.prefix(3).enumerated() {
+                // Expanding moves the rows below; look each one up again.
+                guard let disclosure = disclosures[safe: index], disclosure.isHittable else { break }
+                let label = disclosure.label
+                disclosure.tap()
+                Thread.sleep(forTimeInterval: 0.08)
+                assertRowsDoNotOverlap("expanding-\(step)-\(label)")
+                Thread.sleep(forTimeInterval: 0.6)
+                assertRowsDoNotOverlap("expanded-\(step)-\(label)")
+            }
+            // Toggle again, quickly, while earlier changes may still animate.
+            for index in 0..<3 {
+                guard let disclosure = disclosures[safe: index], disclosure.isHittable else { break }
+                disclosure.tap()
+            }
+            Thread.sleep(forTimeInterval: 0.08)
+            assertRowsDoNotOverlap("collapsing-\(step)")
+            Thread.sleep(forTimeInterval: 0.8)
+            assertRowsDoNotOverlap("collapsed-\(step)")
+        }
+        // Polling keeps growing the streamed row near the bottom.
+        if jump.waitForExistence(timeout: 2) { jump.tap() }
+        assertAtLatest()
+        for index in 0..<2 {
+            guard let disclosure = disclosures[safe: index], disclosure.isHittable else { break }
+            disclosure.tap()
+        }
+        Thread.sleep(forTimeInterval: 4)
+        assertRowsDoNotOverlap("polled-at-latest")
         assertAtLatest()
     }
 
@@ -594,4 +671,8 @@ final class ChatScrollUITests: XCTestCase {
         XCTAssertEqual(stats["inFlight"] as? Int, 0)
         capture("top-then-jump-before-history-returns")
     }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }

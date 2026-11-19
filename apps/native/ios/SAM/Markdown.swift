@@ -78,9 +78,11 @@ struct CodeView: View {
 struct ThinkingView: View {
     let text: String
     var style: SelectableText.Style = .callout
+    /// Tells this section apart from others in the same transcript row.
+    var key = "thinking"
 
     var body: some View {
-        DisclosureGroup("Thinking") {
+        RowDisclosureGroup("Thinking", key: key) {
             SelectableText(inlineMarkdown: text, style: style, secondary: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

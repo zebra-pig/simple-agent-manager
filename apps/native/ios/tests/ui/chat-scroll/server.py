@@ -19,6 +19,7 @@ lock = threading.Lock()
 state = {"older": 0, "completedOlder": 0, "inFlight": 0, "polls": 0, "delay": 0.1, "generation": 0, "mixed": False, "historyEvents": []}
 scroll_samples = []
 layout_samples = []
+layout_defects = []
 history_gate = threading.Event()
 history_gate.set()
 request_gate = threading.Event()
@@ -34,6 +35,8 @@ class Handler(BaseHTTPRequestHandler):
         samples = payload["samples"]
         with lock:
             layout_samples.extend(payload["layouts"])
+            layout_defects.extend(payload.get("defects", []))
+            del layout_defects[:-200]
             del layout_samples[:-1000]
         with lock:
             if state.get("releaseArmed"):
@@ -56,6 +59,7 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 scroll_samples.clear()
                 layout_samples.clear()
+                layout_defects.clear()
                 history_gate.set()
                 history_gate = threading.Event()
                 if query.get("hold", ["false"])[0] != "true":
@@ -118,6 +122,9 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/release-history":
             history_gate.set()
             body = {"released": True}
+        elif url.path == "/defects":
+            with lock:
+                body = {"defects": list(layout_defects)}
         elif url.path == "/layout":
             with lock:
                 after = float(query.get("after", [0])[0])

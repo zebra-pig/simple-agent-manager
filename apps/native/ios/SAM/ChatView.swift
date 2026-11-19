@@ -417,11 +417,11 @@ struct TimelineItemView: View {
         case let .thinking(text):
             ThinkingView(text: text)
         case let .activity(steps, summary):
-            DisclosureGroup {
-                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+            RowDisclosureGroup(key: "activity") {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                     switch step {
                     case let .thought(text):
-                        ThinkingView(text: text)
+                        ThinkingView(text: text, key: "step-\(index)")
                     case let .tool(call):
                         VStack(alignment: .leading, spacing: 6) {
                             Label { Text(verbatim: toolLabel(call.kind)) }
@@ -437,7 +437,7 @@ struct TimelineItemView: View {
                             }
                             ForEach(call.locations, id: \.self) { Text(verbatim: $0).font(.caption.monospaced()) }
                             if let output = call.output {
-                                DisclosureGroup("Output") { CodeView(code: output, language: nil) }
+                                RowDisclosureGroup("Output", key: "output-\(index)") { CodeView(code: output, language: nil) }
                             }
                         }.padding(.vertical, 4)
                     }
@@ -474,7 +474,7 @@ struct TimelineItemView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(notice.headline ?? (notice.source == .workspace ? String(localized: "Report from the workspace") : String(localized: "Conversation context")))
                     .font(.callout.weight(.medium))
-                if let detail = notice.detail { DisclosureGroup("Details") { SelectableText(verbatim: detail, style: .callout).frame(maxWidth: .infinity, alignment: .leading) } }
+                if let detail = notice.detail { RowDisclosureGroup("Details", key: "details") { SelectableText(verbatim: detail, style: .callout).frame(maxWidth: .infinity, alignment: .leading) } }
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
                 .glass(in: RoundedRectangle(cornerRadius: 16), tint: notice.severity == .error ? .red.opacity(0.1) : nil)
         }

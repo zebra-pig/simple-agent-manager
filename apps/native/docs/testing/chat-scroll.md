@@ -53,6 +53,14 @@ The Xcode Cloud post-clone hook runs this suite and exports its PNG attachments.
 - Pressing message text selects a word in place, not the whole message. Its edit
   menu offers Comment, and Copy then Paste into the composer yields only that word.
   Pressing a message opens the comment sheet from that menu.
+- Expanding and collapsing activity, thinking and tool output sections, one at a
+  time and in quick succession, while reading and at latest during polling: the
+  rows on screen never overlap.
+
+Every test also fails if, in any display frame, two rows' cells overlap
+(including a cell animating to a new position), or a row's content stays taller
+than its cell for three measured frames. Rows passing under the navigation bar
+or the composer used to measure taller by the part of the bar they were under.
 
 HTTP completion is asserted before insertion checks. A read-only display-link
 probe samples the transcript's visible rows (through its diffable data source),
@@ -96,8 +104,18 @@ Measurements are keyed by row identity, so they follow a row when a page is
 inserted before it.
 
 The transcript draws behind the navigation bar, under the system scroll edge
-effect, and behind the composer. Its insets come from the SwiftUI safe area.
-The 16-point column inset is the hosting configuration's margin.
+effect, and behind the composer. Its insets come from the SwiftUI safe area. The
+scroll view adds the vertical safe area to its content insets itself
+(`contentInsetAdjustmentBehavior = .scrollableAxes`), which leaves its rows with
+no vertical safe area. With one, a hosted row under a bar was laid out and
+measured taller by the part of the bar it was under, and shrank again as it
+scrolled out. The 16-point column inset is the hosting configuration's margin.
+
+Rows change height and position in one step. Their cells never animate to a new
+position, and animations inside a row are off, so a section opening or closing
+cannot draw over the next row. Open sections are kept per row
+(`RowDisclosures`), not in the recycled cell, so a row keeps its height when it
+scrolls away and back.
 
 Message text is a non-editable `UITextView` (`SelectableText`): a press
 selects a word with handles, the loupe and the system edit menu, and the edit

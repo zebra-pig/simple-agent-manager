@@ -80,6 +80,8 @@ struct ChatTranscript<Row: Identifiable & Equatable, Content: View>: UIViewRepre
         var dataSource: UICollectionViewDiffableDataSource<Int, String>?
         weak var view: ChatTranscriptView?
         fileprivate(set) var ids: [String] = []
+        /// Open sections, by row: they outlive the cell a row is shown in.
+        let disclosures = RowDisclosures()
         private var rows: [String: Row] = [:]
         private var earlier: ChatTranscriptEarlier?
         /// One page per scroll gesture: inserting rows can bring the pager
@@ -96,14 +98,23 @@ struct ChatTranscript<Row: Identifiable & Equatable, Content: View>: UIViewRepre
                 }.margins(.all, 0)
             }
             guard let row = rows[id], let parent else { return UIListContentConfiguration.cell() }
+            let disclosures = disclosures
             return UIHostingConfiguration {
                 // Hosted rows are a separate SwiftUI graph: forward what rows read.
                 parent.content(row)
+                    .environment(\.openURL, environment.openURL)
+                    .environment(\.openChatImage, environment.openChatImage)
+                    .environment(\.rowDisclosures, disclosures)
+                    .environment(\.disclosureRow, id)
                     // While a cell's height catches up with its content, keep
                     // the row at the top of the cell rather than centered.
                     .frame(maxHeight: .infinity, alignment: .top)
-                    .environment(\.openURL, environment.openURL)
-                    .environment(\.openChatImage, environment.openChatImage)
+                    // A recycled cell starts a row afresh, without the state
+                    // of the row it showed before.
+                    .id(id)
+                    // A row changes height in one step. Animated, a section
+                    // opening or closing draws over the rows next to it.
+                    .transaction { $0.animation = nil }
             }.margins(.horizontal, 16).margins(.vertical, 0)
         }
 
@@ -251,6 +262,14 @@ private struct ChatTranscriptPager: View {
 
 /// Measures its hosted row at the width the layout gives it.
 final class ChatTranscriptCell: UICollectionViewCell {
+    /// Rows move to new positions in one step, together with any change to
+    /// the scroll offset in the same layout pass. Sliding there instead, they
+    /// pass over one another while the offset has already moved.
+    override func action(for layer: CALayer, forKey event: String) -> (any CAAction)? {
+        if layer === self.layer, event == "position" || event == "bounds" { return NSNull() }
+        return super.action(for: layer, forKey: event)
+    }
+
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         let preferred = super.preferredLayoutAttributesFitting(attributes)
         let size = contentView.systemLayoutSizeFitting(
@@ -282,8 +301,11 @@ final class ChatTranscriptView: UICollectionView {
         backgroundColor = .clear
         alwaysBounceVertical = true
         keyboardDismissMode = .interactive
-        // The insets come from SwiftUI: the navigation bar and the composer.
-        contentInsetAdjustmentBehavior = .never
+        // The scroll view takes the safe area in its content insets, so its
+        // rows have none. With a safe area of their own, a row passing under
+        // a bar measured taller by the part of the bar it was under, and
+        // overlapped the next row; it shrank again as it scrolled out.
+        contentInsetAdjustmentBehavior = .scrollableAxes
         selfSizingInvalidation = .enabledIncludingConstraints
         accessibilityIdentifier = "chat-transcript"
     }
@@ -298,13 +320,30 @@ final class ChatTranscriptView: UICollectionView {
     var contentFits: Bool { contentSize.height <= bounds.height - adjustedContentInset.top - adjustedContentInset.bottom }
 
     fileprivate func setInsets(top: CGFloat, bottom: CGFloat) {
-        let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        barInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        applyInsets()
+    }
+
+    /// Insets the content by the bars' heights (the navigation bar and the
+    /// composer, from SwiftUI): the safe area, which the scroll view already
+    /// adds, and whatever the bars extend beyond it.
+    private func applyInsets() {
+        let insets = UIEdgeInsets(top: barInsets.top - safeAreaInsets.top, left: 0,
+                                  bottom: barInsets.bottom - safeAreaInsets.bottom, right: 0)
         guard contentInset != insets else { return }
         let anchor = captureAnchor()
         contentInset = insets
         verticalScrollIndicatorInsets = insets
         restore(anchor)
         setNeedsLayout()
+    }
+
+    /// The bars' heights, from SwiftUI.
+    private var barInsets = UIEdgeInsets.zero
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        applyInsets()
     }
 
     override func layoutSubviews() {
