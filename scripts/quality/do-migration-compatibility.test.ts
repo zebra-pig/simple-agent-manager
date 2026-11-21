@@ -63,11 +63,11 @@ describe('resolveDurableObjectMigrations', () => {
 
     const resolved = resolveDurableObjectMigrations(history, null);
 
-    expect(history).toHaveLength(23);
+    expect(history).toHaveLength(24);
     expect(legacyCreateCount).toBe(7);
     expect(resolved).toHaveLength(history.length);
     expect(resolved.every((migration) => migration.new_classes === undefined)).toBe(true);
-    expect(resolved.flatMap((migration) => migration.new_sqlite_classes ?? [])).toHaveLength(24);
+    expect(resolved.flatMap((migration) => migration.new_sqlite_classes ?? [])).toHaveLength(25);
     expect(loadCheckedInMigrations()).toEqual(history);
   });
 
@@ -126,7 +126,7 @@ describe('resolveDurableObjectMigrations', () => {
     const latestTag = history.at(-1)?.tag;
     vi.stubEnv('RESOURCE_PREFIX', 's123abc');
 
-    expect(latestTag).toBe('v23');
+    expect(latestTag).toBe('v24');
     const resolved = resolveDurableObjectMigrations(history, latestTag ?? null);
     const envConfig = generateApiWorkerEnv(
       { migrations: history },
@@ -142,12 +142,22 @@ describe('resolveDurableObjectMigrations', () => {
     expect(envConfig.migrations).toEqual(history);
   });
 
-  it('adds the builder SQLite class after the immutable deployed v22 prefix', () => {
+  it('adds the builder SQLite class after the immutable deployed v23 prefix', () => {
+    const history = loadCheckedInMigrations();
+    const resolved = resolveDurableObjectMigrations(history, 'v23');
+    expect(resolved.slice(0, 23)).toEqual(history.slice(0, 23));
+    expect(resolved.slice(23)).toEqual([
+      { tag: 'v24', new_sqlite_classes: ['ComposeBuilderContainer'] },
+    ]);
+  });
+
+  it('adds the Instant launch runner and builder after an immutable deployed v22 prefix', () => {
     const history = loadCheckedInMigrations();
     const resolved = resolveDurableObjectMigrations(history, 'v22');
     expect(resolved.slice(0, 22)).toEqual(history.slice(0, 22));
     expect(resolved.slice(22)).toEqual([
-      { tag: 'v23', new_sqlite_classes: ['ComposeBuilderContainer'] },
+      { tag: 'v23', new_sqlite_classes: ['InstantLaunchRunner'] },
+      { tag: 'v24', new_sqlite_classes: ['ComposeBuilderContainer'] },
     ]);
   });
 
@@ -158,7 +168,6 @@ describe('resolveDurableObjectMigrations', () => {
     resolved.slice(0, 21).forEach((entry, index) => expect(entry).toBe(history[index]));
     expect(resolved.slice(21, 22)).toEqual([
       { tag: 'v22', new_sqlite_classes: ['McpRateCounter', 'WorkspaceBootLog'] },
-      { tag: 'v23', new_sqlite_classes: ['InstantLaunchRunner'] },
     ]);
     const clean = resolveDurableObjectMigrations(history, null);
     expect(clean.at(-1)).toEqual(resolved.at(-1));

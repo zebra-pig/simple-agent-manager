@@ -535,6 +535,7 @@ max_instances = 6
 name = "COMPOSE_BUILDER"
 class_name = "ComposeBuilderContainer"
 
+# v24, not upstream's v23: this fork's production already applied v23 (InstantLaunchRunner).
 [[migrations]]
-tag = "v23"
+tag = "v24"
 new_sqlite_classes = ["ComposeBuilderContainer"]

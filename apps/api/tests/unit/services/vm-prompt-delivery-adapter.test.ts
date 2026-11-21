@@ -594,15 +594,9 @@ describe('VM prompt delivery adapter', () => {
       );
       const sql = String(prepare.mock.calls[index]![0]);
       expect(sql).toContain('snapshot.sleeping_at IS NOT NULL');
+      expect(sql).toContain("task.status IN ('draft', 'ready', 'queued', 'delegated')");
       const bind = prepare.mock.results[index]!.value.bind as ReturnType<typeof vi.fn>;
-      expect(bind).toHaveBeenCalledWith(
-        'project-1',
-        'chat-1',
-        'draft',
-        'ready',
-        'queued',
-        'delegated'
-      );
+      expect(bind).toHaveBeenCalledWith('project-1', 'chat-1');
     });
 
     // Control: with no starting task the missing workspace still means "slept", so it wakes.
