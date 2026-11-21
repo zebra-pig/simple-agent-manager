@@ -2815,7 +2815,7 @@ export const MIGRATIONS: Migration[] = [
     // the target is busy with a long turn (`applyPromptDeliveryResult`); this never does.
     // It equals the TTL deadline unless the sender opted into `holdWhileBusy`, and is NULL
     // for such rows without an explicit `expiresAt` and for rows from before this column.
-    name: '078-session-inbox-source-expires-at',
+    name: '083-session-inbox-source-expires-at',
     run(sql) {
       const existing = new Set(
         sql

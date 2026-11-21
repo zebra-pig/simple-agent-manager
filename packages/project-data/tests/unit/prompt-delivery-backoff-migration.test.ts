@@ -35,7 +35,7 @@ describe('prompt target backoff additive migration', () => {
       runMigrations(sql);
       runMigrations(sql);
       // Later additive migrations only append columns: 072 reads every existing row as
-      // the queue lane with no steer outcome, and 078 as having no explicit sender deadline.
+      // the queue lane with no steer outcome, and 083 as having no explicit sender deadline.
       expect(db.prepare('SELECT * FROM session_inbox ORDER BY rowid').all()).toEqual(
         before.map((row) => ({
           ...(row as Record<string, unknown>),
