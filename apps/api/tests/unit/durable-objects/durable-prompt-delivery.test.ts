@@ -996,6 +996,26 @@ describe('ProjectData durable prompt delivery', () => {
       capabilities,
     };
 
+    function acceptFollowUp(deliveryId = 'delivery-1', expiresAt?: number) {
+      return acceptPromptDelivery(
+        sql,
+        {},
+        {
+          deliveryId,
+          targetSessionId: 'chat-1',
+          displayContent: 'Visible follow-up',
+          senderType: 'human',
+          senderId: 'user-1',
+          messageClass: 'deliver',
+          sourceKind: 'user_followup',
+          ttlMs: config.ttlMs,
+          holdWhileBusy: true,
+          ...(expiresAt === undefined ? {} : { expiresAt }),
+        },
+        10_000
+      );
+    }
+
     function parkBusy(deliveryId: string, now: number) {
       const [claim] = claimDuePromptDeliveries(sql, config, now);
       expect(claim?.message.id).toBe(deliveryId);
@@ -1004,7 +1024,7 @@ describe('ProjectData durable prompt delivery', () => {
     }
 
     it('waits through a turn several TTLs long and is delivered at turn end', () => {
-      accept();
+      acceptFollowUp();
       let now = 10_000;
       const turnEndsAt = 10_000 + 5 * config.ttlMs;
       while (now < turnEndsAt) {
@@ -1029,7 +1049,7 @@ describe('ProjectData durable prompt delivery', () => {
     });
 
     it('still expires one TTL after the target stops answering busy', () => {
-      accept();
+      acceptFollowUp();
       const pending = parkBusy('delivery-1', 10_000);
       const holdUntil = pending.expiresAt!;
       expect(holdUntil).toBe(pending.nextAttemptAt! + config.ttlMs);
@@ -1047,27 +1067,19 @@ describe('ProjectData durable prompt delivery', () => {
     });
 
     it('never extends an explicit sender deadline', () => {
-      acceptPromptDelivery(
-        sql,
-        {},
-        {
-          deliveryId: 'delivery-deadline',
-          targetSessionId: 'chat-1',
-          displayContent: 'Due soon',
-          senderType: 'human',
-          senderId: 'user-1',
-          messageClass: 'deliver',
-          sourceKind: 'user_followup',
-          expiresAt: 40_000,
-        },
-        10_000
-      );
+      acceptFollowUp('delivery-deadline', 40_000);
       expect(parkBusy('delivery-deadline', 10_000).expiresAt).toBe(40_000);
       expect(expireDuePromptDeliveries(sql, config, 40_000).expired).toBe(1);
     });
 
-    it('stops extending at the hard ceiling from enqueue', () => {
+    it('keeps the TTL as a deadline for senders that did not opt in', () => {
       accept();
+      expect(parkBusy('delivery-1', 10_000).expiresAt).toBe(10_000 + config.ttlMs);
+      expect(expireDuePromptDeliveries(sql, config, 10_000 + config.ttlMs).expired).toBe(1);
+    });
+
+    it('stops extending at the hard ceiling from enqueue', () => {
+      acceptFollowUp();
       const ceiling = 10_000 + PROMPT_DELIVERY_BUSY_MAX_WAIT_MS;
       // Fast-forward to just before the ceiling, as if busy probes had held it there.
       sql.exec(

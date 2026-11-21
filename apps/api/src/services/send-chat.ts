@@ -184,6 +184,8 @@ Their message:
       deliveryIntent,
       sourceKind: inboxReply ? 'inbox_reply' : 'user_followup',
       ttlMs: durableConfig.ttlMs,
+      // A follow-up waits for a long running turn to end instead of expiring behind it.
+      holdWhileBusy: true,
       metadata: {
         ...delivery?.metadata,
         userId,

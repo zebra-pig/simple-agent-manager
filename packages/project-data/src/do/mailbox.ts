@@ -69,6 +69,8 @@ export interface EnqueueOptions {
   durableDelivery?: boolean;
   /** Queue for the next turn (default) or steer the running one; selects the claim lane. */
   deliveryIntent?: PromptDeliveryIntent;
+  /** The TTL may restart while the target is busy with a turn; `expiresAt` still binds. */
+  holdWhileBusy?: boolean;
 }
 
 /**
@@ -83,9 +85,12 @@ export function enqueueMessage(sql: SqlStorage, opts: EnqueueOptions): AgentMail
     opts.ackRequired === undefined ? (isDurable ? 1 : 0) : opts.ackRequired ? 1 : 0;
   const ttlMs =
     typeof opts.ttlMs === 'number' && opts.ttlMs > 0 ? opts.ttlMs : MAILBOX_DEFAULTS.TTL_MS;
-  const sourceExpiresAt =
+  const explicitExpiresAt =
     typeof opts.expiresAt === 'number' && Number.isFinite(opts.expiresAt) ? opts.expiresAt : null;
-  const expiresAt = sourceExpiresAt !== null ? Math.min(now + ttlMs, sourceExpiresAt) : now + ttlMs;
+  const expiresAt =
+    explicitExpiresAt !== null ? Math.min(now + ttlMs, explicitExpiresAt) : now + ttlMs;
+  // Without the opt-in, the TTL itself is the sender's deadline.
+  const sourceExpiresAt = opts.holdWhileBusy ? explicitExpiresAt : expiresAt;
 
   // Enforce per-project message cap
   if (opts.maxMessages && isMailboxAtCapacity(sql, opts.maxMessages)) {
