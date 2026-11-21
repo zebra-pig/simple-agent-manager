@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import type { OperationContext } from '@simple-agent-manager/operations';
 import { samChatDeliveryGet, samChatSend } from '@simple-agent-manager/operations';
 import type { AgentMailboxMessage } from '@simple-agent-manager/shared';
@@ -10,7 +8,7 @@ import * as schema from '../../../src/db/schema';
 import type { Env } from '../../../src/env';
 import { createOperationPorts } from '../../../src/operation-ports';
 import { sessionAccessFromGetSession } from '../../helpers/session-access-mock';
-import { createSchemaTables, createSqliteD1 } from '../../helpers/sqlite-d1';
+import { applySqliteMigration, createSchemaTables, createSqliteD1 } from '../../helpers/sqlite-d1';
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
@@ -130,9 +128,7 @@ describe('sam_chat_send delivery intent', () => {
       schema.platformSettings,
     ]);
     for (const file of ['0191_connector_execution.sql', '0189_cli_operation_receipts.sql'])
-      sqlite.exec(
-        readFileSync(new URL(`../../../src/db/migrations/${file}`, import.meta.url), 'utf8')
-      );
+      applySqliteMigration(sqlite, new URL(`../../../src/db/migrations/${file}`, import.meta.url));
     sqlite.prepare("INSERT INTO users (id,name,email) VALUES ('owner','Owner','o@x.test')").run();
     sqlite.prepare("INSERT INTO projects (id,name) VALUES ('project','project')").run();
     sqlite
