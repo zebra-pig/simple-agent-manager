@@ -2,6 +2,7 @@ import * as v from 'valibot';
 
 import { pendingAttention } from './attention-core';
 import { authorizeProjectOperation } from './authorization';
+import { steerProjection } from './connector-send-delivery';
 import { OperationError } from './errors';
 import { clampOperationNumber, getPlatformOperationLimits } from './limits';
 import { deliveryProjection, interactionProjection } from './operational-projections';
@@ -64,14 +65,14 @@ export const samChatDeliveryGet = defineOperation({
   title: 'Inspect message delivery',
   kind: 'read',
   description:
-    'Look up the deliveryId from sam_chat_send. Returns queue/retry/receipt timestamps and safe error indicators, never prompt content. Delivered/accepted/acked do not prove semantic consumption. Does not retry, wake or interrupt.',
+    'Look up the deliveryId from sam_chat_send. Returns queue/retry/receipt timestamps and safe error indicators, never prompt content. For a message sent to steer (sam_chat_send deliveryIntent auto or steer), steer.state reports the VM steer receipt: "steered" (accepted into the running turn), "fell_back_to_queue" (not taken; it is the agent\'s next prompt, with fallbackReason), "pending" (still deciding), "unconfirmed" (the VM cannot say whether the turn took it; never replayed) or "failed"; steer is null for a plain queued message. Delivered/accepted/acked/steered do not prove semantic consumption. Does not retry, wake or interrupt.',
   input: v.object({ ...session, deliveryId: id }),
   async run(ctx, input) {
     await operationalSession(ctx, input.projectId, input.sessionId);
     const m = await ctx.ports.projectData.getMailboxMessage(input.projectId, input.deliveryId);
     if (!m || m.targetSessionId !== input.sessionId)
       throw new OperationError('not_found', 'Delivery not found in this session');
-    return deliveryProjection({ ...m });
+    return { ...deliveryProjection({ ...m }), steer: steerProjection(m) };
   },
 });
 export const samChatInteractions = defineOperation({

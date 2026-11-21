@@ -38,6 +38,15 @@ export {
   type ConnectorReadSettingName,
   TEAM_TEXT_CHARS_MIN,
 } from './connector-read-settings-definition';
+export {
+  awaitSteerDecision,
+  CONNECTOR_DELIVERY_INTENTS,
+  type ConnectorDeliveryIntent,
+  deliveryOutcome,
+  normalizeSteerFallbackReason,
+  planConnectorDelivery,
+  steerProjection,
+} from './connector-send-delivery';
 export { type OperationsEnv } from './env';
 export { OperationError, operationErrorHttpStatus, toOperationHttpError } from './errors';
 export { DEFAULT_IDEA_CONTENT_MAX_LENGTH } from './idea-content-limit';

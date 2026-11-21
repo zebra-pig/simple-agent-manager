@@ -26,6 +26,7 @@ import type {
   InstallationLifecycleLatency,
   NotificationResponse,
   NotificationType,
+  PromptDeliveryIntent,
   SessionStateSnapshot,
   SubmitTaskResponse,
   TaskAttachment,
@@ -147,7 +148,11 @@ export interface InboxChatDelivery {
 /** A chat send that has passed authorization; `send` delivers with that authorization. */
 export interface AuthorizedChatSend {
   send(
-    body: { content: string; attachments?: TaskAttachment[] },
+    body: {
+      content: string;
+      attachments?: TaskAttachment[];
+      deliveryIntent?: PromptDeliveryIntent;
+    },
     assertEffectAllowed?: () => Promise<void>,
     inboxReply?: InboxChatDelivery
   ): Promise<Record<string, unknown>>;
@@ -232,6 +237,12 @@ export interface OperationChatPort {
   getInboxReplyDelivery(projectId: string, deliveryId: string): Promise<AgentMailboxMessage | null>;
   /** Validates message content before a receipt is reserved; returns the trimmed content. */
   validateSendContent(body: { content?: string }): string;
+  /**
+   * Whether a send may carry the `steer` intent at all (durable delivery on) and the longest
+   * content a steer may carry (`mailboxMessageMaxLength`). Anything else about a steer (a
+   * running turn, a steering-capable runtime) is decided by the delivery itself.
+   */
+  steerPolicy(): { available: boolean; maxContentLength: number };
   stop(
     userId: string,
     projectId: string,

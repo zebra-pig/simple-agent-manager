@@ -13,6 +13,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import * as schema from './db/schema';
 import type { NotificationService } from './durable-objects/notification';
 import { isAgentMessageChannelName } from './durable-objects/project-data/agent-message-notice';
+import { resolveDurableExecutionConfig } from './durable-objects/project-data/durable-execution-config';
 import { channelName } from './durable-objects/project-data/project-event-channels-config';
 import { scheduleLimits } from './durable-objects/project-data/project-event-schedules-config';
 import {
@@ -35,6 +36,7 @@ import { resolveChatAgentState } from './routes/chat-agent-state';
 import { answerAttention } from './routes/chat-attention';
 import { interruptChat } from './routes/chat-cancel';
 import { stopChat } from './routes/chat-stop';
+import { getMcpLimits } from './routes/mcp/_helpers';
 import { rethrowScheduleError } from './routes/project-schedules';
 import { snapshotInteractions } from './services/acp-interaction-store';
 import { resolveAdminSetting, resolveAdminSettingDetailsMany } from './services/admin-settings';
@@ -184,6 +186,10 @@ export function createOperationPorts(env: Env): OperationPorts {
       validateSendContent: validateSendChatContent,
       getInboxReplyDelivery: (projectId, deliveryId) =>
         projectData.getMailboxMessage(env, projectId, deliveryId),
+      steerPolicy: () => ({
+        available: resolveDurableExecutionConfig(env).deliveryEnabled,
+        maxContentLength: getMcpLimits(env).mailboxMessageMaxLength,
+      }),
       stop: (...a) => stopChat(env, ...a),
       interrupt: (...a) => interruptChat(env, ...a),
       answerAttention: (...a) => answerAttention(env, ...a),

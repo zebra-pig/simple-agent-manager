@@ -232,6 +232,12 @@ These questions read without waking a sleeping agent:
 - **"Did my message get through?"** A reply the app sends returns a delivery ID, and the app can
   look it up: queued, delivered to the agent, retried. Delivered doesn't mean the agent has read it
   or acted on it yet.
+- **"Correct it now, or after it finishes?"** A reply to an agent that is in the middle of its
+  work goes into that work straight away (steering), so a correction doesn't wait until the agent
+  is done. If the agent is idle or asleep, its runtime can't take live input, or the message is too
+  long, the reply waits as the agent's next message instead (and wakes a sleeping chat), and the app
+  is told why. The app can also ask for "after you finish" on purpose. Looking up the delivery shows
+  whether a correction reached the running work or was queued.
 - **"What changed since I last asked?"** The app can ask for what changed since its last check,
   including new questions from agents. It gets the latest state, not every step in between.
 - **"Did the command finish?"** The app can see commands the agent ran with secrets

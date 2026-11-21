@@ -17,6 +17,12 @@ import {
   projectGet,
   projectsList,
 } from './connector-read-core';
+import {
+  awaitSteerDecision,
+  ConnectorDeliveryIntentSchema,
+  deliveryOutcome,
+  planConnectorDelivery,
+} from './connector-send-delivery';
 import { OperationError } from './errors';
 import type { OperationConnectorPort } from './ports';
 import { defineOperation } from './types';
@@ -130,9 +136,14 @@ export const samChatSend = defineOperation({
   name: 'sam_chat_send',
   title: 'Reply to a chat',
   description:
-    'Use this when you want to reply to or steer a project chat you created or that its owner shared with you. Wakes a sleeping session through durable delivery. Use for follow-up questions needing repository code or files. Reuse requestKey on retries.',
+    'Use this when you want to reply to, correct or steer a project chat you created or that its owner shared with you. deliveryIntent (default "auto") decides when the agent sees it: "auto" puts the message into the agent\'s running turn when it is working on a steering-capable runtime, so a correction lands now instead of after the turn; when the session is idle or asleep, the runtime cannot steer, or the text is too long to steer, it is queued as the agent\'s next prompt (waking a sleeping session). Use the default (or "steer") for corrections and changes of direction; use "queue" only for "do this after you finish". "steer" never fails where a queue would succeed: it falls back to the queue and says so. The result reports deliveredAs ("steer", "queue", or "pending" while SAM is still deciding; "unconfirmed"/"failed" are rare) and fallbackReason (not_running, runtime_steering_unsupported, too_long, steering_unavailable). Check sam_chat_delivery_get with deliveryId to confirm a steer reached the turn. Use for follow-up questions needing repository code or files. Reuse requestKey on retries: a retry returns the first result and never delivers twice.',
   kind: 'write',
-  input: v.object({ ...session, content: v.pipe(v.string(), v.minLength(1)), requestKey }),
+  input: v.object({
+    ...session,
+    content: v.pipe(v.string(), v.minLength(1)),
+    deliveryIntent: v.optional(ConnectorDeliveryIntentSchema),
+    requestKey,
+  }),
   async run(ctx, input) {
     await authorizeProjectOperation(ctx, input.projectId, 'task:write');
     const authorized = await ctx.ports.chat.authorizeSend(
@@ -140,17 +151,38 @@ export const samChatSend = defineOperation({
       input.projectId,
       input.sessionId
     );
+    const requested = input.deliveryIntent ?? 'auto';
     return ctx.ports.connector.executeWrite(
       ctx,
       'sam_chat_send',
       input,
-      async () => ({
-        ...(await authorized.send(
-          { content: input.content },
+      async () => {
+        // Decided inside the write so an idempotent replay returns the first answer unchanged.
+        const content = ctx.ports.chat.validateSendContent({ content: input.content });
+        const plan = planConnectorDelivery(requested, content.length, ctx.ports.chat.steerPolicy());
+        const sent = await authorized.send(
+          { content: input.content, deliveryIntent: plan.sendAs },
           ...(ctx.assertEffectAllowed ? ([ctx.assertEffectAllowed] as const) : ([] as const))
-        )),
-        link: operationLink(ctx, input.projectId, input.sessionId),
-      }),
+        );
+        const deliveryId = typeof sent.deliveryId === 'string' ? sent.deliveryId : null;
+        const outcome =
+          plan.sendAs === 'steer' && sent.deliveryIntent === 'steer' && deliveryId
+            ? deliveryOutcome(
+                await awaitSteerDecision(() =>
+                  ctx.ports.projectData.getMailboxMessage(input.projectId, deliveryId)
+                )
+              )
+            : {
+                deliveredAs: 'queue' as const,
+                ...(plan.fallback ? { fallbackReason: plan.fallback } : {}),
+              };
+        return {
+          ...sent,
+          deliveryIntent: requested,
+          ...outcome,
+          link: operationLink(ctx, input.projectId, input.sessionId),
+        };
+      },
       async () => {
         ctx.ports.chat.validateSendContent({ content: input.content });
       }
