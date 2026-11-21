@@ -113,6 +113,7 @@ export const DELIVERY_TERMINAL_STATES: readonly DeliveryState[] = [
 
 export const PROMPT_DELIVERY_SOURCES = [
   'user_followup',
+  'inbox_reply',
   'comment_directive',
   'agent_mailbox',
   'orchestration_handoff',
@@ -128,6 +129,9 @@ export const PROMPT_DELIVERY_SOURCES = [
   // A human supplied or declined an agent's secret request, or it expired; delivered to the
   // requesting agent's session (`services/runtime-secret-requests.ts`). Metadata only.
   'secret_request',
+  // A person archived an inbox ask, or it expired; delivered to the filing agent's session
+  // (`apps/api/src/services/inbox/ask-notice.ts`). Guarded like `secret_request`.
+  'inbox_ask',
 ] as const;
 
 export type PromptDeliverySource = (typeof PROMPT_DELIVERY_SOURCES)[number];

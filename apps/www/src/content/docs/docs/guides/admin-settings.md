@@ -16,9 +16,14 @@ the trial product in November 2026; a value saved for it earlier is ignored.
 
 ## Open the settings
 
-Select **Admin** in the sidebar (only superadmins see it), then the **Settings** tab. The page is
+Select **Admin** in the sidebar (only superadmins see it), then **Settings** under **Platform**. The page is
 titled **Runtime settings**. An account must be an approved, active superadmin to use it; admins
 can't.
+
+On an ordinary self-hosted instance, the first account to sign in while it is the only account
+becomes the superadmin, once. That first-sign-in election never runs again, even if that
+superadmin is deleted. If no account can open **Admin**, follow
+[Recovering when no account can administer the instance](/docs/guides/self-hosting/#recovering-when-no-account-can-administer-the-instance).
 
 Settings are grouped into **OAuth**, **Connector**, **Operations**, **Collaboration**,
 **Chat**, **AI models**, and **Email**. Type in **Search settings** to filter by name, group, or
@@ -42,6 +47,17 @@ shows as **operations · cron Sweeps Enabled**), and shows:
   />
 </picture>
 
+If an older stored override no longer meets the current bounds or type, its card shows
+**Default in effect, stored value invalid**, with the stored text for nonsecret settings.
+Security controls that fail closed instead show **Safe fallback in effect**: Connector
+access and writes are disabled, registration is allowlisted, redirect hosts are empty,
+and the private SAM assistant is disabled. Existing emergency brakes remain effective.
+The other settings remain available. Use **Reset override** to remove the invalid row,
+or save a valid replacement. Secret values are never displayed.
+
+<!-- Verified implementation: apps/api/src/services/admin-settings-resolution.ts:readAdminSettings
+     isolates invalid overrides; resolveAdminSetting retains runtime safety fallbacks. -->
+
 ## Change a setting
 
 1. Find the setting and change its value.
@@ -63,6 +79,51 @@ and save again. Any other failure shows **Save could not be confirmed**: reload 
 because the change may already have been saved. The same message appears when SAM refuses a value,
 for example a client secret that doesn't belong to its client ID. If the setting still shows its old
 value and **Source** after the reload, nothing was saved: check the value and try again.
+
+## Streamed message storage
+
+The **Operations** category includes these chat storage settings:
+
+| Setting                            | Code default | Effect                                                                                                                                                                                                                               |
+| ---------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chat.messageMergingEnabled`       | `false`      | Combine new consecutive assistant text chunks under the first chunk's message ID.                                                                                                                                                    |
+| `chat.messageMergeMaxRowBytes`     | `65536`      | Serialized merged-row cap, from 1 KiB to 256 KiB. Also supplies the admission budget for retry state; batches that cannot fit keep individual rows.                                                                                  |
+| `chat.messageMergeRecentIds`       | `200`        | Recent reporter IDs retained across credential rotation, from 50 to 2,000; a complete received batch is always retained.                                                                                                             |
+| `chat.idleCleanupExtendIntervalMs` | `60000`      | How often agent output extends an idle chat session's cleanup deadline, from 0 to 300,000 ms. Each extension adds this much slack, so idle cleanup never fires early and at most this much late. `0` extends on every message batch. |
+
+Merging requires an updated reporter that sends its durable outbox incarnation. Older reporters,
+and requests with a missing or malformed incarnation, keep individual inserts and provide **zero
+merge savings** until the runtime is replaced. Both VM and Instant use the same reporter binary.
+A new reporter remains compatible with an older Worker: the extra header is ignored and the JSON
+body is unchanged.
+
+The row cap applies to newly merged message rows, not oversized individual messages. Retry-state
+admission uses the same value as a soft budget: existing replay frontiers are retained when the
+budget is lowered, and later descriptor growth can exceed it. It is not a hard cap on the whole
+session metadata row.
+
+Managed VM replacement is gradual. Code defaults start lifetime drain at 24 hours
+(`NODE_ABSOLUTE_MAX_LIFETIME_MS`), force-sleep a still-running turn after another 30 minutes
+(`operations.nodeLifetimeForceSleepAfterMs`), and retain an empty warm node for 30 minutes
+(`NODE_WARM_TIMEOUT_MS`). These are defaults, not measured deployment values or a strict rollout
+deadline: configured overrides, sweep scheduling and cleanup failures affect completion. Check the
+effective settings and actual reporter versions before forecasting fleet savings. Measure the
+rollout through successive row-usage windows.
+
+Existing message rows and their comment anchors remain unchanged. Tool, user, system, thinking,
+plan and typed-card rows keep their existing storage format. A browser built before merging
+existed disables merging only for a chat it has open, until that chat is closed or the tab is
+refreshed. Its session-list connection does not affect merging.
+
+To roll back, save `false` for `chat.messageMergingEnabled`. The next batch seals any open merged
+row and stores new chunks individually; retry receipts remain available. Previously merged rows
+remain readable and commentable. Settings use the normal admin cache refresh interval.
+
+Initial rollout keeps the code default off. Production activation requires explicit acceptance of
+the storage contract: very long replies can have different grouped-row splits, raw search can match
+words formerly split between chunks. Before indexing, raw fallback uses one hit and snippet per canonical row, so repeated matches in absorbed chunks consolidate. A late timestamped row can appear at a merged reply's
+boundary instead of splitting that reply. Text bytes are preserved. The late-timestamp boundary
+change preserves the text as one item. Genuine in-order tool calls and the grouping size limit can still split Markdown across items.
 
 ## Undo a change
 
@@ -132,17 +193,21 @@ before you try again.
 | Operations    | `operations.githubTriggerQueueMaxPendingLimit`, `…TtlSecondsLimit`                                                                                               | 1,000 events; 2,592,000 seconds (30 days)         | The most a [GitHub trigger](/docs/guides/triggers/#when-a-github-trigger-is-busy) can set for waiting events and how long they wait. Applies when someone creates a trigger or changes its queue settings                                                                                                                                                                                                                                                                                                                                                                     | —                                                                                 |
 | Operations    | `operations.webhookQueueMaxPending`, `operations.webhookQueueTtlSeconds`, `operations.webhookSignatureToleranceSeconds`                                          | 50 events; 86,400 seconds (24 hours); 300 seconds | How many events a [signed webhook trigger](/docs/guides/webhook-triggers/#waiting-while-the-trigger-is-busy) can hold while its runs are busy, how long one waits before it is dropped, and how far a signed timestamp may differ from SAM's clock. Applies to events received after the change.                                                                                                                                                                                                                                                                              | —                                                                                 |
 | Collaboration | `collaboration.*` (below)                                                                                                                                        | see below                                         | Shared chats, comments, and idea updates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | —                                                                                 |
+| Collaboration | `instructions.*` ([Agent instructions](#agent-instructions))                                                                                                     | see below                                         | Size budgets for the `get_instructions` payload agents read at session start                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | —                                                                                 |
 | Operations    | `nodes.usageWindowMinutes`, `nodes.usageChunkLookbackMinutes`, `nodes.usageMaxHistoryWorkspaces`, `nodes.usageMaxWorkspaces`, `nodes.usageMaxChunksPerWorkspace` | 60, 60, 150, 500, 48                              | On the [Nodes page](/docs/guides/compute-pools/#what-each-machine-is-using): minutes of CPU and memory history drawn (15–360); how early a history chunk may start and still be read, which must cover the longest chunk a VM agent uploads (15–1,440); most workspaces per person whose history is read (1–500, running first, each machine's newest before any machine's second); most workspaces per person listed (50–2,000, running and most recently changed first); most history chunks read per workspace, newest first (4–500). The page says what each cap left out | —                                                                                 |
 | Chat          | `chat.profileUsageWindowDays`, `chat.profilePinCandidateLimit`                                                                                                   | 30                                                | How far back the new-chat profile picker looks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | —                                                                                 |
 | Chat          | `secrets.*`                                                                                                                                                      | see [Chat](#chat) below                           | Agent secret requests: how long they stay open, allowed expiries, the open-request cap, retention and purging                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | —                                                                                 |
 | AI models     | `aiModels.*` (below)                                                                                                                                             | see below                                         | Which AI models agents may call, and the spending limits                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | —                                                                                 |
+| AI models     | `overviewBrief.*` ([Project Overview brief](#project-overview-brief))                                                                                            | see below                                         | How often the generated brief on each Project Overview is written, and whether it is on                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | —                                                                                 |
 | Email         | `agentEmail.*` (below)                                                                                                                                           | see below                                         | Limits for agent email (preview)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | —                                                                                 |
 
 **Operations** also holds the [lifecycle latency budgets](#lifecycle-latency-monitoring), limits for [workflows](#workflows), [linked work](#linked-work), pull
 request tracking, the GitHub trigger queue, the Account Map, [workload identity](/docs/guides/workload-identity/)
 tokens, the [SAM assistant](/docs/reference/configuration/#private-sam-assistant-runtime-controls),
-the [Google Cloud machine catalog](#google-cloud-machine-catalog), and
-[provider fallback](#provider-fallback).
+the [Google Cloud machine catalog](#google-cloud-machine-catalog),
+[provider fallback](#provider-fallback), and the redirect hop limit for
+[outbound requests to user-chosen URLs](/docs/reference/configuration/#outbound-requests-to-user-chosen-urls)
+(`outbound.maxRedirects`).
 Every card shows its own description, default, and range, so the tables below cover the limits
 you're most likely to change rather than every one.
 
@@ -207,6 +272,97 @@ where it says so and the app continues from there.
 | `secrets.expirySweepBatchSize`   | 10                  | 1–25          | Expired or unnotified requests one five-minute sweep handles (each one notifies its agent)                                                                                                                              |
 | `secrets.notifyRetryMinutes`     | 60                  | 15–1,440      | Minutes during which the sweep retries telling an agent about its request's outcome if the first notice could not be queued                                                                                             |
 
+## Inbox
+
+Listed under **Chat**. Bounds for the [inbox](/docs/reference/api/#inbox) list and for the inbox
+items agents file (`packages/operations/src/inbox-settings-definition.ts`).
+
+| Setting                            | Default | Range      | What it limits                                                                                                          |
+| ---------------------------------- | ------- | ---------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `inbox.listPageSize`               | 25      | 1–200      | Items one list page returns when the app does not ask for a number                                                      |
+| `inbox.listPageMax`                | 100     | 1–200      | Most items one list page returns                                                                                        |
+| `inbox.titleMaxChars`              | 200     | 40–1,000   | Characters of an item title; longer titles are refused when the item is filed                                           |
+| `inbox.bodyMaxChars`               | 4,000   | 200–20,000 | Characters of an item body (the agent's reason)                                                                         |
+| `inbox.linksMax`                   | 20      | 0–100      | Links one item may carry                                                                                                |
+| `inbox.openItemsPerChat`           | 20      | 1–500      | Open items one chat may have at once; filing past it is refused                                                         |
+| `inbox.answerMaxChars`             | 4,000   | 100–20,000 | Characters of a typed answer or comment                                                                                 |
+| `inbox.similarMatchesMax`          | 3       | 0–20       | Similar open items an agent is shown when it files an ask, review or result; 0 turns it off                             |
+| `inbox.similarScanMax`             | 50      | 1–500      | Newest open items of the project compared when an agent files (rows read per filing)                                    |
+| `inbox.noticeRetryMinutes`         | 60      | 5–1,440    | Minutes the sweep retries telling an agent its item was answered, done or expired                                       |
+| `inbox.automationFailureThreshold` | 2       | 1–20       | Failed runs in a row that file an inbox error item for an automation's owner                                            |
+| `inbox.errorSweepBatchSize`        | 10      | 1–50       | Error items one five-minute sweep files at most (failed tasks, automations, lost answers)                               |
+| `inbox.errorLookbackMinutes`       | 30      | 5–1,440    | How far back that sweep looks for failures with no error item yet                                                       |
+| `inbox.sweepBatchSize`             | 10      | 1–50       | Items each step of the five-minute sweep handles (reminders, expiries, notice retries)                                  |
+| `inbox.openTasksPerChat`           | 20      | 1–200      | Open human tasks one chat may have assigned; assigning past it is refused                                               |
+| `inbox.taskStepsMax`               | 20      | 1–50       | Steps one human task may list                                                                                           |
+| `inbox.watchersPerItemMax`         | 10      | 1–50       | Chats that may watch one task (the one that assigned it plus chats that attached)                                       |
+| `inbox.taskActivityMax`            | 100     | 10–500     | Lifecycle rows a task view returns, newest kept; the view says when older ones exist                                    |
+| `inbox.archiveCheckinHoldHours`    | 168     | 1–2,160    | Hours SAM's automatic check-ins stay off a chat after its question is archived, unless someone writes in the chat first |
+| `inbox.closedTaskWatchHours`       | 168     | 1–2,160    | Hours a finished, archived or cancelled task still wakes the chats watching it                                          |
+
+A question an agent asks with `request_human_input` is an inbox item, and these settings set its
+schedule (`apps/api/src/services/inbox/sweep.ts`, every five minutes):
+
+| Setting                                 | Default | Range   | What it controls                                                                     |
+| --------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------ |
+| `inbox.questionTimeoutMinutes`          | 120     | 1–1,440 | Minutes a question stays open once its notification reached you; then the task stops |
+| `inbox.questionFirstReminderPercent`    | 25      | 0–99    | Point in that window (percent) where the push is sent again; 0 turns it off          |
+| `inbox.questionSecondReminderPercent`   | 75      | 0–99    | Point in that window (percent) where the push is sent a last time; 0 turns it off    |
+| `inbox.questionUndeliveredGraceMinutes` | 120     | 1–1,440 | Extra minutes, with the push resent, when no device confirmed the notification       |
+| `inbox.questionMaxWaitMinutes`          | 1,440   | 1–4,320 | Most minutes a question stays open even when its notification never arrived          |
+
+A changed setting applies to questions asked afterwards; an open question keeps the deadline it was
+given, and its reminders follow the current percentages.
+
+## Run receipt
+
+Listed under **Chat**. Bounds for the [run receipt](/docs/reference/api/#get-apiprojectsprojectidtaskstaskidreceipt)
+(`packages/operations/src/insights-receipt-settings-definition.ts`).
+
+| Setting                                  | Default | Range       | What it limits                                                                           |
+| ---------------------------------------- | ------- | ----------- | ---------------------------------------------------------------------------------------- |
+| `insights.receiptMessageScanMaxRows`     | 10,000  | 100–100,000 | Chat messages one receipt reads to count tool calls; a longer run shows a floor          |
+| `insights.receiptWaitingMaxQuestions`    | 200     | 10–2,000    | Agent questions one receipt reads to measure time waiting on a person                    |
+| `insights.receiptComparisonRuns`         | 50      | 3–500       | Recent runs of the same skill or profile read to find the usual durations                |
+| `insights.receiptComparisonWindowDays`   | 30      | 1–365       | Days back the receipt looks for runs to compare with                                     |
+| `insights.receiptComparisonMinRuns`      | 3       | 1–50        | Fewest comparable runs before a duration is called slower than usual                     |
+| `insights.receiptSlowFactorPercent`      | 150     | 101–1,000   | Percentage of the usual duration at which a phase is listed as slow                      |
+| `insights.receiptSlowMinSeconds`         | 60      | 0–3,600     | Phases shorter than this are never listed as slowing a run down                          |
+| `insights.receiptMemoryNearLimitPercent` | 90      | 50–100      | Peak memory at or above this share of the requested memory is listed as a slowdown       |
+| `insights.receiptTokenRowsMax`           | 64      | 8–1,000     | Token-usage rows (model × account × agent restart) one receipt reads; more shows a floor |
+
+## Insights page
+
+Listed under **Operations**. Bounds for the project [Insights](/docs/guides/insights/) Flow, Agent
+setups, Accounts and People tabs (`packages/operations/src/insights-page-settings.ts`).
+
+| Setting                                  | Default | Range      | What it limits                                                                                                                                    |
+| ---------------------------------------- | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `insights.flowIdeaSampleCap`             | 100     | 10–500     | Ideas, newest-updated first, examined for "idea to merged"; the page says when the cap cut it short                                               |
+| `insights.flowWaitingIdeasLimit`         | 5       | 1–20       | Ideas shown under "Ideas waiting longest"                                                                                                         |
+| `insights.flowFlakyChecksLimit`          | 5       | 1–20       | Checks shown under "Flaky checks"                                                                                                                 |
+| `insights.flowReworkWindowDays`          | 7       | 1–30       | Days after a merge in which another pull request on the same branch or idea counts as rework                                                      |
+| `insights.accountsStallScanCap`          | 500     | 50–5,000   | Usage-limit waits and exhausted limit windows, newest first, examined for "Stalled on a limit"; the page says when the cap cut it short           |
+| `insights.accountsEpisodesListed`        | 10      | 1–50       | Limit stalls listed under "Stalled on a limit"                                                                                                    |
+| `insights.accountsUsageRowCap`           | 500     | 50–5,000   | Measured token usage rows (one per account and model), largest first, read for Accounts tokens and spend; the page says when the cap cut it short |
+| `insights.setupsRunScanCap`              | 2,000   | 100–10,000 | Runs, newest first, examined on Agent setups; the page says when the cap cut the range short                                                      |
+| `insights.setupsSuggestionMinRuns`       | 10      | 3–200      | Finished runs each compared setup needs before Agent setups suggests a skill change                                                               |
+| `insights.setupsSuggestionMinGapPercent` | 20      | 5–80       | Points by which a profile must beat the one it is compared with to be suggested as a skill default                                                |
+| `insights.setupsMemoryHeadroomPercent`   | 25      | 0–200      | Headroom added to the 90th-percentile peak memory when suggesting a memory request                                                                |
+| `insights.peopleWaitingItemsListed`      | 10      | 1–50       | Open items listed per person under "Waiting on" (each person still shows how many are open)                                                       |
+| `insights.peopleReviewScanCap`           | 2,000   | 100–20,000 | Review requests in the range, newest first, examined for "Review pickup"; the page says when the cap cut it short                                 |
+
+## Insights for agents
+
+Listed under **Operations**. The per-chat rate limit of the sam-mcp `project_insights` tool
+(`packages/operations/src/insights-agent-settings.ts`, enforced by
+`apps/api/src/routes/mcp/project-insights-tool.ts` on the `McpRateCounter` Durable Object).
+
+| Setting                            | Default | Range     | What it limits                                                         |
+| ---------------------------------- | ------- | --------- | ---------------------------------------------------------------------- |
+| `insights.agentToolCallsPerWindow` | 30      | 1–1,000   | Calls one agent chat may make to `project_insights` per window         |
+| `insights.agentToolWindowSeconds`  | 600     | 10–86,400 | Length of that window in seconds; later calls wait for the next window |
+
 ## Node provisioning
 
 This **Operations** setting bounds one durable node-provisioning attempt
@@ -231,14 +387,40 @@ These **Operations** settings bound automatic retries after an eviction wake fai
 
 ## Compute pool refresh
 
-This **Operations** setting bounds how long one refresh spends writing a changed compute pool
-catalog. A pool cannot place new machines until its catalog is fully written, so a refresh keeps
-writing 200-row batches until the catalog is complete or the budget is used, then resumes on the
-next refresh.
+These **Operations** settings bound catalog refresh work and recovery. A pool keeps using its last
+validated, published catalog while a replacement is prepared. Each source's validated replacement
+is published together; a new pool stays pending until its first validated publication. A successful,
+explicitly validated bundled catalog can publish known offerings without a complete live inventory;
+failed fallbacks and partial API catalogs remain private. Only a complete provider inventory can
+mark missing machines unavailable. Retaining the catalog never overrides disabled accounts,
+machines you remove or current permissions. See
+[Compute pools](/docs/guides/compute-pools/#how-refresh-treats-your-choices).
 
-| Setting                                  | Default | Range     | What it controls                                                                           |
-| ---------------------------------------- | ------- | --------- | ------------------------------------------------------------------------------------------ |
-| `operations.capacityPoolPublishBudgetMs` | 20,000  | 0–120,000 | Milliseconds per source per refresh for writing a changed catalog; 0 writes one batch only |
+| Setting                                           | Default    | Range              | What it controls                                                                                            |
+| ------------------------------------------------- | ---------- | ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `operations.capacityPoolPublishBudgetMs`          | 20,000     | 0–120,000          | Milliseconds per source per pass for publishing a changed catalog; 0 writes one batch (200 rows by default) |
+| `operations.capacityPoolRefreshPassBudgetMs`      | 20,000     | 1–120,000          | Shared milliseconds per pass across sources and scopes; SAM stops starting more work when this is spent     |
+| `operations.capacityPoolRefreshRetryBaseMs`       | 15,000     | 1–300,000          | Initial eligibility delay after incomplete publication                                                      |
+| `operations.capacityPoolRefreshRetryMaxMs`        | 300,000    | 1–900,000          | Maximum eligibility backoff; its effective value is at least the base delay                                 |
+| `operations.capacityPoolRefreshDeadlineMs`        | 7,200,000  | 1–86,400,000       | Recovery budget from the first claim, excluding queue time (2 hours by default)                             |
+| `operations.capacityPoolRefreshLeaseMs`           | 180,000    | 1–900,000          | Milliseconds before a crashed claim can be retried; its effective value is at least the shared pass budget  |
+| `operations.capacityPoolRefreshFailureCooldownMs` | 21,600,000 | 60,000–604,800,000 | Milliseconds before daily discovery may revive an exhausted refresh (6 hours by default)                    |
+
+A dedicated continuation check runs every minute and picks up eligible saved work independently
+of the daily discovery gate. A 15-second eligibility delay therefore does not promise a retry
+within 15 seconds. Repeated failures back off up to five minutes before the next eligible tick. Saved progress survives process restarts and missed notifications; a crashed
+claim must also wait for its lease to expire. An in-flight operation can finish after a pass's
+time budget. Provider requests share the remaining deadline and attempt to abort on timeout;
+D1 batches already underway must finish. The pass budget also stops SAM starting more work.
+
+The recovery deadline starts with the first claim; time waiting in the discovery queue does not
+spend it. If that budget is exhausted, the pool summary and Admin Errors show an actionable error,
+operators receive a notification, and SAM retains the last committed catalog. Daily discovery can
+start another episode after the failure cooldown; it does not restart the failed episode every
+minute. Check the compute account and select **Refresh** in Infrastructure settings to retry sooner. Increasing the deadline setting applies to
+future attempts; it does not extend a deadline already saved for an unfinished attempt. Larger
+catalogs, more accounts and slower provider or database responses can exhaust the budget; the
+deadline is a recovery limit, not a completion guarantee.
 
 ## Dead wake claims
 
@@ -324,7 +506,67 @@ SAM first attempts to preserve existing recovery sources. At the deadline, it re
 
 Two related settings control warning and alert frequency: `operations.nodeCleanupRefusalWarnAfterMs` defaults to 300,000 milliseconds (five minutes), and `operations.nodeCleanupOwnershipAlertIntervalMs` defaults to 86,400,000 milliseconds (one day).
 
-Active workspaces and provider ownership checks remain protected. When SAM can't retire a blocked VM at the deadline (often, but not always, because it can't prove who owns the server), it keeps the VM and records an error in **Admin → Errors**, at most once per node per `operations.nodeCleanupOwnershipAlertIntervalMs` (one day by default): **VM may still exist at provider: _provider_ _server id_; cleanup requires ownership/operator resolution**. Before deleting anything, open the node and read its **Cleanup blocked since…** reasons. Delete the server in that provider's console only when the reason is `provenance` (or `strict_provider_ownership_or_deletion_failure`) and you have checked that it belongs to your installation and runs nothing you need. If the reasons include `active_workspace` or `warm_placement_claim`, or the node hosts app deployments, resolve that first instead. Once the server is gone, the node's owner can remove the node with **I already deleted this server** on its page, after selecting **Delete Node** first if the node shows **Stopped**; see [SAM can't delete a node](/docs/guides/session-troubleshooting/#sam-cant-delete-a-node). That button refuses nodes on the installation's own cloud account, and the app has no other way to remove such a node yet.
+Active workspaces and provider ownership checks remain protected. When SAM can't retire a blocked VM at the deadline (often, but not always, because it can't prove who owns the server), it keeps the VM and records an error in **Admin → Errors**, at most once per node per `operations.nodeCleanupOwnershipAlertIntervalMs` (one day by default): **VM may still exist at provider: _provider_ _server id_; cleanup requires ownership/operator resolution**. Before deleting anything, open the node and read its **Cleanup blocked since…** reasons. Delete the server in that provider's console only when the reason is `provenance` (or `strict_provider_ownership_or_deletion_failure`) and you have checked that it belongs to your installation and runs nothing you need. If the reasons include `active_workspace` or `warm_placement_claim`, or the node hosts app deployments, resolve that first instead. Once the server is gone, the node's owner can remove the node with **I already deleted this server** on its page, after selecting **Delete Node** first if the node shows **Stopped**; see [SAM can't delete a node](/docs/guides/session-troubleshooting/#sam-cant-delete-a-node). That button refuses nodes on the installation's own cloud account; a superadmin removes those from **Admin → Infrastructure → Stuck nodes** instead (below).
+
+### Stuck nodes on SAM's capacity
+
+**Admin → Infrastructure → Stuck nodes** lists managed VM nodes on the installation's own cloud
+credential that are `destroying` with a recorded teardown refusal (`listStrandedPlatformNodes()`
+in `apps/api/src/services/node-operator-deletion.ts`), the ones you can act on first, then oldest
+first, with the reason SAM recorded.
+Two reasons mean SAM can never finish by itself, because the node has no server ID and only the
+exact credential it was created with could prove no server exists:
+
+- `teardown_credential_generation_changed`: that platform credential was re-saved or rotated
+  since. A re-saved credential is never accepted as proof: SAM cannot show it is the same
+  provider account.
+- `teardown_allocation_unresolved`: the create failed before SAM got a server ID, and either
+  the credential's complete inventory shows no server (Hetzner), or the provider's inventory
+  cannot be read as complete at all (GCP and the other providers;
+  `reconcileStrictProviderlessVm()`). SAM keeps retrying once per failure backoff (a late
+  server would still be found and deleted) but never treats an empty list as proof.
+
+A node whose provisioning stopped before the provider identity claim is not stuck: it still
+carries the absence proof written when its row was created, and the cleanup sweep removes it on
+its first pass without asking the provider (`isNeverRequestedVmPlaceholder()` in
+`apps/api/src/services/node-never-requested-placeholder.ts`). A typical cause is **Node
+allocation plan is no longer current** reported by the first plan check. A failure after that
+claim but before the create (the second plan check, or tunnel preparation) is not recognised:
+the claim has already cleared the proof, so the row is treated like one whose create may have
+been sent. A node in `error` whose create may have been sent and that has no server ID
+is moved to `destroying` after its first failed cleanup attempt
+(`releaseNodeCleanupClaim()`). It then shows its cleanup-blocked reason, is listed here when it
+runs on SAM's own capacity, and appears in the `node_destroying_too_long` anomaly, rather than
+retrying unseen.
+
+**Remove…** is offered only when the refusal means SAM cannot see the server
+(`OPERATOR_REMOVABLE_BLOCK_REASONS` in `packages/shared`: the two above,
+`teardown_credential_unavailable`, `teardown_instance_not_visible` and `provenance`). A refusal
+that means the server may be live (a delete the provider refused or never confirmed, or an
+ownership mismatch) shows a note to resolve it at the provider instead.
+
+After checking the provider's console yourself, select **Remove…**, type the node ID and say what
+you checked (`recordOperatorNodeDeletion()`). An agent sign-in session may do this on a person's
+behalf while `operations.operatorNodeDeletionAllowAgentSessions` is on (the default, by owner
+decision); turn it off to require a person's own session. The audit entry records whether an agent
+made the request either way.
+
+1. SAM asks the provider with the node's own credential, or every enabled platform credential if
+   that one no longer resolves (never the owner's own credentials), and refuses if any returns a
+   server for the node. If a SAM credential exists but cannot be read, it asks you to retry. A node with no server ID whose ownership labels cannot be built is
+   refused while a credential could look.
+2. It writes the audit entry (your note, name, time, and what the lookup could check) to the
+   Operations audit log (`admin_operator_node_deletion`) **before** anything changes, and changes
+   nothing if that write fails.
+3. It records the attested termination proof in one database write that re-checks the exact
+   refusal you were shown, that no workspace is active or pending, that no live task holds a
+   placement claim on the node, that no Cloudflare build is reserved on it, and that its heartbeat
+   is stale. It also refuses a node with no
+   server ID created inside the provisioning window.
+
+It deletes nothing at the provider. The removal is recorded as `operator_attested_manual_deletion`
+(`deleted_by_operator`) in the node's health events. Nodes on a user's own cloud account are
+refused here; their owner removes them from the node page.
 
 Blocked nodes show the time and reason in their error message on the node list and detail page, as **Cleanup blocked since** _time_ followed by reason codes; [A node won't go away](/docs/guides/session-troubleshooting/#a-node-wont-go-away) explains each one.
 
@@ -362,6 +604,11 @@ trigger are configured, files them as incidents for that project's agents to inv
   **Lifecycle latency regression: _entity_ _state_** when the p95 is over the state's budget, or more
   than `lifecycleLatency.regressionPercent` of its p95 over the previous 7 days. Every run logs a
   `lifecycle_latency.daily_summary` line with those numbers for every watched state.
+- **Phase timings are stored.** The phase durations the VM agent reports for provisioning,
+  workspace setup, sleep and wake, and the TaskRunner's step durations, are written to
+  `lifecycle_phase_timings` (migration `0250_lifecycle_phase_timings.sql`) by
+  `recordLifecycleTimings` and `recordRunnerPhase`, one row per phase, as well as being logged.
+  The daily check purges them with the same `lifecycleLatency.retentionDays`.
 
 Watched states and their **Operations** budgets, in minutes. Set a budget to 0 to turn off both the
 watchdog and the daily check for that state.
@@ -388,8 +635,126 @@ The rest control the checks themselves:
 | `lifecycleLatency.observationsPerSourcePerTick` | 200     | 10–1,000   | Rows in watched states sampled per table in one run, oldest first. A truncated sample is logged and does not close episodes it could not see |
 | `lifecycleLatency.regressionPercent`            | 200     | 101–10,000 | How far above its previous 7-day p95 a state's 24-hour p95 must be to count as a regression                                                  |
 | `lifecycleLatency.minSamples`                   | 5       | 1–10,000   | Fewest finished episodes in a window before the daily check judges it                                                                        |
-| `lifecycleLatency.retentionDays`                | 30      | 8–365      | Days finished episodes are kept                                                                                                              |
+| `lifecycleLatency.retentionDays`                | 30      | 8–365      | Days finished episodes and stored phase timings are kept                                                                                     |
 | `lifecycleLatency.evaluationSampleLimit`        | 2,000   | 10–20,000  | Most recent finished episodes the daily check reads per state                                                                                |
+
+## Health & cost
+
+**Admin → Spend and health → Health & cost** (`/admin/health-cost`, superadmins only) shows how
+this installation's machines are doing over the last 7 days, the last 30 days, or the month so far.
+Everything except the Cloudflare card is computed from records SAM already keeps when the page
+loads; the Cloudflare card reads a small daily snapshot (below). The page is served by `GET /api/admin/health-cost?range=7d|30d|month`, which calls the
+shared `installationHealth` operation (`packages/operations/src/insights-installation.ts`).
+
+- **Compute spend per provider per week.** Each cloud machine's running time multiplied by the
+  hourly price recorded on it when it was created (`nodes.provider_instance_price_hourly_micros`),
+  summed per machine. Workspaces share machines, so a machine is counted once however many
+  workspaces ran on it. A machine's running time ends when it reaches `destroying`, `destroyed`,
+  `deleted` or `error`. Machines you brought yourself and Instant containers cost no provider money
+  and are left out. Costs are estimates at list prices: they include machines on people's own
+  cloud accounts as well as the platform's, and exclude discounts, storage and traffic. A machine
+  removed with an explicit delete loses its row, so its time is not counted. Each provider records
+  prices in its own currency (Hetzner in EUR, Google Cloud in USD) and SAM keeps no exchange
+  rates, so spend is shown per currency, for example "€1,234 · $567", with one weekly chart per
+  currency. A machine with no recorded price is counted under "without a price".
+- **Warm machine reuse.** The share of workspace placements that went onto a machine that already
+  existed: an earlier workspace exists on that machine, or the node decision log recorded a
+  warm-pool claim on it since its previous workspace. The note under it gives how many of those
+  placements came from the warm pool. A claim given back unused, or whose workspace was later
+  deleted, is not counted, so the warm-pool number is always part of the reuse number. The node
+  decision log keeps `operations.nodeDecisionLogRetentionDays` (14 by default), so placements older
+  than that are never credited to the warm pool. If a machine's first workspace row is
+  later removed and its next placement packed onto it without a warm-pool claim, that placement
+  reads as new, so the rate is a lower bound.
+- **Agents per busy machine.** Agents running at once on a machine, averaged over the time it had
+  at least one running. Running time comes from resource telemetry (first to last sample while a
+  workspace ran), not from the compute ledger, which runs from a workspace's creation to its
+  deletion and would count stopped workspaces that were not deleted yet.
+- **Slowest 5% vs budget.** The p95 of each [lifecycle latency](#lifecycle-latency-monitoring)
+  state in the range against its budget. A state is over budget when it has at least
+  `lifecycleLatency.minSamples` finished episodes and its p95 is above the budget. Times are the
+  watchdog's sampled lower bounds, the same ones the daily check uses (first to last sample of an
+  episode), so a state seen in only one sample reads 0s. The page also
+  shows rows stuck past their budget right now and links any open incident the watchdog or daily
+  check raised for that state. A state whose budget is 0 is not watched and not shown.
+- **Why new machines were created.** For the first workspace on each new machine, the reasons the
+  capacity check gave for turning down every existing machine it considered, in its own words. A
+  machine is counted once under each reason it recorded. "No other machine in the pool to try" means
+  there was nothing to reuse.
+- **Cloudflare.** An estimate of what the Cloudflare account costs this month, in USD, kept apart
+  from compute spend: the month so far, a projection for the month, the five product lines with
+  the highest projected cost, everything else summed, and the daily cost for the last 30 days.
+  The projection is what is already spent plus the average of the last
+  `insights.healthCloudflareProjectionDays` days (7) for each remaining day, not the month's
+  running average, so an early spike does not inflate it. Storage (D1, KV, R2) projects as what
+  the observed days already accrued plus the latest stored level for each remaining day. It is an estimate
+  from Cloudflare's billed usage analytics at list prices, not an invoice: it covers every Worker
+  on the Cloudflare account (not only this installation's), and leaves out the $5 Workers Paid
+  subscription, R2 operations, and container CPU and disk. The month shown is the month of the
+  latest stored day, so on the 1st it is still the previous month's total.
+
+A section that cannot be read is named at the top of the page; the others still show. These
+**Operations** settings bound how much the page reads; when a read reaches its cap the page says
+the number is a lower bound.
+
+| Setting                                   | Default | Range       | What it controls                                                               |
+| ----------------------------------------- | ------- | ----------- | ------------------------------------------------------------------------------ |
+| `insights.healthMaxNodes`                 | 5,000   | 100–50,000  | Machines read for compute spend: still running first, then most recently ended |
+| `insights.healthMaxPlacements`            | 30,000  | 100–200,000 | Workspace placements read for reuse and new-machine reasons                    |
+| `insights.healthMaxRuns`                  | 30,000  | 100–200,000 | Running intervals read for agents per busy machine                             |
+| `insights.healthMaxReasons`               | 30      | 5–200       | New-machine reasons listed, most common first; the rest are counted            |
+| `insights.healthSpendWeeks`               | 6       | 1–26        | Weeks shown in the compute spend chart and the reuse sparkline                 |
+| `insights.healthCloudflareSeriesDays`     | 30      | 7–62        | Days of daily cost shown in the Cloudflare card                                |
+| `insights.healthCloudflareProjectionDays` | 7       | 1–31        | Recent days whose daily average projects the rest of the month                 |
+| `insights.healthCloudflareTopLines`       | 5       | 1–19        | Cloudflare product lines listed by projected cost; the rest are summed         |
+
+### Cloudflare cost snapshot
+
+A daily job (the `0 3 * * *` cron, `runCloudflareCostSnapshot()` in
+`apps/api/src/services/cloudflare-cost-snapshot.ts`) asks Cloudflare's GraphQL analytics API for
+the last complete days and stores one row per day per product line in `installation_cost_daily`:
+usage, unit, estimated USD cost and fetch time. It uses the same request and the same billed
+fields as `pnpm quality:cloudflare-cost` (`packages/shared/src/cloudflare-cost/`): Durable Object
+duration from `durableObjectsPeriodicGroups.sum.duration`, Workers requests without tail-worker
+invocations, Workers CPU, Durable Object requests and storage operations, D1 rows and storage, KV
+operations and storage, R2 storage, Workers AI neurons and container memory. A day's cost is its
+share of the month: the monthly allowance is used up by the month's earliest days, so a month
+whose earlier days were never collected (a new installation, or a gap older than 31 days) shows
+a lower cost than Cloudflare will bill.
+
+Every run fetches its whole window again in one request and overwrites those days, so late
+analytics and missed days fill in by themselves. A day the response has no usage for at all is
+not written, so an analytics outage cannot replace stored days with zeros; the card counts such a
+day as missing. Cloudflare serves at most the last 31 days, so a
+gap older than that cannot be filled and the card counts those days as $0 and says how many.
+**Refresh now** on the card runs the job immediately, at most once per
+`insights.cloudflareCostRefreshMinSeconds`. A failed Cloudflare request is recorded and
+shown on the card; a run that fails for any reason does not affect the other daily jobs.
+
+The job uses the Worker's existing `CF_API_TOKEN` and `CF_ACCOUNT_ID` secrets. The token needs
+**Account → Account Analytics → Read** (Admin Analytics' Analytics Engine queries need it too).
+Without the secrets the card says what to set; without the permission it says the token cannot
+read account analytics. The rest of the page still loads. You can add the permission to the existing token in
+the Cloudflare dashboard; no redeploy is needed.
+
+| Setting                                    | Default | Range       | What it controls                                                                                                    |
+| ------------------------------------------ | ------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| `insights.cloudflareCostBackfillDays`      | 30      | 1–31        | Complete days each run fetches and stores again                                                                     |
+| `insights.cloudflareCostRefreshMinSeconds` | 60      | 10–3,600    | Minimum seconds between Refresh now presses; the daily run is not limited                                           |
+| `insights.cloudflareCostQueryLimit`        | 10,000  | 100–100,000 | Rows per analytics dataset one request may return; reaching it fails the run rather than storing a partial estimate |
+
+**Admin → Costs** covers LLM spend only. Its compute card links here: the earlier flat
+vCPU-hour estimate (`COMPUTE_VCPU_HOUR_COST_USD`) was removed in favour of the per-machine prices
+above.
+
+## Analytics
+
+**Admin → Analytics** (under **Spend and health**) shows how the installation is used: summary
+figures, **AI Usage**, **Daily Active Users**, **Feature Adoption**, **Website Traffic** and **Top
+Events**, over the period you pick, with **Refresh**. It no longer has the sign-up funnel, the
+geography map or the retention cohorts. For how work moves through a project, open that project's
+[Insights](/docs/guides/insights/); for what the installation costs, see
+[Health & cost](#health--cost).
 
 ## Linked work
 
@@ -413,6 +778,23 @@ These **Operations** settings control automatic links between chats, ideas, libr
 | `operations.agentIdeaContentPageLength`       | 65,536  | 1,000–65,536   | Idea content read in one `ideas_read` method `get` call; a continuation notice names the next offset when a page is shorter |
 
 If you lower the cap on read and view links below what a target already has, nothing is removed straight away: each new read or view link to that target then removes at most one batch of them, until the target is back under the cap. Reading the same thing again doesn't count as a new link.
+
+## Agent instructions
+
+These **Collaboration** settings bound the size of the `get_instructions` payload every agent
+reads at session start. Pinned policies and the task are never trimmed by them. Every policy is
+pinned until a project admin unpins it in [**Agent Context → Policies**](/docs/guides/agent-context/#pinned-or-on-demand). While every policy is
+pinned, setting the three character budgets to their maximum returns the unbudgeted payload. To
+undo an unpin, pin the policy again. The section budgets count characters of rendered text; the
+total counts characters of the serialized payload, so the three do not simply add up.
+
+| Setting                                     | Default | Range            | What it controls                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------- | ------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `instructions.totalMaxChars`                | 120,000 | 10,000–2,000,000 | Serialized payload size. Over it, knowledge then on-demand policy text are trimmed. If pinned policies, the task and the indexes alone exceed it, only those are sent, with a note. Claude Code saves tool results over about 50,000 characters to a file, so set about 48,000 for inline delivery once enough policies are on demand |
+| `instructions.knowledgeMaxChars`            | 20,000  | 1,000–2,000,000  | Knowledge block including the entity index. Lowest-ranked observations go first and the index states how many                                                                                                                                                                                                                         |
+| `instructions.onDemandPolicyMaxChars`       | 12,000  | 0–2,000,000      | Full text of on-demand policies that match the task. Every on-demand policy is still listed by title and id                                                                                                                                                                                                                           |
+| `instructions.onDemandPolicyMaxPerCategory` | 5       | 0–200            | On-demand policies of one category shown in full in one session                                                                                                                                                                                                                                                                       |
+| `instructions.onDemandPolicyMinRelevance`   | 2       | 1–100            | Score an on-demand policy needs to be shown in full: 2 per distinctive title word and 1 per distinctive body word found in the task                                                                                                                                                                                                   |
 
 ## Workflows
 
@@ -451,6 +833,33 @@ These control [AI models for agents](/docs/guides/ai-models-for-agents/): the Cl
 
 Lowering the maximum also caps projects that set a higher limit earlier.
 
+### Project Overview brief
+
+The [brief](/docs/guides/project-overview/#the-brief) at the top of each Project Overview is
+written by a small model (Gemma 4 26B on Workers AI) through SAM's AI Gateway, on the platform's
+account. These bound how often it runs.
+
+| Setting                              | Default | Range    | What it controls                                                                                                  |
+| ------------------------------------ | ------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `overviewBrief.enabled`              | on      | on/off   | Whether briefs are written and shown. Off: no model calls, and every Overview is just its sections                |
+| `overviewBrief.minIntervalMinutes`   | 30      | 1–1,440  | Fewest minutes between two briefs for one project. A change sooner waits, and the old brief is shown dimmed       |
+| `overviewBrief.dailyCap`             | 24      | 0–288    | Most briefs one project may write in a UTC day, failed attempts included. 0 stops new briefs                      |
+| `overviewBrief.checkIntervalSeconds` | 60      | 10–3,600 | Fewest seconds between two checks of whether a project's facts changed; each check is one batch of database reads |
+
+At the defaults one project costs at most 24 model calls a day. A call sends at most about 3,000
+input tokens (the instructions and up to eight items of each kind) and gets at most 400 back, so at
+the model's published price ($0.10 per million input and $0.30 per million output tokens) a call
+costs at most about $0.0004: about $0.01 per project per day and $0.30 per project per month in the
+worst case. Quiet projects make no calls.
+
+When an [OpenAI-compatible model server](#use-an-openai-compatible-model-server) is set, the brief
+goes there instead, with the titles model (`llm.openAICompatible.taskTitleModel`, else
+`llm.openAICompatible.model`). The same call limits apply; the price is that server's. With no model
+route at all, briefs are not written and each Overview is just its sections.
+
+<!-- Verified: services/project-brief/refresh.ts:callModel (purpose 'taskTitle'),
+     services/ai-proxy-shared.ts:fetchWorkersAIChatCompletion, services/llm-chat-target.ts. -->
+
 ## Email
 
 These limit [email triggers](/docs/guides/email-triggers/) (preview). Every value is a whole number.
@@ -479,10 +888,11 @@ The **Operations project** is the private project you select in **Admin → Inte
 debugger tools that let its agents look across every user's nodes, workspaces and sessions. Two
 **Operations** settings control them:
 
-| Setting                         | Default | Values                                      | What it controls                                                                           |
-| ------------------------------- | ------- | ------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `operations.debuggerTools`      | `off`   | `off`, `read`, `read_ask`, `read_auto_safe` | Which debugger tools Operations agents may use. `off` hides and refuses all of them        |
-| `operations.auditRetentionDays` | 90      | 1–3,650                                     | Days each debugger tool audit record is kept before the daily 03:00 UTC cleanup deletes it |
+| Setting                                             | Default | Values                                      | What it controls                                                                                                                                           |
+| --------------------------------------------------- | ------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `operations.debuggerTools`                          | `off`   | `off`, `read`, `read_ask`, `read_auto_safe` | Which debugger tools Operations agents may use. `off` hides and refuses all of them                                                                        |
+| `operations.auditRetentionDays`                     | 90      | 1–3,650                                     | Days each debugger tool audit record is kept before the daily 03:00 UTC cleanup deletes it                                                                 |
+| `operations.operatorNodeDeletionAllowAgentSessions` | on      | on/off                                      | Let an agent sign-in session remove a stuck SAM-capacity node on a person's behalf (Stuck nodes). Off: only a person's own session can. Read with no cache |
 
 `ops_get_access_status` reports this setting, the capabilities a task has, and why any are
 refused. The read tools and the [approved actions](#approved-actions) below all use the gate
@@ -558,30 +968,38 @@ attempts count).
 
 ### Read tool limits
 
-| Setting                                       | Default    | Range         | What it controls                                                                                                                                                                                                |
-| --------------------------------------------- | ---------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `operations.debugPackageRetentionDays`        | 7          | 1–90          | Days a debug package stays in the Operations library before the daily cleanup deletes it                                                                                                                        |
-| `operations.debugPackageMaxBytes`             | 20,971,520 | 1 MiB–32 MiB  | Largest debug package capture accepts (also limited by the library's upload limit). Capture holds the package and its encrypted copy in Worker memory, so the maximum leaves room under the 128 MB Worker limit |
-| `operations.debugPackagePurgeBatchSize`       | 50         | 1–90          | Expired debug packages the daily cleanup deletes per batch                                                                                                                                                      |
-| `operations.debugPackagePurgeDeadlineMs`      | 20,000     | 1,000–120,000 | Milliseconds the daily cleanup keeps deleting batches before it stops; the rest continues the next day                                                                                                          |
-| `operations.debugPackageCapturesPerHour`      | 20         | 1–200         | Debug package capture attempts one superadmin may make per hour (attempts on an unreachable node or an oversized package count)                                                                                 |
-| `operations.opsAnomalyEmptyNodeGraceMs`       | 900,000    | 0–7 days      | Extra time past the warm-node cleanup grace before an empty running node is reported                                                                                                                            |
-| `operations.opsAnomalyTerminalTaskGraceMs`    | 900,000    | 0–7 days      | Time after a task ends before its still-running workspace is reported                                                                                                                                           |
-| `operations.opsAnomalyIdleTaskMinutes`        | 60         | 1–10,080      | Minutes without task or workspace activity before an in-progress task is reported                                                                                                                               |
-| `operations.opsAnomalyDestroyingNodeHours`    | 6          | 1–720         | Hours a node may stay destroying, counted from its last heartbeat, before its unfinished teardown is reported with any recorded cleanup refusal                                                                 |
-| `operations.opsAnomalyWakingMinutes`          | 60         | 1–43,200      | Minutes a sleeping chat may stay waking, counted from its wake claim, before the wake is reported (`session_wake_stalled`), with no lookback limit                                                              |
-| `operations.opsAnomalyLookbackHours`          | 24         | 1–720         | Hours of snapshot failures and deletion-quarantine reports the anomaly check looks at                                                                                                                           |
-| `operations.opsAnomalyMaxPerClass`            | 25         | 1–200         | Findings returned per anomaly type; each type still reports its total                                                                                                                                           |
-| `operations.opsNodeLogMaxLines`               | 200        | 1–1,000       | Most log lines one `ops_node_logs` call returns                                                                                                                                                                 |
-| `operations.opsNodeLogMaxBytes`               | 65,536     | 1 KiB–1 MiB   | Most bytes of log text one `ops_node_logs` call returns                                                                                                                                                         |
-| `operations.opsTimelineMaxEvents`             | 200        | 10–1,000      | Most events one timeline returns; older ones are dropped and the answer says how to read them                                                                                                                   |
-| `operations.opsTimelinePerSourceLimit`        | 100        | 5–500         | Most events one store contributes to a timeline                                                                                                                                                                 |
-| `operations.opsTimelineDefaultWindowHours`    | 168        | 1–2,160       | Hours a timeline looks back when no start time is given                                                                                                                                                         |
-| `operations.opsTimelineFanoutLimit`           | 2          | 1–5           | Chat sessions, workspaces and running nodes per timeline that get their own activity, boot log and live node event reads                                                                                        |
-| `operations.opsEntityGraphRowCap`             | 25         | 1–100         | Related tasks, workspaces, sessions, snapshots or nodes a session story or timeline reads per table                                                                                                             |
-| `operations.opsWorkerLogDefaultWindowMinutes` | 60         | 1–1,440       | Minutes of Worker logs `ops_query_worker_logs` covers when no start time is given                                                                                                                               |
-| `operations.opsListMaxRows`                   | 100        | 1–500         | Most nodes, errors or log lines one list returns                                                                                                                                                                |
-| `operations.opsTextFieldMaxLength`            | 2,000      | 100–20,000    | Characters of one free-text field (an error message, for example) a tool returns                                                                                                                                |
+| Setting                                           | Default    | Range         | What it controls                                                                                                                                                                                                |
+| ------------------------------------------------- | ---------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `operations.debugPackageRetentionDays`            | 7          | 1–90          | Days a debug package stays in the Operations library before the daily cleanup deletes it                                                                                                                        |
+| `operations.debugPackageMaxBytes`                 | 20,971,520 | 1 MiB–32 MiB  | Largest debug package capture accepts (also limited by the library's upload limit). Capture holds the package and its encrypted copy in Worker memory, so the maximum leaves room under the 128 MB Worker limit |
+| `operations.debugPackagePurgeBatchSize`           | 50         | 1–90          | Expired debug packages the daily cleanup deletes per batch                                                                                                                                                      |
+| `operations.debugPackagePurgeDeadlineMs`          | 20,000     | 1,000–120,000 | Milliseconds the daily cleanup keeps deleting batches before it stops; the rest continues the next day                                                                                                          |
+| `operations.debugPackageCapturesPerHour`          | 20         | 1–200         | Debug package capture attempts one superadmin may make per hour (attempts on an unreachable node or an oversized package count)                                                                                 |
+| `operations.opsAnomalyEmptyNodeGraceMs`           | 900,000    | 0–7 days      | Extra time past the warm-node cleanup grace before an empty running node is reported                                                                                                                            |
+| `operations.opsAnomalyTerminalTaskGraceMs`        | 900,000    | 0–7 days      | Time after a task ends before its still-running workspace is reported                                                                                                                                           |
+| `operations.opsAnomalyIdleTaskMinutes`            | 60         | 1–10,080      | Minutes without task or workspace activity before an in-progress task is reported                                                                                                                               |
+| `operations.opsAnomalyDestroyingNodeHours`        | 6          | 1–720         | Hours a node may stay destroying, counted from its last heartbeat, before its unfinished teardown is reported with any recorded cleanup refusal                                                                 |
+| `operations.opsAnomalyWakingMinutes`              | 60         | 1–43,200      | Minutes a sleeping chat may stay waking, counted from its wake claim, before the wake is reported (`session_wake_stalled`), with no lookback limit; a provider-limit hold is reported only past its deadline    |
+| `operations.opsAnomalyLookbackHours`              | 24         | 1–720         | Hours of snapshot failures and deletion-quarantine reports the anomaly check looks at                                                                                                                           |
+| `operations.opsAnomalyIncidentDispatchStallHours` | 24         | 1–720         | Hours a pending private incident may wait without ever being dispatched to incident triage before the queue is reported (`incident_dispatch_stalled`) and the incident sweep warns                              |
+| `operations.incidentIdeaReconcileBatchSize`       | 25         | 1–100         | Incident Ideas the hourly reconciliation checks per batch (one Durable Object read each) when it closes Ideas of ended incidents and adopts or retitles older ones                                              |
+| `operations.incidentIdeaReconcileDeadlineMs`      | 20,000     | 1,000–120,000 | Milliseconds the hourly incident-Idea reconciliation keeps running batches; the rest continues the next hour                                                                                                    |
+| `operations.incidentWatchRecentWindowHours`       | 168        | 24–720        | Hours behind a watched incident's recent occurrence count (`list_incident_queue`, `get_incident`, its Idea); older hourly counts are dropped                                                                    |
+| `operations.incidentWatchSpikeWindowHours`        | 24         | 1–168         | Hours over which a watched incident's occurrences are counted to detect a spike (capped at the recent window)                                                                                                   |
+| `operations.incidentWatchSpikeMinOccurrences`     | 50         | 1–1,000,000   | Occurrences in the spike window, since the latest watch decision, that return a watched incident to triage                                                                                                      |
+| `operations.incidentWatchSpikeBaselineMultiplier` | 3          | 1–100         | A spike must also reach this multiple of the incident's earlier average per spike window, so a steadily noisy watched incident is not re-queued                                                                 |
+| `operations.incidentWatchQuietExpiryHours`        | 336        | 24–2,160      | Hours without an occurrence after which a watched incident expires and its Idea is closed                                                                                                                       |
+| `operations.opsAnomalyMaxPerClass`                | 25         | 1–200         | Findings returned per anomaly type; each type still reports its total                                                                                                                                           |
+| `operations.opsNodeLogMaxLines`                   | 200        | 1–1,000       | Most log lines one `ops_node_logs` call returns                                                                                                                                                                 |
+| `operations.opsNodeLogMaxBytes`                   | 65,536     | 1 KiB–1 MiB   | Most bytes of log text one `ops_node_logs` call returns                                                                                                                                                         |
+| `operations.opsTimelineMaxEvents`                 | 200        | 10–1,000      | Most events one timeline returns; older ones are dropped and the answer says how to read them                                                                                                                   |
+| `operations.opsTimelinePerSourceLimit`            | 100        | 5–500         | Most events one store contributes to a timeline                                                                                                                                                                 |
+| `operations.opsTimelineDefaultWindowHours`        | 168        | 1–2,160       | Hours a timeline looks back when no start time is given                                                                                                                                                         |
+| `operations.opsTimelineFanoutLimit`               | 2          | 1–5           | Chat sessions, workspaces and running nodes per timeline that get their own activity, boot log and live node event reads                                                                                        |
+| `operations.opsEntityGraphRowCap`                 | 25         | 1–100         | Related tasks, workspaces, sessions, snapshots or nodes a session story or timeline reads per table                                                                                                             |
+| `operations.opsWorkerLogDefaultWindowMinutes`     | 60         | 1–1,440       | Minutes of Worker logs `ops_query_worker_logs` covers when no start time is given                                                                                                                               |
+| `operations.opsListMaxRows`                       | 100        | 1–500         | Most nodes, errors or log lines one list returns                                                                                                                                                                |
+| `operations.opsTextFieldMaxLength`                | 2,000      | 100–20,000    | Characters of one free-text field (an error message, for example) a tool returns                                                                                                                                |
 
 ### Black box recorder, decision log and step traces
 
@@ -685,6 +1103,7 @@ Superadmins can search for these controls in **Admin → Settings**. Values are 
 | `agentEmail.signInCodesPerEmailPerHour`        |       5 |         1–100 | Sign-in codes SAM emails to one address per hour. Further requests send nothing                                                                                                                                  |
 | `agentEmail.signInCodesPerIpPerHour`           |      20 |       1–1,000 | Sign-in code requests one IP address can make per hour                                                                                                                                                           |
 | `agentEmail.signInCodeAttemptsPerEmailPerHour` |      10 |         1–100 | Sign-in code guesses accepted for one address per hour, across all IP addresses                                                                                                                                  |
+| `agentEmail.smtpTimeoutMs`                     |   15000 |   1000–120000 | Milliseconds for one SMTP exchange (sign-in codes and alerts on installs that send through `SMTP_HOST` instead of Cloudflare)                                                                                    |
 | `performance.githubRequestTimeoutMs`           |    5000 |    100–120000 | Each GitHub discovery HTTP request, including its response body.                                                                                                                                                 |
 | `performance.githubInstallationsDeadlineMs`    |   15000 |    100–120000 | Overall GitHub installation discovery route.                                                                                                                                                                     |
 | `performance.userAccessTokenLockTimeoutMs`     |   60000 |  10000–120000 | How long one GitHub or GitLab user-token lookup may hold its per-user lock. Past it, the waiting caller gets `503`, and one waiting lookup takes the lock over. Low values risk two token refreshes overlapping. |
@@ -698,36 +1117,57 @@ The GitHub route returns `504 GITHUB_TIMEOUT` when its overall deadline expires.
 
 These control the live Google Cloud catalog described in [Google Cloud](/docs/guides/google-cloud/#machine-types-zones-and-prices).
 
-| Setting                                     | Default                                         | Allowed range     | Applies to                                                                                                                                                     |
-| ------------------------------------------- | ----------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gcpCatalog.machineTypes`                   | e2-medium; e2, n2d, t2d standard up to 16 vCPUs | 1–100 exact names | Machine types SAM offers from Google Cloud, in every zone that has them. Arm (ARM64) types are skipped.                                                        |
-| `gcpCatalog.priceTableTtlMinutes`           | 1440                                            | 60–10080          | How old the stored Google Cloud price list may get before the background step refreshes it.                                                                    |
-| `gcpCatalog.priceRetryMinutes`              | 60                                              | 5–1440            | Wait after a failed price refresh before trying again.                                                                                                         |
-| `gcpCatalog.priceMaxPages`                  | 20                                              | 1–200             | Most pages of price data read in one refresh; needing more fails rather than storing a partial list.                                                           |
-| `gcpCatalog.priceRequestTimeoutMs`          | 30000                                           | 1000–120000       | Each request for a page of Google Cloud price data.                                                                                                            |
-| `gcpCatalog.priceRefreshCredentialAttempts` | 3                                               | 1–20              | Credentials tried per refresh, platform first; a retry continues with the next ones.                                                                           |
-| `gcpCatalog.priceRefreshBudgetMs`           | 90000                                           | 10000–240000      | Most time one price refresh may take across every page and credential it tries.                                                                                |
-| `gcpCatalog.apiIssueTtlMinutes`             | 10080                                           | 60–43200          | How long a Google API problem Google reported stays shown on a credential; a successful check clears it.                                                       |
-| `gcpCatalog.bootDiskGbPerVcpu`              | 20                                              | 1–256             | GB of boot disk a new Google Cloud node gets per vCPU, used by the catalog, prices and new nodes from the next catalog refresh; running nodes keep their disk. |
-| `gcpCatalog.bootDiskMinGb`                  | 50                                              | 10–4096           | Smallest boot disk, in GB, a new Google Cloud node gets whatever its vCPU count; same refresh rule.                                                            |
+| Setting                                     | Default                                         | Allowed range     | Applies to                                                                                                                                                                                                             |
+| ------------------------------------------- | ----------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gcpCatalog.machineTypes`                   | e2-medium; e2, n2d, t2d standard up to 16 vCPUs | 1–100 exact names | Machine types SAM offers from Google Cloud, in every zone that has them. Arm (ARM64) types are skipped.                                                                                                                |
+| `gcpCatalog.priceTableTtlMinutes`           | 1440                                            | 60–10080          | How old the stored Google Cloud price list may get before the background step refreshes it.                                                                                                                            |
+| `gcpCatalog.priceRetryMinutes`              | 60                                              | 5–1440            | Wait after a failed price refresh before trying again.                                                                                                                                                                 |
+| `gcpCatalog.priceMaxPages`                  | 20                                              | 1–200             | Most pages of price data read in one refresh; needing more fails rather than storing a partial list.                                                                                                                   |
+| `gcpCatalog.priceRequestTimeoutMs`          | 30000                                           | 1000–120000       | Each request for a page of Google Cloud price data.                                                                                                                                                                    |
+| `gcpCatalog.priceRefreshCredentialAttempts` | 3                                               | 1–20              | Credentials tried per refresh, platform first; a retry continues with the next ones.                                                                                                                                   |
+| `gcpCatalog.priceRefreshBudgetMs`           | 90000                                           | 10000–240000      | Most time one price refresh may take across every page and credential it tries.                                                                                                                                        |
+| `gcpCatalog.apiIssueTtlMinutes`             | 10080                                           | 60–43200          | How long a Google API problem Google reported stays shown on a credential; a successful check clears it.                                                                                                               |
+| `gcpCatalog.bootDiskGbPerVcpu`              | 20                                              | 1–256             | GB of boot disk a new Google Cloud node gets per vCPU, used by the catalog, prices and new nodes from the next catalog refresh; running nodes keep their disk.                                                         |
+| `gcpCatalog.bootDiskMinGb`                  | 50                                              | 10–4096           | Smallest boot disk, in GB, a new Google Cloud node gets whatever its vCPU count; same refresh rule.                                                                                                                    |
+| `gcpWif.poolIndexPageSize`                  | 25                                              | 5–50              | Stored cloud credentials decrypted per step when indexing which workload identity pool each one names (only new or re-saved credentials are indexed).                                                                  |
+| `gcpWif.poolIndexBudgetMs`                  | 10000                                           | 1000–25000        | Soft time limit on indexing in one token exchange or credential save: no page starts after it, and the check refuses and asks to retry rather than trust a partial index.                                              |
+| `gcpWif.poolIndexUnreadableRetryMinutes`    | 10                                              | 1–1440            | Wait before SAM tries again to read a stored cloud credential it could not decrypt while indexing workload identity pools. Until then it stops other owners from claiming new pools.                                   |
+| `gcpWif.poolIndexMaxQueriesPerCheck`        | 500                                             | 6–900             | Most SQL statements one check may issue while indexing (a probe batch per page plus up to two statements per credential; a page shrinks to fit). Past it the check returns a retryable 503 and the next one continues. |
+
+### Infomaniak boot volume
+
+Infomaniak flavors carry a small local root disk (20 GB on the default `a2/a4/a8-…-disk20-perf1` flavors), which devcontainer builds fill. SAM boots every new Infomaniak VM from a Cinder volume of this size instead, created by Nova from the image and deleted with the server (`InfomaniakProvider.createVM`, `packages/providers/src/infomaniak-boot-volume.ts`). The volume uses the project's default Cinder volume type.
+
+| Setting                   | Default | Allowed range | Applies to                                                                                                                                                |
+| ------------------------- | ------: | ------------: | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `infomaniak.bootVolumeGb` |      80 |       20–4096 | Disk the Infomaniak catalog advertises and new Infomaniak VMs boot from, from the next catalog refresh. Running VMs keep the disk they were created with. |
+
+Nodes created before this change still boot from the flavor's local disk and keep reporting it; SAM does not migrate them. Replace such a node (delete it and let SAM provision a new one) to move it onto a boot volume. A pool candidate published before this change still names 20 GB until its catalog refreshes; SAM creates the volume at the larger of the candidate's disk and this setting, so such a node still gets the configured size.
+
+- It is also the largest boot volume a request may ask for: a node or workspace request with a larger `bootDiskSizeGb` is refused before anything is created, because the node may run on a shared platform credential. Lowering the setting does not affect nodes already recorded with a larger size.
+- The volume counts against your Infomaniak block storage quota (volume count and gigabytes).
+- It uses the project's default Cinder volume type, which may differ from `INFOMANIAK_VOLUME_TYPE` (used for data volumes): selecting a type needs a newer Nova API version than SAM requests.
+- Nova deletes the volume with the server. If a delete ever leaves an unattached volume behind, SAM does not track it (boot volumes carry no SAM labels): look for unattached volumes in the Infomaniak console after a failed node deletion.
 
 ### Provider fallback
 
-| Setting                                               | Default | Allowed range | Applies to                                                                                                                             |
-| ----------------------------------------------------- | ------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `operations.provisioningAttemptsPerProviderTier`      | 8       | 1–50          | Most offerings one task tries from one provider source under `fallback-chain` before moving to the pool's next-ranked provider         |
-| `operations.workspacePlacementMaxRejections`          | 3       | 1–20          | Consecutive times the node a task selected may refuse its final workspace reservation before the task fails                            |
-| `operations.workspacePlacementBacklogConflictRetries` | 3       | 1–20          | Times a task may pick again because its chosen node gained a queued workspace setup before the reservation, counted until one succeeds |
-| `operations.workspaceBuildQueueTimeoutMinutes`        | 60      | 5–1440        | Minutes a workspace may wait for its node's single build slot before it times out                                                      |
+| Setting                                               | Default | Allowed range | Applies to                                                                                                                                                          |
+| ----------------------------------------------------- | ------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `operations.provisioningAttemptsPerProviderTier`      | 8       | 1–50          | Most offerings one task tries from one provider source under `fallback-chain` before moving to the pool's next-ranked provider                                      |
+| `operations.workspacePlacementMaxRejections`          | 3       | 1–20          | Consecutive times the node a task selected may refuse its final workspace reservation per episode; an owned provisioned node gets one fallback before final failure |
+| `operations.workspacePlacementBacklogConflictRetries` | 3       | 1–20          | Times a task may pick again because its chosen node gained a queued workspace setup before the reservation, counted until one succeeds                              |
+| `operations.workspaceBuildQueueTimeoutMinutes`        | 60      | 5–1440        | Minutes a workspace may wait for its node's single build slot before it times out                                                                                   |
 
 See [Provider order](/docs/guides/compute-pools/#provider-order). Each attempt is a create request
 to the provider, so this bounds the work one task does before it reaches the next provider.
 
 A refused workspace reservation sends the task back through node selection, about 6 seconds per
 cycle, so `operations.workspacePlacementMaxRejections` bounds a node that can never admit the
-request to roughly 18 seconds at the default (about 2 minutes at the maximum). The failure names
-the refusal reasons, which are also recorded in the task's placement diagnostics, and a node the
-task provisioned goes to the warm pool. The count resets when a reservation succeeds.
+request to roughly 18 seconds per episode at the default (about 2 minutes at the maximum). An
+owned provisioned node gets one fallback to normal placement, for at most twice the configured
+refusal budget, plus ordinary provisioning and queue time. Empty rejected nodes enter warm
+retention; occupied nodes stay active. The final failure names the refusal reasons, also recorded
+in placement diagnostics. Success or a genuinely new wake resets the episode.
 
 A node busy setting up another workspace does not refuse a reservation; the new workspace waits in
 that node's setup queue. When a task chose a node over another one with a longer queue and that
@@ -758,3 +1198,101 @@ bootstrap default. Bootstrap cannot depend on reading its own D1 override. Once 
 available, the runtime deadline governs legacy platform configuration and session reads.
 Pending cache loads expire on deadline; late results cannot republish stale data. No deployment
 configuration is required.
+
+## GitHub CI event storage
+
+`events.skipUnsubscribedGitHubCi` defaults to **on** in Operations. In
+`ProjectData.admitProjectEvent` (`packages/project-data/src/do/index.ts`), a GitHub
+`check_run`, `check_suite`, or `workflow_run` event with no matching active, unexpired
+subscription returns `skipped_no_subscriber` with no event receipt or match written.
+Other GitHub events, channel publications, lifecycle, schedule, workflow and credential
+history retain their existing behavior (`project-events.ts`). Subscriptions do not
+backfill earlier CI events: check current GitHub status before and immediately after
+subscribing.
+
+The superadmin event inspector no longer lists skipped CI events. Its CI storage
+summary shows the effective switch and counts by source/type in the current usage
+window (`ProjectEventInspector.tsx`). These counters live only in the object's memory:
+they reset on window flush or eviction, and are not a durable traffic history. The
+existing `project_data.row_usage` log includes the same bounded admission counters;
+overflow is disclosed separately. An empty event list does not establish an absence
+of CI traffic.
+
+Turn the switch **off** to retain all future unmatched CI receipts. This does not
+recover earlier skipped events. Already stored receipts keep their delivery-key
+replay, duplicate count and fingerprint-conflict behavior in either mode. A skipped
+event has no delivery-key ledger; a later redelivery is evaluated against the
+subscriptions active at that later admission. GitHub trigger execution remains
+independent of canonical project-event storage (`routes/github-webhook.ts`).
+
+## Use an OpenAI-compatible model server
+
+Under **AI models**, set `llm.openAICompatible.baseUrl`, the model ID and optional API key.
+The endpoint replaces Workers AI chat calls and the SAM agent's model route. Purpose-specific
+model settings are available for agents, titles (also used by the
+[Project Overview brief](#project-overview-brief)), diagnosis and the Workers AI proxy route.
+Private hosts require the separate `allowPrivateNetwork` confirmation; metadata hosts are always
+refused. Reset the base URL to restore normal routing. See the
+[endpoint configuration reference](/docs/reference/configuration/#openai-compatible-model-endpoint)
+for all keys, budgets, proxy availability and accounting limits.
+
+<!-- Verified: services/llm-endpoint-settings.ts, services/llm-chat-target.ts,
+     services/platform-capabilities.ts:resolveLlmEndpointCapability. -->
+
+## Guided-login cleanup recovery
+
+`credentialSetup.cleanupRecoveryStepTimeoutMs` (Operations) limits each remote step when a
+guided credential-login cleanup is retried by its recovery alarm: D1 repair, sandbox scrub,
+sandbox destruction and pool release. The default is 5,000 ms per step (range 1–10,000 ms),
+capped by `SANDBOX_EXEC_TIMEOUT_MS`. `credentialSetup.cleanupRecoveryMaxAttempts` sets the
+number of recovery work attempts (default 3, range 1–10). Its value is fixed for each cleanup
+when recovery first begins; changing it affects future cleanups. Legacy cleanup already in
+progress keeps its original cap of three. Waiting for an
+already-issued SDK operation does not consume an attempt. Remote waits total
+at most 20 seconds per attempt by default (40 seconds at the maximum), plus the existing
+bounded settings read. A late successful scrub and a successful destruction may each continue once without spending
+another attempt. Including these two bounded continuation passes, the maximum configured
+cap allows 480 seconds of remote waits; the default allows 100 seconds. A final bounded
+D1/pool reconciliation after proven destruction adds at most 20 seconds (10 seconds by
+default), making the conservative episode limits 500 and 110 seconds respectively. Only recovery reads these settings; inline cancellation keeps the
+interactive sandbox timeout.
+
+An alarm joining cleanup already owned by an inline cancellation waits at most one
+recovery-step timeout. If that owner is still blocked in D1 or pool bookkeeping, the
+alarm preserves its ownership and schedules the same immutable uncertainty watchdog.
+Settlement wakes recovery sooner when cleanup is still owed; a permanent stall reaches
+quarantine without starting duplicate sandbox work or repeatedly polling the blocked RPC.
+
+A deadline stops waiting; it does not cancel an SDK operation. Cleanup cannot record
+successful destruction or release its pool slot while earlier sandbox work may still start
+the container. D1 status writes run outside the sandbox-flight counter: once the actual
+SDK work settles, a stalled status write cannot delay sandbox cleanup. Any subsequent
+SDK read rechecks the session lifecycle before starting. Unfinished cleanup remains marked pending. If an isolate dies before that
+work's settlement is observed, recovery preserves the uncertainty. After the recovery cap,
+the session is quarantined and reported as an operator-visible platform error; a late
+settlement does not reset the cap. Pending SDK work has a separate watchdog at the later
+of the original session expiry and one interactive timeout plus a capture poll after teardown.
+Observed settlement wakes cleanup earlier. A timed-out destruction remains tracked: only its
+original successful completion records destruction proof, and recovery waits before another
+sandbox operation or pool release. A rejected or nonzero scrub remains retryable until scrub
+or destruction succeeds. If an alarm cannot establish a durable next wake while cleanup is
+still owed, it fails so Cloudflare can apply its bounded alarm retry policy.
+
+Initial cancellation establishes its recovery alarm before committing a terminal state. If
+arming fails, cancellation fails with the session still active and eligible for the existing
+sweep. Recovery scrubs a provisioning sandbox after its SDK flight settles because a
+background login driver may already have started. A late successful scrub or a successful destruction
+can finish its current attempt once; it never reopens quarantined cleanup. Once destruction
+is proven, successful D1/pool bookkeeping clears pending cleanup before the failure budget
+is checked; failed bookkeeping still spends the bounded budget.
+
+## Library browser uploads
+
+Search for **library.multipart** in **Admin → Settings** to lower the browser file
+ceiling or adjust multipart overhead, part/header limits and ingress time. The default
+file ceiling is 50 MiB and cannot be raised above that memory-safe ceiling. Existing
+`LIBRARY_UPLOAD_MAX_BYTES` overrides may lower it further. Library writes, downloads/previews and agent transfers share a 50 MiB memory budget
+per Worker isolate. Small uploads and previews run together; a transfer that does not fit
+receives `429` (or an MCP retry error); retry after the active transfer finishes. HTTP reads hold their reservation through response
+consumption/cancellation and use the existing download timeout for their egress deadline. See [Browser Library upload limits](/docs/reference/configuration/#browser-library-upload-limits)
+for defaults and throughput.

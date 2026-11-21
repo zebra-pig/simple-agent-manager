@@ -3,7 +3,8 @@ import { resolve } from 'node:path';
 
 import { expect, type Page, type Route, test } from '@playwright/test';
 
-const DEFAULT_SCREENSHOT_DIR = '../../.codex/tmp/playwright-screenshots';
+const DEFAULT_SCREENSHOT_DIR =
+  process.env.PLAYWRIGHT_SCREENSHOT_DIR || '../../.codex/tmp/playwright-screenshots';
 
 interface MockUserOptions {
   email: string;
@@ -321,6 +322,45 @@ export async function assertNoClippedOverflow(page: Page) {
   expect(
     offenders,
     `Horizontally clipped content (invisible to the user):\n${offenders.join('\n')}`
+  ).toEqual([]);
+}
+
+/**
+ * Finds SAM Glass panes that are their own scroll container.
+ *
+ * A pane's rim (`.sam-glass-rim::before`) and frost (`.sam-glass::after`) are absolutely
+ * positioned at `inset: 0`. Inside a scroller, that places them against the content at
+ * scroll position 0, so they scroll away with it: the rim's bottom edge crosses the middle
+ * of the list and the frost ends where it does. The pane must be the frame and a child
+ * must scroll (docs/guides/sam-glass-design-system.md, "Scrolling panes").
+ *
+ * The signal is the computed `overflow-y`, not whether the pane overflows today, so short
+ * fixture data cannot hide it. `overflow-x: hidden` alone also computes `overflow-y` to
+ * `auto`, which makes the pane a scroller too; that is caught on purpose.
+ */
+export async function findScrollingGlassPanes(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const found: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>('.sam-glass'))) {
+      if (el.getClientRects().length === 0) continue;
+      const { overflowY } = getComputedStyle(el);
+      if (overflowY !== 'auto' && overflowY !== 'scroll') continue;
+      const label = el.getAttribute('aria-label') ?? el.getAttribute('data-testid') ?? '';
+      const cls = (el.getAttribute('class') ?? '').slice(0, 120);
+      found.push(
+        `<${el.tagName.toLowerCase()} "${label}" class="${cls}"> overflow-y: ${overflowY}`
+      );
+    }
+    return found;
+  });
+}
+
+/** Blocking form: no glass pane on the page scrolls itself. */
+export async function assertNoScrollingGlassPanes(page: Page) {
+  const offenders = await findScrollingGlassPanes(page);
+  expect(
+    offenders,
+    `Glass panes that scroll themselves (their rim and frost scroll away):\n${offenders.join('\n')}`
   ).toEqual([]);
 }
 

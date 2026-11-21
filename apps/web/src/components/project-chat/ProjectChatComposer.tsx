@@ -16,6 +16,7 @@ import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { usePlatformCapabilities } from '../../hooks/usePlatformCapabilities';
 import {
   getSendButtonTitle,
   getSendShortcutAriaKey,
@@ -59,6 +60,8 @@ interface ProjectChatComposerProps {
   submitLabel?: string;
   readOnly?: boolean;
   focusOnMount?: boolean;
+  /** Accessible name for the text box; the placeholder is used when absent. */
+  inputLabel?: string;
 }
 
 const TEXTAREA_MAX_HEIGHT_PX = 120;
@@ -93,11 +96,13 @@ export function ProjectChatComposer({
   submitLabel = 'Send',
   readOnly = false,
   focusOnMount = true,
+  inputLabel,
 }: ProjectChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const internalFileInputRef = useRef<HTMLInputElement | null>(null);
   const slashPaletteRef = useRef<SlashCommandPaletteHandle>(null);
   const mentionPaletteRef = useRef<MentionPaletteHandle>(null);
+  const { speechToText } = usePlatformCapabilities();
   const [cursorPos, setCursorPos] = useState(() => value.length);
   const dismissedSlashFilterRef = useRef<string | null>(null);
   const dismissedMentionFilterRef = useRef<string | null>(null);
@@ -130,12 +135,39 @@ export function ProjectChatComposer({
     if (focusOnMount) textareaRef.current?.focus();
   }, [focusOnMount]);
 
-  useEffect(() => {
+  const fitTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`;
-  }, [value]);
+  }, []);
+
+  useEffect(() => {
+    fitTextareaHeight();
+  }, [value, fitTextareaHeight]);
+
+  // The height depends on the width too: a box first measured while its row was narrower
+  // (controls that leave once profiles load, a rotation) would keep a wrapped placeholder's
+  // height. Re-measure on width changes only, so setting the height cannot loop.
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === 'undefined') return;
+    let width = textarea.clientWidth;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === width) return;
+      width = textarea.clientWidth;
+      // Next frame, not inside the callback: resizing the observed box there makes the browser
+      // report "ResizeObserver loop completed", which the error reporter would forward.
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fitTextareaHeight);
+    });
+    observer.observe(textarea);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [fitTextareaHeight]);
 
   const setFileInput = useCallback(
     (node: HTMLInputElement | null) => {
@@ -356,6 +388,7 @@ export function ProjectChatComposer({
           disabled={sending || disabled}
           readOnly={readOnly}
           rows={1}
+          aria-label={inputLabel}
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={showSlashPalette || showMentionPalette}
@@ -375,11 +408,13 @@ export function ProjectChatComposer({
           }
           className="sam-well min-h-12 max-h-[160px] min-w-0 flex-1 resize-none overflow-y-auto rounded-[14px] border-0 bg-[var(--sam-form-bg)] px-4 py-3 font-[inherit] text-base leading-[1.5] text-fg-primary outline-none transition-shadow placeholder:text-fg-muted focus:shadow-[inset_0_1px_2px_var(--sam-glass-v2-well-shade),inset_0_0_0_1px_var(--sam-form-border-focus),0_0_0_3px_var(--sam-form-focus-ring)]"
         />
-        <VoiceButton
-          onTranscription={handleTranscription}
-          disabled={sending || disabled || readOnly}
-          apiUrl={transcribeApiUrl}
-        />
+        {speechToText && (
+          <VoiceButton
+            onTranscription={handleTranscription}
+            disabled={sending || disabled || readOnly}
+            apiUrl={transcribeApiUrl}
+          />
+        )}
         <button
           type="button"
           onClick={onSend}

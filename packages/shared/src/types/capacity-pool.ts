@@ -247,6 +247,12 @@ export interface SafeCapacityPoolPlacementSettingsSummary {
     legacyWorkloadMapping: Record<VMSize, Required<ResourceRequirements>>;
     platformDefaults: Required<ResourceRequirements>;
   };
+  /**
+   * Memory (MB) each node keeps for its host before placing any workspace, as this installation
+   * resolves it (`resolveEffectiveNodeHostMemoryReserveMb`). Placement subtracts it from every
+   * machine. Absent from older servers.
+   */
+  hostMemoryReserveMb?: number;
 }
 
 // =============================================================================
@@ -284,6 +290,10 @@ export interface SafeEffectiveCapacityPoolSummary {
 }
 
 export interface DefaultCapacityPoolSummary {
+  /** Actual durable refresh work; false after failure or its first-attempt deadline. */
+  catalogRefreshPending?: boolean;
+  /** A completed publication or trusted pre-upgrade catalog remains usable during refresh. */
+  catalogPublished?: boolean;
   pool: CapacityPool;
   sources: CapacitySourceIdentity[];
   candidates: CapacityPoolCandidate[];

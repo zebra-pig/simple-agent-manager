@@ -140,7 +140,7 @@ describe('ProjectData DO — session-scoped broadcasting', () => {
       try {
         await pd.fetch(
           new Request('https://do.internal/ws?sessionId=a1b2c3d4-e5f6-7890-abcd-ef1234567890', {
-            headers: { Upgrade: 'websocket' },
+            headers: { Upgrade: 'websocket', 'x-sam-browser-socket-actor': 'test-user' },
           })
         );
       } catch {
@@ -148,11 +148,12 @@ describe('ProjectData DO — session-scoped broadcasting', () => {
       }
 
       expect(freshCtx.acceptWebSocket).toHaveBeenCalledWith(serverWs, [
+        'actor:test-user',
         'session:a1b2c3d4-e5f6-7890-abcd-ef1234567890',
       ]);
     });
 
-    it('accepts WebSocket without tags when no sessionId param', async () => {
+    it('accepts WebSocket with only the actor tag when no sessionId param', async () => {
       const freshCtx = createMockCtx([]);
       const pd = new ProjectData(freshCtx as any, createMockEnv() as any);
 
@@ -169,14 +170,14 @@ describe('ProjectData DO — session-scoped broadcasting', () => {
       try {
         await pd.fetch(
           new Request('https://do.internal/ws', {
-            headers: { Upgrade: 'websocket' },
+            headers: { Upgrade: 'websocket', 'x-sam-browser-socket-actor': 'test-user' },
           })
         );
       } catch {
         // Expected in Node.js — status 101 not supported
       }
 
-      expect(freshCtx.acceptWebSocket).toHaveBeenCalledWith(serverWs, []);
+      expect(freshCtx.acceptWebSocket).toHaveBeenCalledWith(serverWs, ['actor:test-user']);
     });
 
     it('rejects WebSocket upgrade with malformed sessionId', async () => {
@@ -185,7 +186,7 @@ describe('ProjectData DO — session-scoped broadcasting', () => {
 
       const response = await pd.fetch(
         new Request('https://do.internal/ws?sessionId=../../../etc/passwd', {
-          headers: { Upgrade: 'websocket' },
+          headers: { Upgrade: 'websocket', 'x-sam-browser-socket-actor': 'test-user' },
         })
       );
 
@@ -257,7 +258,7 @@ describe('ProjectData DO — session-scoped broadcasting', () => {
   });
 
   describe('session-scoped message broadcast', () => {
-    it('sends message.new only to subscribed session socket and untagged sockets', async () => {
+    it('sends message.new only to the subscribed session socket, never to project sockets', async () => {
       // Set up the SQL mock to return a valid session and next sequence
       mockCtx.storage.sql.exec = vi.fn((query: string, ..._args: any[]) => {
         if (query.includes('SELECT workspace_id FROM chat_sessions')) {
@@ -304,11 +305,8 @@ describe('ProjectData DO — session-scoped broadcasting', () => {
       // Session B socket should NOT receive the message
       expect(sessionBSocket.send).not.toHaveBeenCalled();
 
-      // Untagged socket should receive the message (project-wide listener)
-      expect(untaggedSocket.send).toHaveBeenCalled();
-      const sentUntagged = JSON.parse(untaggedSocket._sent[0]);
-      expect(sentUntagged.type).toBe('message.new');
-      expect(sentUntagged.payload.sessionId).toBe('session-a');
+      // Project sockets (session list) never consume transcript frames.
+      expect(untaggedSocket.send).not.toHaveBeenCalled();
     });
 
     it('sends session.created to ALL sockets (intentional project-wide event)', async () => {

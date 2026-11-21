@@ -14,6 +14,7 @@ import type { PromptDeliveryResult } from '../durable-objects/project-data/promp
 import type { Env } from '../env';
 import { createModuleLogger } from '../lib/logger';
 import { commitContainerWake } from './container-wake-commit';
+import { rejectInboxReplyPermission } from './inbox/reject-reply-permission';
 import { NodeAgentHttpError, sendPromptToAgentOnNode } from './node-agent';
 import { transferPromptAttachments } from './prompt-attachments';
 import { SubmitResponseSchema } from './vm-prompt-delivery-adapter-schemas';
@@ -30,6 +31,7 @@ import {
   runSideEffectGuard,
 } from './vm-prompt-delivery-runtime-queries';
 import {
+  type ResolveTargetOptions,
   resolveVmPromptDeliveryTarget,
   type TargetResolution,
   type VmPromptDeliverySourceTaskGuard,
@@ -70,6 +72,17 @@ export class DefaultVmPromptDeliveryAdapter implements VmPromptDeliveryAdapter {
         capabilities: VmPromptDeliveryCapabilities;
       }
   > {
+    // A permission reply must reject through the existing answer path before target
+    // resolution can wake an agent or submission can deliver the person's reason.
+    if (
+      input.claim.message.sourceKind === 'inbox_reply' &&
+      input.claim.message.metadata?.inboxReplyPermission !== undefined
+    ) {
+      const denied = await runSideEffectGuard(input);
+      if (denied) return denied;
+      const rejection = await rejectInboxReplyPermission(this.env, input);
+      if (rejection) return rejection;
+    }
     const resolution: TargetResolution = input.resolvedTarget
       ? { kind: 'ready', target: input.resolvedTarget }
       : await this.resolveTarget(input.projectId, input.claim.message.targetSessionId, input);
@@ -114,9 +127,7 @@ export class DefaultVmPromptDeliveryAdapter implements VmPromptDeliveryAdapter {
       };
     }
     if (target.runtime === 'cf-container') {
-      const guarded = await commitContainerWake(this.env, target, () =>
-        runSideEffectGuard(input)
-      );
+      const guarded = await commitContainerWake(this.env, target, () => runSideEffectGuard(input));
       if (guarded) return guarded;
     }
     if (!capabilities.promptReceipts.supported && !input.allowLegacyVm) {
@@ -156,8 +167,6 @@ export class DefaultVmPromptDeliveryAdapter implements VmPromptDeliveryAdapter {
         capabilities,
       };
     }
-    const checkpointFailure = checkpointVmPromptSubmission(input.beforeSubmit, capabilities);
-    if (checkpointFailure) return checkpointFailure;
     try {
       const raw = await sendPromptToAgentOnNode(
         target.nodeId,
@@ -179,6 +188,13 @@ export class DefaultVmPromptDeliveryAdapter implements VmPromptDeliveryAdapter {
           beforeExternalMutation: async () => {
             const denied = await runSideEffectGuard(input);
             if (denied) throw new PromptDeliveryGuardError(denied);
+            // A denied pre-fetch guard proves no send. Persist possible-send only
+            // after that guard succeeds, immediately before transport begins.
+            const checkpointFailure = checkpointVmPromptSubmission(
+              input.beforeSubmit,
+              capabilities
+            );
+            if (checkpointFailure) throw new PromptDeliveryGuardError(checkpointFailure);
           },
         }
       );
@@ -311,7 +327,9 @@ export class DefaultVmPromptDeliveryAdapter implements VmPromptDeliveryAdapter {
   async reconcile(input: VmPromptDeliveryAdapterInput): Promise<PromptDeliveryResult> {
     const resolution: TargetResolution = input.resolvedTarget
       ? { kind: 'ready', target: input.resolvedTarget }
-      : await this.resolveTarget(input.projectId, input.claim.message.targetSessionId, input);
+      : await this.resolveTarget(input.projectId, input.claim.message.targetSessionId, input, {
+          allowWake: false,
+        });
     if (resolution.kind === 'guarded') return resolution.result;
     if (resolution.kind === 'failed') {
       return {
@@ -340,7 +358,8 @@ export class DefaultVmPromptDeliveryAdapter implements VmPromptDeliveryAdapter {
       this.env,
       target,
       input.requestTimeoutMs,
-      input.sourceTaskGuard
+      input.sourceTaskGuard,
+      true
     );
     if (!capabilities) {
       return {
@@ -390,14 +409,16 @@ export class DefaultVmPromptDeliveryAdapter implements VmPromptDeliveryAdapter {
   private async resolveTarget(
     projectId: string,
     chatSessionId: string,
-    input: VmPromptDeliveryAdapterInput
+    input: VmPromptDeliveryAdapterInput,
+    options: ResolveTargetOptions = {}
   ): Promise<TargetResolution> {
     return resolveVmPromptDeliveryTarget(
       this.env,
       projectId,
       chatSessionId,
       input.sourceTaskGuard,
-      () => runSideEffectGuard(input)
+      () => runSideEffectGuard(input),
+      { ...options, isSessionActive: input.isSessionActive }
     );
   }
 

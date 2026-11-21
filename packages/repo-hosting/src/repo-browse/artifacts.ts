@@ -9,9 +9,11 @@ import type {
 import { errors } from '@simple-agent-manager/worker-core';
 import { createPatch } from 'diff';
 import git from 'isomorphic-git';
-import http from 'isomorphic-git/http/web';
+import webHttp from 'isomorphic-git/http/web';
 
 import type { Env } from '../env';
+import { repoHostingPorts } from '../ports';
+import { createFetchHttpClient } from './fetch-http-client';
 import { MemoryFS } from './memory-fs';
 import type { RepoBrowser } from './types';
 import { basename, guessContentType, isBinaryBytes, maxCompareFiles, maxInlineBytes } from './util';
@@ -26,6 +28,7 @@ type OnAuth = Parameters<typeof git.clone>[0]['onAuth'];
 interface ArtifactsRepoInfo {
   remote: string;
   onAuth: OnAuth;
+  http: Parameters<typeof git.clone>[0]['http'];
 }
 
 function countPatchLines(patch: string): { additions: number; deletions: number } {
@@ -163,7 +166,8 @@ export class ArtifactsRepoBrowser implements RepoBrowser {
   private async info(): Promise<ArtifactsRepoInfo> {
     if (!this.infoPromise) {
       this.infoPromise = (async () => {
-        const binding = this.env.ARTIFACTS;
+        // The binding as before; otherwise the backend a self-host build registered.
+        const binding = this.env.ARTIFACTS ?? repoHostingPorts().artifacts.resolve(this.env);
         if (!binding) throw errors.badRequest('Artifacts is not enabled on this deployment');
         const repo = await binding.get(this.repoId);
         const ttl =
@@ -175,7 +179,12 @@ export class ArtifactsRepoBrowser implements RepoBrowser {
         if (!remote) {
           throw errors.badRequest('Artifacts repository has no resolvable clone URL');
         }
-        return { remote, onAuth };
+        return {
+          remote,
+          onAuth,
+          // Native RPC bindings fabricate unknown methods; extensions belong to the fallback.
+          http: !this.env.ARTIFACTS && binding.remoteFetch ? createFetchHttpClient(binding.remoteFetch) : webHttp,
+        };
       })();
     }
     return this.infoPromise;
@@ -183,7 +192,7 @@ export class ArtifactsRepoBrowser implements RepoBrowser {
 
   /** Shallow single-branch clone of `ref` into a fresh in-memory fs. */
   private async cloneRef(ref: string): Promise<IsoFs> {
-    const { remote, onAuth } = await this.info();
+    const { remote, onAuth, http } = await this.info();
     const fs = new MemoryFS() as unknown as IsoFs;
     // noCheckout: we read objects via walk/readBlob, never the working tree — this
     // avoids writing a second copy of every blob into the in-memory fs.
@@ -202,7 +211,7 @@ export class ArtifactsRepoBrowser implements RepoBrowser {
   }
 
   async listBranches(): Promise<RepoBranchesResponse> {
-    const { remote, onAuth } = await this.info();
+    const { remote, onAuth, http } = await this.info();
     const refs = await git.listServerRefs({
       http,
       url: remote,
@@ -260,7 +269,7 @@ export class ArtifactsRepoBrowser implements RepoBrowser {
   }
 
   async compare(base: string, head: string): Promise<RepoCompareResponse> {
-    const { remote, onAuth } = await this.info();
+    const { remote, onAuth, http } = await this.info();
     const fs = new MemoryFS() as unknown as IsoFs;
     await git.clone({
       fs,

@@ -1,3 +1,7 @@
+import {
+  estimateInputTokensFromMessages,
+  monthlyCostCapMessage,
+} from '@simple-agent-manager/ai-proxy';
 /**
  * Agent loop — unified OpenAI-format code path routed through AI Gateway.
  *
@@ -21,6 +25,7 @@ import { log } from '../../lib/logger';
 import { expectJsonRecord } from '../../lib/runtime-validation';
 import { checkAiUsageGate } from '../../services/ai-token-budget';
 import { attachTokenUsageAccounting } from '../../services/ai-token-usage-accounting';
+import { LlmUnavailableError, resolveOpenAICompatibleTarget } from '../../services/llm-chat-target';
 import {
   encodeSseEvent,
   isAnthropicModel,
@@ -58,7 +63,7 @@ export async function runAgentLoop(
   conversationId: string,
   historyRows: MessageRow[],
   userMessage: string,
-  config: SamConfig,
+  baseConfig: SamConfig,
   env: Env,
   userId: string,
   writer: WritableStreamDefaultWriter<Uint8Array>,
@@ -82,6 +87,16 @@ export async function runAgentLoop(
   ];
 
   const systemPrompt = options?.systemPrompt ?? SAM_SYSTEM_PROMPT;
+  let endpoint;
+  try {
+    endpoint = await resolveOpenAICompatibleTarget(env, 'agent', baseConfig.model);
+  } catch (err) {
+    if (!(err instanceof LlmUnavailableError)) throw err;
+    await writer.write(encodeSseEvent({ type: 'error', message: err.message }));
+    await writer.write(encodeSseEvent({ type: 'done' }));
+    return;
+  }
+  const config = endpoint ? { ...baseConfig, model: endpoint.model } : baseConfig;
   const tools = options?.tools ?? [];
   const executeToolFn =
     options?.executeTool ?? (async () => ({ error: 'No tool executor configured' }));
@@ -91,7 +106,7 @@ export async function runAgentLoop(
     searchMessages,
     ...options?.toolContextExtras,
   };
-  const useAnthropicParser = isAnthropicModel(config.model);
+  const useAnthropicParser = !endpoint && isAnthropicModel(config.model);
   const tokenUsageFormat = useAnthropicParser ? ('anthropic' as const) : ('openai' as const);
 
   // Workers AI models have smaller context windows, so use a tighter budget
@@ -126,7 +141,7 @@ export async function runAgentLoop(
       const message =
         usageGate.reason === 'daily-token-budget'
           ? 'Daily token budget exceeded. Resets at midnight UTC.'
-          : 'Monthly cost cap exceeded. Adjust your cap in Settings > Usage.';
+          : monthlyCostCapMessage(usageGate.monthlyCap);
       log.warn('sam.ai_usage_gate_denied', {
         userId,
         conversationId,
@@ -139,19 +154,22 @@ export async function runAgentLoop(
 
     let response: Response;
     try {
-      response = await callLLM(
-        env,
-        config,
-        llmMessages,
-        userId,
-        conversationId,
-        systemPrompt,
-        tools
-      );
+      response = await callLLM(env, config, llmMessages, userId, conversationId, systemPrompt, {
+        tools,
+        endpoint,
+      });
       response = await attachTokenUsageAccounting(response, {
         env,
         userId,
         format: tokenUsageFormat,
+        estimateMissingUsage: endpoint !== null,
+        fallbackInputTokens: endpoint
+          ? estimateInputTokensFromMessages([
+              { role: 'system', content: systemPrompt },
+              ...llmMessages,
+            ])
+          : undefined,
+        costModelId: endpoint ? undefined : config.model,
         executionCtx,
       });
     } catch (fetchErr) {
@@ -183,7 +201,7 @@ export async function runAgentLoop(
       const errorText = await response.text().catch(() => 'Unknown error');
       log.error('sam.llm_error', {
         status: response.status,
-        body: errorText.slice(0, 500),
+        body: endpoint ? '[external endpoint body omitted]' : errorText.slice(0, 500),
         model: config.model,
       });
       await writer.write(

@@ -341,6 +341,10 @@ export const credentials = sqliteTable(
     activeCredential: index('idx_credentials_active')
       .on(table.userId, table.projectId, table.agentType, table.isActive)
       .where(sql`credential_type = 'agent-api-key' AND is_active = 1`),
+    // GCP workload identity pool ownership probe (migration 0262).
+    gcpCloudCredential: index('idx_credentials_gcp_cloud')
+      .on(table.id)
+      .where(sql`provider = 'gcp' AND credential_type = 'cloud-provider'`),
   })
 );
 
@@ -775,6 +779,158 @@ export const runtimeSecretRequests = sqliteTable(
 
 export type RuntimeSecretRequestRow = typeof runtimeSecretRequests.$inferSelect;
 
+/**
+ * Inbox asks (migration 0245, idea 01M7G03ZCQ6TM6CMEYDRKQ8ST9). One row per ask with no older
+ * home; questions, permissions, secret requests and approvals keep their own stores and the inbox
+ * reads them in place. Status changes are compare-and-set with `project_id` in the predicate.
+ */
+export const asks = sqliteTable(
+  'asks',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    /** 'user' names assigneeUserId; 'team' is any active project member (claimable). */
+    assigneeKind: text('assignee_kind').notNull().default('user'),
+    assigneeUserId: text('assignee_user_id'),
+    claimedByUserId: text('claimed_by_user_id'),
+    kind: text('kind').notNull(),
+    blocking: integer('blocking', { mode: 'boolean' }).notNull().default(false),
+    title: text('title').notNull(),
+    bodyMd: text('body_md'),
+    answerSpecJson: text('answer_spec_json'),
+    stepsJson: text('steps_json'),
+    /** References only: `[{kind, id, label}]`, resolved with the reader's access. */
+    linksJson: text('links_json'),
+    dueHint: text('due_hint'),
+    dueAt: integer('due_at'),
+    sourceSessionId: text('source_session_id'),
+    sourceTaskId: text('source_task_id'),
+    sourceMessageId: text('source_message_id'),
+    agentProfileId: text('agent_profile_id'),
+    groupKey: text('group_key'),
+    dedupeKey: text('dedupe_key'),
+    status: text('status').notNull().default('open'),
+    answerJson: text('answer_json'),
+    resolvedByUserId: text('resolved_by_user_id'),
+    resolvedAt: integer('resolved_at'),
+    expiresAt: integer('expires_at'),
+    /** Epoch ms the filing agent's notice that the ask closed was queued; NULL = the sweep retries. */
+    notifiedAt: integer('notified_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    // Questions (`request_human_input`, slice G; migration 0247).
+    /** The workspace the asking agent ran in, for the expiry outcome (task and runtime). */
+    sourceWorkspaceId: text('source_workspace_id'),
+    /** The `request_human_input` category (`HUMAN_INPUT_CATEGORIES`), when given. */
+    category: text('category'),
+    /** The notification sent for the ask; reminders resend its push, expiry checks its receipt. */
+    notificationId: text('notification_id'),
+    /** Next reminder (push resend); NULL when none is left. */
+    nextEscalationAt: integer('next_escalation_at'),
+    escalationCount: integer('escalation_count').notNull().default(0),
+    /** Hard limit on how long an undelivered ask may be extended. */
+    maxExpiresAt: integer('max_expires_at'),
+    /** Human tasks: JSON array of ticked step indexes (0254); NULL when none is ticked. */
+    stepsCheckedJson: text('steps_checked_json'),
+    /** Kind 'error' (slice E, migration 0248): times the thing failed while the item was open. */
+    failureCount: integer('failure_count').notNull().default(1),
+  },
+  (table) => ({
+    openEscalationIdx: index('idx_asks_open_escalation')
+      .on(table.nextEscalationAt)
+      .where(sql`status = 'open' AND next_escalation_at IS NOT NULL`),
+    openQuestionIdx: index('idx_asks_open_question')
+      .on(table.projectId, table.sourceSessionId, table.createdAt)
+      .where(sql`kind = 'question' AND status = 'open'`),
+    assigneeStatusIdx: index('idx_asks_assignee_status').on(
+      table.assigneeUserId,
+      table.status,
+      table.createdAt
+    ),
+    projectStatusIdx: index('idx_asks_project_status').on(
+      table.projectId,
+      table.status,
+      table.createdAt
+    ),
+    // Insights · People "answered by the first person asked" (migration 0258).
+    projectStatusResolvedIdx: index('idx_asks_project_status_resolved').on(
+      table.projectId,
+      table.status,
+      table.resolvedAt
+    ),
+    sessionStatusIdx: index('idx_asks_session_status').on(table.sourceSessionId, table.status),
+    openExpiryIdx: index('idx_asks_open_expiry')
+      .on(table.expiresAt)
+      .where(sql`status = 'open' AND expires_at IS NOT NULL`),
+    unnotifiedIdx: index('idx_asks_unnotified')
+      .on(table.resolvedAt)
+      .where(sql`notified_at IS NULL AND status IN ('answered', 'done', 'archived', 'expired')`),
+    // System error items (migration 0248).
+    errorTaskIdx: index('idx_asks_error_task')
+      .on(table.sourceTaskId, table.createdAt)
+      .where(sql`kind = 'error'`),
+    errorKeyIdx: index('idx_asks_error_key')
+      .on(table.dedupeKey)
+      .where(sql`kind = 'error' AND dedupe_key IS NOT NULL`),
+    projectDedupeIdx: uniqueIndex('idx_asks_project_dedupe')
+      .on(table.projectId, table.dedupeKey)
+      .where(sql`dedupe_key IS NOT NULL`),
+  })
+);
+
+/**
+ * The generated brief on a Project Overview (inbox slice I, migration 0255). One row per project,
+ * the brief's only home. Written by `refreshProjectBriefIfDue` (apps/api), read by
+ * `readProjectBrief` (packages/operations). Times are epoch milliseconds.
+ */
+export const projectBriefs = sqliteTable('project_briefs', {
+  projectId: text('project_id')
+    .primaryKey()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  /** NULL when the project was quiet at the last check. */
+  briefJson: text('brief_json'),
+  refAsksJson: text('ref_asks_json').notNull().default('[]'),
+  refChatsJson: text('ref_chats_json').notNull().default('[]'),
+  refAutomationsJson: text('ref_automations_json').notNull().default('[]'),
+  refAccountsJson: text('ref_accounts_json').notNull().default('[]'),
+  fingerprint: text('fingerprint'),
+  generatedAt: integer('generated_at'),
+  checkedAt: integer('checked_at'),
+  stale: integer('stale').notNull().default(0),
+  pendingSince: integer('pending_since'),
+  /** Per-UTC-day generation budget: a daily cap by design, reset by a new day only. */
+  generationDay: text('generation_day'),
+  generationCount: integer('generation_count').notNull().default(0),
+  lastError: text('last_error'),
+  lastErrorAt: integer('last_error_at'),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export type AskRow = typeof asks.$inferSelect;
+
+/** Lifecycle of an ask, one row per change (human tasks, migration 0254). No discussion text. */
+export const askActivity = sqliteTable(
+  'ask_activity',
+  {
+    id: text('id').primaryKey(),
+    askId: text('ask_id')
+      .notNull()
+      .references(() => asks.id, { onDelete: 'cascade' }),
+    projectId: text('project_id').notNull(),
+    /** 'user' | 'agent' | 'system' */
+    actorKind: text('actor_kind').notNull(),
+    actorId: text('actor_id'),
+    kind: text('kind').notNull(),
+    detailJson: text('detail_json'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => ({
+    askCreatedIdx: index('idx_ask_activity_ask_created').on(table.askId, table.createdAt, table.id),
+  })
+);
+
 export const projectRuntimeEnvVars = sqliteTable(
   'project_runtime_env_vars',
   {
@@ -969,8 +1125,47 @@ export const projectDeploymentCredentials = sqliteTable(
       table.provider
     ),
     userIdx: index('idx_project_deployment_creds_user').on(table.userId),
+    gcpProjectNumberIdx: index('idx_project_deployment_creds_gcp_project_number').on(
+      table.gcpProjectNumber
+    ),
   })
 );
+
+// =============================================================================
+// GCP Workload Identity Pool Index and Claims (migration 0262)
+// `gcp_wif_pool_index`: which pool each stored cloud credential names, filled by the Worker on
+// every ownership check (`apps/api/src/services/gcp-wif-pool-ownership.ts`). No secret material:
+// `iv` identifies the indexed ciphertext generation, `pool_key` is `<projectNumber>/<poolId>` or
+// NULL when the row names no workload identity pool. `gcp_wif_pool_claims`: the first owner of
+// each pool, never released by credential deletion (an operator deletes the row to release it).
+// The CHECK constraints live in the migration only.
+// =============================================================================
+export const gcpWifPoolIndex = sqliteTable(
+  'gcp_wif_pool_index',
+  {
+    sourceTable: text('source_table').notNull(), // 'credentials' | 'platform_credentials' | 'cc_credentials'
+    sourceId: text('source_id').notNull(),
+    iv: text('iv').notNull(),
+    ownerKind: text('owner_kind').notNull(), // 'user' | 'platform'
+    ownerUserId: text('owner_user_id'),
+    poolKey: text('pool_key'),
+    unreadable: integer('unreadable').notNull().default(0),
+    indexedAt: text('indexed_at').notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.sourceTable, table.sourceId] }),
+    poolIdx: index('idx_gcp_wif_pool_index_pool')
+      .on(table.poolKey)
+      .where(sql`pool_key IS NOT NULL`),
+  })
+);
+
+export const gcpWifPoolClaims = sqliteTable('gcp_wif_pool_claims', {
+  poolKey: text('pool_key').primaryKey(),
+  ownerKind: text('owner_kind').notNull(), // 'user' | 'platform'
+  ownerUserId: text('owner_user_id'),
+  claimedAt: text('claimed_at').notNull(),
+});
 
 // =============================================================================
 // Missions (Phase 2: Orchestration Primitives)
@@ -1216,13 +1411,33 @@ export const tasks = sqliteTable(
       table.priority,
       table.updatedAt
     ),
+    // Inbox system error sweep (migration 0248): recently failed tasks.
+    failedUpdatedIdx: index('idx_tasks_failed_updated')
+      .on(table.updatedAt)
+      .where(sql`status = 'failed'`),
     activeUpdatedIdIdx: index('idx_tasks_active_updated_id')
       .on(table.updatedAt, table.id)
       .where(sql`status IN ('queued', 'delegated', 'in_progress')`),
+    recoveryScanUpdatedIdIdx: index('idx_tasks_recovery_scan_updated_id').on(
+      table.updatedAt,
+      table.id
+    ).where(sql`status IN ('queued', 'delegated', 'in_progress')
+        OR (status='sleeping' AND admission_state='provider_limit_recovery_pending')`),
     projectChatSessionIdx: index('idx_tasks_project_chat_session')
       .on(table.projectId, table.chatSessionId)
       .where(sql`chat_session_id IS NOT NULL`),
     projectCreatedAtIdx: index('idx_tasks_project_created_at').on(table.projectId, table.createdAt),
+    /** Run receipt comparison with recent runs of the same skill or profile (migration 0252). */
+    projectSkillCreatedIdx: index('idx_tasks_project_skill_created').on(
+      table.projectId,
+      table.skillId,
+      table.createdAt
+    ),
+    projectProfileCreatedIdx: index('idx_tasks_project_profile_created').on(
+      table.projectId,
+      table.agentProfileHint,
+      table.createdAt
+    ),
     projectUserIdx: index('idx_tasks_project_user').on(table.projectId, table.userId),
     chatSessionIdUnique: uniqueIndex('idx_tasks_chat_session_id_unique')
       .on(table.chatSessionId)
@@ -1325,6 +1540,12 @@ export const pullRequests = sqliteTable(
       table.repository,
       table.headSha
     ),
+    /** The Project Overview's newest merged pull requests (migration 0249). */
+    projectMerged: index('idx_pull_requests_project_state_merged').on(
+      table.projectId,
+      table.state,
+      table.mergedAt
+    ),
   })
 );
 
@@ -1340,9 +1561,79 @@ export const pullRequestChecks = sqliteTable(
     checkKey: text('check_key').notNull(),
     state: text('state', { enum: ['pending', 'success', 'failure', 'neutral'] }).notNull(),
     updatedAt: text('updated_at').notNull(),
+    /** When this check first reported a failure on this commit; never cleared by a rerun (migration 0251). */
+    firstFailedAt: text('first_failed_at'),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.projectId, table.repository, table.headSha, table.checkKey] }),
+  })
+);
+
+/**
+ * Every head commit SAM saw for a pull request (migration 0251), written by
+ * `upsertPullRequestSnapshot`. `fromOpen` = this head came in GitHub's `pull_request.opened`
+ * event, so it is the commit the pull request opened with. Insights reads it for "CI passed on
+ * the first try"; old-head check deletes keep that commit's checks.
+ */
+export const pullRequestHeads = sqliteTable(
+  'pull_request_heads',
+  {
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    repository: text('repository').notNull(),
+    prNumber: integer('pr_number').notNull(),
+    headSha: text('head_sha').notNull(),
+    firstSeenAt: text('first_seen_at').notNull(),
+    fromOpen: integer('from_open', { mode: 'boolean' }).notNull().default(false),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.projectId, table.repository, table.prNumber, table.headSha],
+    }),
+    projectRepoHead: index('idx_pull_request_heads_project_repo_head').on(
+      table.projectId,
+      table.repository,
+      table.headSha
+    ),
+  })
+);
+
+/**
+ * One review request cycle per reviewer of a pull request (migration 0258), written by the GitHub
+ * webhook ingest (`services/github-pull-request-reviews.ts`). Insights · People reads it for review
+ * pickup time, per project only: `reviewerKey` exists to match a review to its request.
+ */
+export const pullRequestReviewRequests = sqliteTable(
+  'pull_request_review_requests',
+  {
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    repository: text('repository').notNull(),
+    prNumber: integer('pr_number').notNull(),
+    /** 'user' | 'team' */
+    reviewerKind: text('reviewer_kind').notNull(),
+    reviewerKey: text('reviewer_key').notNull(),
+    requestedAt: text('requested_at').notNull(),
+    firstReviewAt: text('first_review_at'),
+    removedAt: text('removed_at'),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [
+        table.projectId,
+        table.repository,
+        table.prNumber,
+        table.reviewerKind,
+        table.reviewerKey,
+        table.requestedAt,
+      ],
+    }),
+    projectRequested: index('idx_pull_request_review_requests_project_requested').on(
+      table.projectId,
+      table.requestedAt
+    ),
   })
 );
 
@@ -1816,6 +2107,8 @@ export const nodes = sqliteTable(
      * enrolled machine). Drives lifecycle guards, billing, quota, and UI. Orthogonal to `runtime`.
      */
     nodeClass: text('node_class').notNull().default('managed'),
+    /** Server-written task provisioning provenance retained after a placement fallback releases ownership. */
+    taskProvisioned: integer('task_provisioned', { mode: 'boolean' }).notNull().default(false),
     /** Reachability transport: 'vm-public-dns' | 'cloudflare-tunnel'. Null for implicit transport. */
     transport: text('transport'),
     /** Cloudflare Tunnel UUID for tunnel-transport nodes (user-owned or managed). Null otherwise. */
@@ -3347,6 +3640,20 @@ export const triggerExecutions = sqliteTable(
       .on(table.triggerId, table.status)
       .where(sql`status IN ('queued', 'running')`),
     triggerIdIdx: index('idx_trigger_executions_trigger_id').on(table.triggerId),
+    // Inbox system error sweep (migration 0248): recently failed runs.
+    failedCompletedIdx: index('idx_trigger_executions_failed_completed')
+      .on(table.completedAt)
+      .where(sql`status = 'failed'`),
+    // Inbox automation sweep (migration 0248): an automation's newest finished run.
+    finishedSequenceIdx: index('idx_trigger_executions_trigger_finished')
+      .on(table.triggerId, table.sequenceNumber)
+      .where(sql`status IN ('completed', 'failed')`),
+    /** Newest runs of one trigger without a sort (migration 0255; the Overview brief's facts). */
+    triggerSequenceIdx: index('idx_trigger_executions_trigger_sequence').on(
+      table.triggerId,
+      table.sequenceNumber,
+      table.createdAt
+    ),
     queueExpiryIdx: index('idx_trigger_queue_expiry')
       .on(table.queueExpiresAt)
       .where(sql`status IN ('waiting','queued')`),
@@ -3879,6 +4186,8 @@ export const capacityPools = sqliteTable(
      * invalidates prior placement authority. NULL = not yet computed.
      */
     selectionDigest: text('selection_digest'),
+    /** Last complete validated publication; unfinished refreshes do not revoke this proof. */
+    catalogPublishedAt: text('catalog_published_at'),
     /**
      * Provider order: JSON array of capacity source ids, most preferred first. NULL = all
      * sources equal (the behaviour before ordering existed). Rank governs new VMs only;
@@ -3912,6 +4221,10 @@ export const capacityPools = sqliteTable(
       .on(table.ownerProjectId)
       .where(sql`scope = 'project' AND is_default = 1`),
     scopeStatusIdx: index('idx_capacity_pools_scope_status').on(table.scope, table.status),
+    migrationStateIdx: index('idx_capacity_pools_migration_state').on(
+      table.migrationState,
+      table.isDefault
+    ),
     configurationStateIdx: index('idx_capacity_pools_configuration_state').on(
       table.configurationState
     ),
@@ -3989,6 +4302,91 @@ export const capacityPoolCandidates = sqliteTable(
   })
 );
 
+/** Durable replacement rows; placement reads only capacityPoolCandidates. */
+export const capacityPoolCandidateStaging = sqliteTable(
+  'capacity_pool_candidate_staging',
+  {
+    id: text('id').primaryKey(),
+    poolId: text('pool_id')
+      .notNull()
+      .references(() => capacityPools.id, { onDelete: 'cascade' }),
+    capacitySourceId: text('capacity_source_id')
+      .notNull()
+      .references(() => capacitySources.id, { onDelete: 'cascade' }),
+    digest: text('digest').notNull(),
+    ordinal: integer('ordinal').notNull(),
+    generation: integer('generation').notNull(),
+    primaryId: text('primary_id').notNull(),
+    provider: text('provider'),
+    location: text('location'),
+    workloadRole: text('workload_role').notNull().default('workspace'),
+    runtime: text('runtime'),
+    machineClass: text('machine_class'),
+    machineSize: text('machine_size'),
+    /** Provider-native instance type/SKU selected by this candidate. */
+    providerInstanceType: text('provider_instance_type'),
+    providerInstanceSku: text('provider_instance_sku'),
+    providerInstanceDisplayName: text('provider_instance_display_name'),
+    /** Normalized concrete offering capacity and price metadata. */
+    providerInstanceVcpuCount: integer('provider_instance_vcpu_count'),
+    providerInstanceMemoryMb: integer('provider_instance_memory_mb'),
+    providerInstanceDiskGb: integer('provider_instance_disk_gb'),
+    providerInstanceBootDiskSizeGb: integer('provider_instance_boot_disk_size_gb'),
+    providerInstanceImage: text('provider_instance_image'),
+    providerInstanceArchitecture: text('provider_instance_architecture'),
+    providerInstancePriceDisplay: text('provider_instance_price_display'),
+    providerInstancePriceCurrency: text('provider_instance_price_currency'),
+    providerInstancePriceMonthlyCents: integer('provider_instance_price_monthly_cents'),
+    providerInstancePriceHourlyMicros: integer('provider_instance_price_hourly_micros'),
+    providerInstanceCatalogSource: text('provider_instance_catalog_source'),
+    providerInstanceCatalogLastSeenAt: text('provider_instance_catalog_last_seen_at'),
+    catalogAvailability: text('catalog_availability').notNull().default('available'),
+    catalogUnavailableAt: text('catalog_unavailable_at'),
+    catalogReturnedAt: text('catalog_returned_at'),
+    catalogGeneration: integer('catalog_generation').notNull().default(0),
+    authorityGeneration: integer('authority_generation').notNull().default(0),
+    priority: integer('priority').notNull().default(0),
+    candidateOrder: integer('candidate_order').notNull().default(0),
+    status: text('status').notNull().default('active'),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    publicationIdx: index('idx_capacity_candidate_staging_publication').on(
+      table.poolId,
+      table.capacitySourceId,
+      table.digest,
+      table.ordinal
+    ),
+  })
+);
+
+/** Durable catalog continuation, independent of the daily credential enumeration sweep. */
+export const capacityPoolRefreshes = sqliteTable(
+  'capacity_pool_refreshes',
+  {
+    poolId: text('pool_id').primaryKey(),
+    scope: text('scope').notNull(),
+    ownerUserId: text('owner_user_id').references(() => users.id, { onDelete: 'cascade' }),
+    ownerProjectId: text('owner_project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    state: text('state').notNull().default('pending'),
+    generation: integer('generation').notNull().default(0),
+    attempts: integer('attempts').notNull().default(0),
+    startedAt: integer('started_at').notNull(),
+    deadlineAt: integer('deadline_at').notNull(),
+    nextAttemptAt: integer('next_attempt_at').notNull(),
+    lastSuccessAt: integer('last_success_at'),
+    lastError: text('last_error'),
+  },
+  (table) => ({
+    dueIdx: index('idx_capacity_pool_refreshes_due').on(table.state, table.nextAttemptAt),
+  })
+);
+
 /** Future fallback-chain edges between pools. No current scheduler behavior reads this table. */
 export const capacityPoolFallbacks = sqliteTable(
   'capacity_pool_fallbacks',
@@ -4014,6 +4412,7 @@ export const capacityPoolFallbacks = sqliteTable(
   })
 );
 
+export type CapacityPoolRefresh = typeof capacityPoolRefreshes.$inferSelect;
 export type CapacitySource = typeof capacitySources.$inferSelect;
 export type NewCapacitySource = typeof capacitySources.$inferInsert;
 export type CapacityPool = typeof capacityPools.$inferSelect;
@@ -4166,11 +4565,17 @@ export const sessionSummaries = sqliteTable(
       table.updatedAt
     ),
     projectIdx: index('idx_session_summaries_project').on(table.projectId, table.updatedAt),
+    /** A task's chat (migration 0255; the Overview brief's failed chats). */
+    taskIdx: index('idx_session_summaries_task').on(table.taskId),
     projectCreatorIdx: index('idx_session_summaries_project_creator').on(
       table.projectId,
       table.createdByUserId,
       table.updatedAt
     ),
+    /** The inbox's open-question read (migration 0245). */
+    openAttentionIdx: index('idx_session_summaries_open_attention')
+      .on(table.projectId, table.createdByUserId)
+      .where(sql`attention_json IS NOT NULL`),
     archiveRankIdx: index('idx_session_summaries_archive_rank')
       .on(
         sql`${table.messageCount} DESC`,
@@ -4868,6 +5273,8 @@ export const platformFeedbackTriages = sqliteTable(
     evidenceRefs: text('evidence_refs').notNull(),
     diagnosisId: text('diagnosis_id').references(() => debugDiagnoses.id, { onDelete: 'set null' }),
     ideaId: text('idea_id').references(() => tasks.id, { onDelete: 'set null' }),
+    /** `tasks.updated_at` the pipeline last wrote to `idea_id`, `'released'`, or NULL (legacy). */
+    ideaOwnedAt: text('idea_owned_at'),
     claimToken: text('claim_token'),
     claimExpiresAt: integer('claim_expires_at'),
     failureCount: integer('failure_count').notNull().default(0),
@@ -4906,6 +5313,18 @@ export const platformFeedbackTriages = sqliteTable(
     resolutionNote: text('resolution_note'),
     resolutionReferences: text('resolution_references'),
     expiredAt: integer('expired_at'),
+    /** Watching disposition (migration 0264): the latest watch decision, epoch ms. */
+    watchingSince: integer('watching_since'),
+    watchReason: text('watch_reason'),
+    /** JSON object of epoch hour -> occurrences recorded while watching. */
+    watchHourlyCounts: text('watch_hourly_counts'),
+    watchEscalatedAt: integer('watch_escalated_at'),
+    watchEscalationReason: text('watch_escalation_reason'),
+    /** Migration 0265: last_seen_at when watching began, and ids counted since (JSON). */
+    watchCountFloor: integer('watch_count_floor'),
+    watchCountedIds: text('watch_counted_ids'),
+    /** Migration 0266: occurrences already in the watch decision's hour bucket. */
+    watchSpikeOffset: integer('watch_spike_offset'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -5194,10 +5613,14 @@ export const deploymentPublishJobs = sqliteTable(
     errorCode: text('error_code'),
     retryable: integer('retryable', { mode: 'boolean' }).notNull().default(false),
     executor: text('executor').notNull().default('node'),
+    executorInstanceId: text('executor_instance_id'),
+    executorDeadlineAt: text('executor_deadline_at'),
+    executorNotBefore: text('executor_not_before'),
     contextShadow: integer('context_shadow', { mode: 'boolean' }).notNull().default(false),
     contextR2Key: text('context_r2_key'),
     contextBytes: integer('context_bytes'),
     contextSha256: text('context_sha256'),
+    contextProjectName: text('context_project_name'),
     queuedAt: text('queued_at'),
     attempt: integer('attempt').notNull().default(1),
     lastEventAt: text('last_event_at'),
@@ -5505,6 +5928,10 @@ export const ccCredentials = sqliteTable(
   (table) => ({
     ownerIdx: index('idx_cc_credentials_owner').on(table.ownerId),
     ownerKindIdx: index('idx_cc_credentials_owner_kind').on(table.ownerId, table.kind),
+    // GCP workload identity pool ownership probe (migration 0262).
+    cloudCredential: index('idx_cc_credentials_cloud')
+      .on(table.id)
+      .where(sql`kind = 'cloud-provider'`),
   })
 );
 
@@ -5695,5 +6122,182 @@ export const lifecycleStateEpisodes = sqliteTable(
       table.endedAt
     ),
     endedIdx: index('idx_lifecycle_state_episodes_ended').on(table.endedAt),
+  })
+);
+
+/**
+ * One row per reported lifecycle phase (Insights slice T, migrations 0250 and 0260). Written by
+ * `recordLifecycleTimings` and `recordRunnerPhase`, read by `packages/operations`
+ * `insights-phase-timings`, purged by the daily lifecycle latency evaluation. No foreign keys:
+ * bounded telemetry must never block or cascade an entity delete. `createdAt` is epoch ms.
+ */
+export const lifecyclePhaseTimings = sqliteTable(
+  'lifecycle_phase_timings',
+  {
+    id: integer('id').primaryKey(),
+    operation: text('operation').notNull(),
+    phase: text('phase').notNull(),
+    outcome: text('outcome').notNull(),
+    durationMs: integer('duration_ms').notNull(),
+    projectId: text('project_id'),
+    workspaceId: text('workspace_id'),
+    nodeId: text('node_id'),
+    chatSessionId: text('chat_session_id'),
+    taskId: text('task_id'),
+    skillId: text('skill_id'),
+    agentProfileId: text('agent_profile_id'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => ({
+    workspaceIdx: index('idx_lifecycle_phase_timings_workspace')
+      .on(table.workspaceId, table.createdAt)
+      .where(sql`workspace_id IS NOT NULL`),
+    taskIdx: index('idx_lifecycle_phase_timings_task')
+      .on(table.taskId, table.createdAt)
+      .where(sql`task_id IS NOT NULL`),
+    // Migration 0260: per (operation, phase) samples of successful rows, one index range each.
+    skillPairIdx: index('idx_lifecycle_phase_timings_skill_pair')
+      .on(
+        table.projectId,
+        table.skillId,
+        table.operation,
+        table.phase,
+        table.outcome,
+        table.createdAt
+      )
+      .where(sql`skill_id IS NOT NULL`),
+    profilePairIdx: index('idx_lifecycle_phase_timings_profile_pair')
+      .on(
+        table.projectId,
+        table.agentProfileId,
+        table.operation,
+        table.phase,
+        table.outcome,
+        table.createdAt
+      )
+      .where(sql`agent_profile_id IS NOT NULL`),
+    createdIdx: index('idx_lifecycle_phase_timings_created').on(table.createdAt),
+  })
+);
+
+/**
+ * Insights slice U: measured token usage per run (chat session) x model x credential key.
+ * Migration 0253. Writers: `apps/api/src/services/agent-run-usage.ts`. Reads:
+ * `packages/operations/src/insights-run-usage.ts`. Counters are cumulative; see the migration.
+ */
+export const agentRunUsage = sqliteTable(
+  'agent_run_usage',
+  {
+    id: integer('id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    chatSessionId: text('chat_session_id').notNull(),
+    workspaceId: text('workspace_id'),
+    agentSessionId: text('agent_session_id'),
+    source: text('source').notNull(),
+    usageEpoch: text('usage_epoch').notNull(),
+    model: text('model').notNull().default(''),
+    credentialKey: text('credential_key').notNull().default(''),
+    credentialSource: text('credential_source'),
+    agentType: text('agent_type'),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    reasoningTokens: integer('reasoning_tokens'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => ({
+    keyIdx: uniqueIndex('idx_agent_run_usage_key').on(
+      table.projectId,
+      table.chatSessionId,
+      table.source,
+      table.usageEpoch,
+      table.model,
+      table.credentialKey
+    ),
+    projectUpdatedIdx: index('idx_agent_run_usage_project_updated').on(
+      table.projectId,
+      table.updatedAt
+    ),
+  })
+);
+
+/** Sticky disclosure of harness usage refused by admission (migration 0261). */
+export const agentRunUsageAdmissionHits = sqliteTable(
+  'agent_run_usage_admission_hits',
+  {
+    projectId: text('project_id').notNull(),
+    chatSessionId: text('chat_session_id').notNull(),
+    lastRejectedAt: integer('last_rejected_at').notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.projectId, table.chatSessionId] }),
+    projectRejectedIdx: index('idx_agent_run_usage_hits_project_rejected').on(
+      table.projectId,
+      table.lastRejectedAt
+    ),
+  })
+);
+
+/**
+ * Daily usage-derived Cloudflare cost estimate, one row per UTC day per product line (Insights
+ * slice CF, migration 0256). Written by `runCloudflareCostSnapshot`
+ * (apps/api/src/services/cloudflare-cost-snapshot.ts), read by `packages/operations`
+ * `insights-installation-cloudflare`. `fetchedAt` is epoch ms; costs are USD estimates.
+ */
+export const installationCostDaily = sqliteTable(
+  'installation_cost_daily',
+  {
+    source: text('source').notNull(),
+    day: text('day').notNull(),
+    productLine: text('product_line').notNull(),
+    usageQuantity: real('usage_quantity').notNull(),
+    usageUnit: text('usage_unit').notNull(),
+    estimatedCostUsd: real('estimated_cost_usd').notNull(),
+    fetchedAt: integer('fetched_at').notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.source, table.day, table.productLine] }),
+  })
+);
+
+/** The latest cost snapshot attempt per source (migration 0256), so the card can explain itself. */
+export const installationCostSync = sqliteTable('installation_cost_sync', {
+  source: text('source').primaryKey(),
+  status: text('status').notNull(),
+  lastAttemptAt: integer('last_attempt_at').notNull(),
+  lastSuccessAt: integer('last_success_at'),
+  errorMessage: text('error_message'),
+  firstDay: text('first_day'),
+  lastDay: text('last_day'),
+  rowsWritten: integer('rows_written').notNull().default(0),
+});
+
+/** Inbox visibility ledger; bodies remain canonical ProjectData chat messages (0263). */
+export const inboxReplies = sqliteTable(
+  'inbox_replies',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    itemRef: text('item_ref').notNull(),
+    userId: text('user_id').notNull(),
+    messageId: text('message_id').notNull(),
+    repliedAt: integer('replied_at').notNull(),
+    agentActedAt: integer('agent_acted_at'),
+    permissionRejected: integer('permission_rejected').notNull().default(0),
+  },
+  (table) => ({
+    messageIdx: uniqueIndex('idx_inbox_replies_message').on(
+      table.projectId,
+      table.itemRef,
+      table.messageId
+    ),
+    latestIdx: index('idx_inbox_replies_latest').on(table.projectId, table.itemRef, table.id),
+    permissionIdx: index('idx_inbox_replies_permissions')
+      .on(table.projectId, table.itemRef, table.repliedAt)
+      .where(sql`permission_rejected = 1`),
   })
 );

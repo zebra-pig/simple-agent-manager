@@ -9,6 +9,196 @@ This guide walks you through deploying Simple Agent Manager to your own infrastr
 
 If you'd rather not fork and configure a repository, the [installer](/docs/guides/installer/) builds and deploys a complete SAM in your Cloudflare account from your browser, and updates it later (check [who can use the hosted installer today](/docs/guides/installer/)). This guide is the fork-based path: more steps, and full control over every setting.
 
+## Single-box transport foundation
+
+The single-box deployment is being landed in separate slices. Its reverse-tunnel API foundation
+is build-specific: lease allocation and frps authorization live under `apps/api/src/selfhost/`
+and are absent from the Cloudflare Worker entry. Setting `VM_AGENT_TRANSPORT=reverse-tunnel`
+on a Cloudflare deployment does not install that transport and fails before VM allocation.
+
+The self-host build supplies the frpc boot renderer and installs its transport adapter before
+requests or Durable Object dispatch. It appends the migration manifest from
+`apps/api/src/selfhost/reverse-tunnel-migrations.ts` to the **same database's** flat migration
+projection after the shared migrations, rejecting filename collisions. Cloudflare databases do
+not receive the reverse-tunnel lease table. Existing boxes keep the additive table created by
+the earlier migration number.
+
+Product analytics on the box use the same pattern. The self-host entry installs a D1 analytics
+sink (`installAnalyticsD1Sink()` in `apps/api/src/selfhost/analytics/`), and the build appends
+`apps/api/src/selfhost/observability-migrations.ts` to the **observability** database's flat
+projection (`appendSelfhostObservabilityMigrations()` in `scripts/selfhost/`). Cloudflare
+observability databases never receive the `analytics_events` table.
+
+The transport setting admits new leases. Existing allocations adopt their original lease only
+while its exact stored owner remains live. Cleanup and the backstop follow the installed
+self-host driver, so changing the setting cannot strand an old lease. A build without that
+driver performs no reverse-lease SQL.
+
+Lease credentials and frps session IDs use separate HKDF-derived HMAC keys. One pinned frps
+instance owns session replacement. Its Login plugin must apply the server-selected `run_id`
+with `unchange: false`, and every subsequent operation checks that session against the lease.
+Credential-key rotation recovery is tracked separately. Changing the root key rejects stale
+resume derivation and old session IDs, but a credential matching the stored lease hash can
+still log in and obtain the new session ID; root-key rotation alone does not revoke that lease. Installer packaging follows this foundation.
+
+The node boot document for this transport comes from `@simple-agent-manager/cloud-init`. A
+non-empty `reverseTunnelCredential` selects reverse-tunnel mode (`isReverseTunnelMode` in
+`packages/cloud-init/src/reverse-tunnel.ts`). The node then gets the Cloudflare Tunnel firewall
+(no public agent or SSH ingress), no Origin CA certificate and no cloudflared. It installs a
+pinned frpc release, checked against a per-architecture sha256, and runs it as the unprivileged
+`sam-frpc` unit (`packages/cloud-init/src/template-reverse-tunnel.ts`). frpc dials the control
+plane host over `wss` on its public HTTPS port, verifies its certificate against the system CA
+store, and exposes only the agent's loopback tunnel listener as one TCP proxy on the leased port.
+The credential is written only to the root-only `/etc/sam/frpc/credential.env`; `frpc.toml`
+reads it through frp's environment template. A failed frpc install reports the
+`frpc_install` boot-failure reason. Cloudflare nodes never set these variables and render
+exactly as before.
+
+The self-host entry wraps the shared Worker with `withReverseTunnel(worker, render)` from
+`apps/api/src/selfhost/reverse-tunnel/entry.ts`. That call installs the transport driver, serves
+the gateway endpoints under `/api/self-host/gateway/` before the shared app sees the request,
+and runs the lease backstop after the shared handler on the five-minute sweep cron. The
+backstop logs `cron.reverse_tunnel_lease_sweep` with its release count, or why it skipped, and
+it honours the operational cron switch. The gateway has two endpoints:
+
+- `POST /api/self-host/gateway/frps-plugin`: the frps server plugin. frps authenticates with
+  HTTP basic auth, user `frps`, password `REVERSE_TUNNEL_GATEWAY_SECRET`. A Login allow is
+  answered `{reject:false, unchange:false, content}`, so frps applies the server-selected
+  `run_id`. Every other allow is `{reject:false, unchange:true}`.
+- `GET /api/self-host/gateway/node-websocket`: Caddy `forward_auth` for node WebSockets,
+  authenticated with the `X-SAM-Gateway-Secret` header. The original request runs through the
+  normal ws-* or node log-stream authentication. The answer is either that handler's refusal or
+  `X-SAM-Upstream`/`X-SAM-Upstream-*` headers naming the loopback lease port and the credentials
+  Caddy forwards.
+
+Without a gateway secret of at least 32 characters, both endpoints answer 404; a wrong secret
+gets 401. The Cloudflare Worker never imports this entry.
+
+Control-plane requests, the task liveness probe and WebSocket decisions reach a reverse-tunnel
+node through the active lease of its current incarnation (`resolveNodeAgentRoute` in
+`apps/api/src/services/node-agent-route.ts`). A released or superseded lease is never routed to,
+so revocation applies to control-plane traffic on the next request. frps drops the node's
+control session within one heartbeat timeout, because a refused Ping does not refresh it. A
+reverse-tunnel node is never chosen as a snapshot-upload relay, since it has no public hostname.
+
+The self-host build supplies these bootstrap settings; they are not Cloudflare Worker bindings:
+
+| Setting                                                             | Default and contract                                                                     |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `REVERSE_TUNNEL_GATEWAY_SECRET`                                     | Required random secret, at least 32 characters, shared with the frps/plugin gateway.     |
+| `REVERSE_TUNNEL_GATEWAY_SECRET_ALTERNATE`                           | Unset; optional second gateway secret during a coordinated rotation.                     |
+| `REVERSE_TUNNEL_PORT_RANGE_START` / `REVERSE_TUNNEL_PORT_RANGE_END` | `20000` / `29999`; ports 1024–65535, at most 20,000 ports; must match frps `allowPorts`. |
+| `REVERSE_TUNNEL_HEARTBEAT_TIMEOUT_SECONDS`                          | `90`; 60–3600 seconds; the build must supply the same timeout to frps.                   |
+| `REVERSE_TUNNEL_PORT_REUSE_MIN_AGE_SECONDS`                         | `180`; cannot be shorter than twice the heartbeat timeout; maximum 86400 seconds.        |
+
+Allocation considers the whole bounded port range in one atomic SQL statement, with indexed
+history lookups. Release checks all active leases in one local statement, without network calls
+or pagination. At the outer normal limit of 20,000 active leases, one backstop pass releases all
+eligible leases; the self-host entry runs that backstop every five minutes. A newly
+freed port still waits for its cooling interval. A full range and a cooling range have distinct
+errors so operators can distinguish capacity exhaustion from a wait for safe reuse.
+
+## Speech endpoints on a single-box build
+
+This is a build integration foundation for the single-box runtime. Its entry must call
+`installSpeechEndpoints()` before serving requests and apply the shared database migrations,
+including `0259_speech_synthesis_rate_limits.sql`. The Cloudflare fork and browser-installer
+paths described below use Workers AI instead: they do not install these endpoint settings.
+A runtime without Workers AI or this installed backend cannot offer server speech.
+
+Once your single-box build includes that integration:
+
+1. Choose an OpenAI-compatible speech provider or run a compatible server reachable from SAM's
+   API process. It must support multipart `POST /audio/transcriptions` for voice input and/or
+   JSON `POST /audio/speech` returning real audio bytes for read-aloud. Check that provider's
+   documentation for its supported model IDs and synthesis voice IDs. Speech recordings and
+   read-aloud text leave SAM for the selected provider; configure only an endpoint you trust.
+2. Sign in as a superadmin and open [**Admin → Settings**](/docs/guides/admin-settings/),
+   category **AI models**. Configure either feature independently with the exact names below.
+   Use a base URL such as `https://speech.example.com/v1`; SAM appends the audio route, so do
+   not include `/audio/transcriptions` or `/audio/speech`, credentials, a query, or a fragment.
+
+   | Voice input setting                        | Read-aloud setting                     | Value                                                                        |
+   | ------------------------------------------ | -------------------------------------- | ---------------------------------------------------------------------------- |
+   | `speech.transcription.baseUrl`             | `speech.synthesis.baseUrl`             | The provider's API base URL.                                                 |
+   | `speech.transcription.model`               | `speech.synthesis.model`               | A model ID supported by that endpoint.                                       |
+   | —                                          | `speech.synthesis.voice`               | A voice ID supported by the synthesis model; required.                       |
+   | `speech.transcription.apiKey`              | `speech.synthesis.apiKey`              | Optional Bearer API key; required when the provider requires authentication. |
+   | `speech.transcription.allowPrivateNetwork` | `speech.synthesis.allowPrivateNetwork` | Defaults to `false`; opt in only for a trusted private endpoint.             |
+
+3. Enter keys in the secret setting fields, never in the URL, repository, or GitHub Actions
+   logs. SAM stores them encrypted in its credential store and sends them as Bearer tokens.
+   An endpoint that requires no key can leave its key unset. Changing risky endpoint settings
+   requires the normal admin confirmation. HTTPS is required for public hosts. Plain HTTP is
+   allowed only for private hosts with that feature's `allowPrivateNetwork` enabled. Loopback
+   and Docker names resolve from the API process/container, so `localhost` must actually run
+   the provider there. Cloud metadata and link-local destinations remain refused after opt-in.
+4. Keep `TTS_ENCODING=mp3` in the runtime configuration for chunked read-aloud. Other supported
+   encodings work only for a single chunk; SAM refuses multi-chunk container formats before
+   spending provider calls. Raw `pcm` output is unsupported and refused before a provider call,
+   because the browser audio route cannot play it. Single-chunk Ogg Opus output is stored and
+   served as `audio/ogg`. Keep `TTS_ENABLED` enabled for read-aloud.
+5. Refresh the app after saving. Capability queries may remain fresh in the existing browser
+   query cache for up to five minutes. Check `/api/config/platform-capabilities` for
+   `speechToText` and `textToSpeech`, then record a short known sentence in project chat and
+   play read-aloud on a response. Verify the actual transcript and audible result: configured
+   capabilities indicate a complete configuration, not that provider credentials are valid.
+   Failed endpoint calls return a generic unavailable response; check server diagnostics without
+   publishing credentials. Clear that feature's base URL to disable its endpoint backend.
+
+The **AI models** category also exposes `speech.endpointTimeoutMs` (60,000 ms per provider call),
+`speech.transcription.maxResponseBytes` (1 MiB JSON), `speech.synthesis.maxAudioBytes` (8 MiB
+combined audio per read-aloud request), and `speech.synthesis.maxRequestsPerHour` (120 requests
+per user per clock hour). The hourly limit uses an atomic database counter and includes cache
+hits and failed requests; database-counter failures refuse synthesis. A 429 response includes
+`Retry-After` seconds until the next window. Provider billing, models, voices, availability and
+quotas remain the endpoint operator's responsibility.
+
+## Email on a single-box build
+
+A Cloudflare deployment sends SAM's email through Cloudflare Email Sending (the `AGENT_EMAIL`
+binding) and receives agent email through Email Routing; nothing below changes that. The
+transport is chosen in one place, `emailTransportKind()` in
+`packages/agent-email/src/provider.ts`, and the binding wins whenever it exists.
+
+A single-box build has no binding. It can send sign-in codes, owner security alerts and
+account-link confirmations through an SMTP relay instead. These are bootstrap settings in the
+box configuration, because the first account may sign up by email before any administrator
+exists. The Cloudflare pipeline does not forward them.
+
+| Setting         | Default                               | Description                                                                                                                     |
+| --------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `SMTP_HOST`     | _(unset)_                             | Relay host. Unset means no SMTP transport.                                                                                      |
+| `SMTP_TLS`      | `starttls`                            | `starttls`, `tls` (implicit TLS) or `none`. `none` is accepted only for a loopback host (a mail collector on the same machine). |
+| `SMTP_PORT`     | `587` for `starttls`, `465` for `tls` | Required with `none`.                                                                                                           |
+| `SMTP_USERNAME` | _(unset)_                             | Sent with `AUTH PLAIN`, only after TLS (or over loopback). Set with `SMTP_PASSWORD` (a secret) or not at all.                   |
+| `SMTP_FROM`     | _(required)_                          | The address SAM's email comes from. It must be one the relay accepts.                                                           |
+
+`resolveSmtpConfig()` (`packages/agent-email/src/smtp-config.ts`) refuses an invalid set as a
+whole and logs the reason once; email sign-in is then not offered. A server that does not offer
+STARTTLS in `starttls` mode is refused rather than used in plaintext, and the certificate chain is
+verified by the runtime. The whole exchange is bounded by the `agentEmail.smtpTimeoutMs` admin
+setting (15 seconds by default). Every other email sign-in rule (codes only for existing accounts
+or the installer's owner, identical responses, rate limits) is the same as on Cloudflare.
+
+Before first-run setup can finish on email alone, SAM checks the relay
+(`emailSignInReadiness()` in `apps/api/src/services/email-sign-in.ts`): it connects, starts TLS,
+authenticates, and offers `SMTP_FROM` as sender and the owner email as recipient, then abandons the
+transaction so nothing is sent. If the relay refuses any step or does not answer, setup asks for a
+sign-in provider instead, and the reason is logged as `email_sign_in.smtp_relay_unusable`. The check
+cannot prove the mailbox receives mail, only that the relay would accept it.
+
+**Inbound agent email.** The box can also run `sam-mx` (`deploy/selfhost/sam-mx`), an SMTP
+receiver for `agent+<key>@agents.<BASE_DOMAIN>`. It requires the From domain to be authenticated
+(aligned SPF or DKIM) and hands each message, during the SMTP session, to the loopback-only route
+`POST /api/self-host/gateway/inbound-email` (`apps/api/src/selfhost/reverse-tunnel/inbound-email.ts`),
+which runs the same inbound handler as Cloudflare Email Routing. Replies from `reply_to_email` go
+through the SMTP relay above, from `SMTP_FROM` with `Reply-To` set to the trigger's address
+(`selfHostAgentEmailSender()` in `apps/api/src/services/agent-email/self-host-inbound.ts`). Agent
+email is on only when `AGENT_EMAIL_INBOUND_SMTP=true` (the receiver is installed), the gateway
+secret is set and an SMTP relay works. The admin loopback test needs Email Routing and is refused
+on a box; send a test email from an allowed sender instead.
+
 ## Prerequisites
 
 | Requirement              | Purpose                   | Tier                 |
@@ -64,6 +254,8 @@ Set **Zone Resources** to your specific domain and **Account Resources** to your
 The default deploy configures AI Gateway and writes Analytics Engine data, so keep the **AI Gateway** permission and enable **Analytics Engine** even if every user brings their own model keys. SAM also enables the Cloudflare Container instant-session runtime by default, so **Containers: Edit** is required for the default Worker deploy. The same deploy automatically builds and versions the container vm-agent; no prebuilt image, registry credential, or manual vm-agent version is required. The **Account → SSL and Certificates → Edit** permission is required for issuing per-node Origin CA certificates used for VM-agent TLS — without it, new nodes cannot obtain a TLS certificate and will fail to boot.
 
 **Optional — VM Cloudflare Tunnels:** To use outbound-only VM agent connections for newly provisioned workspace and deployment VMs, grant the runtime token **Account → Cloudflare One Connector: cloudflared → Edit** (the API catalog calls this `Cloudflare One Connector: cloudflared Write`) and set the GitHub Environment variable `VM_AGENT_TRANSPORT` to `cloudflare-tunnel`. Manual deployments use `CF_API_TOKEN` for runtime operations, so update that token before enabling the setting. The hosted installer includes this permission in newly created runtime tokens; existing installations need their runtime token permission updated. DNS Edit is also required. No per-machine token setup is needed: SAM creates, configures, and removes the tunnels. Existing VMs and instant containers keep their current transport, and deployment VMs keep serving app routes on their public IP. See [VM transport configuration](/docs/reference/configuration/#vm-transport-and-tls).
+
+**Optional — Account Analytics read:** Add **Account → Account Analytics → Read** so superadmins see what the Cloudflare account costs. It powers the Cloudflare card on **Admin → Health & cost** (a daily usage-derived estimate of this month's Cloudflare cost and a projection) and the Analytics Engine charts on **Admin → Analytics**. Without it, the Cloudflare card says the token cannot read account analytics and what to add; the Admin → Analytics charts and the optional daily analytics forward fail with a generic error. Runtime tokens created by the hosted installer do not include this permission yet. You can add it to an existing token in the Cloudflare dashboard; no redeploy is needed. See [Health & cost](/docs/guides/admin-settings/#cloudflare-cost-snapshot).
 
 **Optional — Workers AI read:** [AI models for agents](/docs/guides/ai-models-for-agents/) works without extra permissions. Model calls and the model list use the Worker's own Workers AI binding and go through your AI Gateway. Adding **Account → Workers AI → Read** also lets agents fetch a model's full input schema with `list_ai_models`. Without it, agents get the model's documentation link instead. Model calls are billed to this Cloudflare account, and each project has a monthly limit.
 
@@ -134,7 +326,7 @@ When the deployment can send email (see the optional email permissions above), S
 - first-run setup completes;
 - a GitHub, Google or GitLab sign-in is linked to an admin or superadmin account.
 
-The emails come from `security@agents.yourdomain.com` and link to the admin page to review. Before the first superadmin exists, the owner email the installer recorded (`BOOTSTRAP_OWNER_EMAIL`) gets them instead. Sending is best-effort: a failed email is logged (`security_alert.send_failed`) and never blocks the change. Without email, nothing is sent.
+The emails come from `security@agents.yourdomain.com` (on a single-box build that sends through SMTP, from `SMTP_FROM`; see [Email on a single-box build](#email-on-a-single-box-build)) and link to the admin page to review. Before the first superadmin exists, the owner email the installer recorded (`BOOTSTRAP_OWNER_EMAIL`) gets them instead. Sending is best-effort: a failed email is logged (`security_alert.send_failed`) and never blocks the change. Without email, nothing is sent.
 
 ### Set up GitLab sign-in
 
@@ -260,6 +452,25 @@ Register both static redirect URIs on that infrastructure client:
 
 The flow requests the Google `cloud-platform` scope. Runtime values saved by a superadmin are encrypted in D1 and take precedence over the environment pair; removing the runtime pair reveals the environment fallback, if present. This client is never used for user login. Google sign-in uses a different client, different variable names (`GOOGLE_LOGIN_*`), and only `https://api.yourdomain.com/api/auth/callback/google`.
 
+Several SAM installations can connect the same Google Cloud project. A workload identity provider trusts exactly one issuer URL, so each installation creates its own provider, named from its base domain (`installationWifProviderId()` in `apps/api/src/services/gcp-wif-setup.ts`; for example `sam-sammy2-party-<hash>` for `sammy2.party`). The installations share the pool (`sam-pool`, or `sam-deploy-pool` for deployments) and the service account, so every installation connected to a project can act as that project's service account; use separate Google Cloud projects when installations must not share cloud access. `GCP_WIF_PROVIDER_ID` and `GCP_DEPLOY_WIF_PROVIDER_ID` override the derived name. SAM still refuses to update an existing provider whose issuer differs from its own (`updateOidcProvider()`). Existing connections keep the pool and provider recorded when they were created; reconnecting creates the installation's own provider.
+
+Each user-level connection is scoped to the SAM user who made it. The provider's condition requires `assertion.user_id == '<userId>'`, and the service account is granted to `principalSet://iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/attribute.sam_user/<userId>` (`wifAttributeCondition()` and `wifServiceAccountMember()` in `apps/api/src/services/gcp-wif-setup.ts`). Connections made before this scoping used an issuer-only condition and a `pool/*` binding, which let any user of the installation who named the pool act as its service account. Re-run Google setup on each such connection (**Re-run Google setup** when the connection reports an API issue, otherwise disconnect and **Connect with Google** again with the same project): it scopes this installation's provider to the user and removes the `pool/*` member. Disconnecting deletes the connection, so plan for new Google Cloud work not starting until the user reconnects, and check compute pool settings afterwards; running VMs stay deletable. An older shared `sam-oidc` provider stays in the pool with its issuer-only condition, but the narrowed binding admits a token through it only when its `user_id` maps to that user; delete it in Google once no installation uses it. Re-running only cleans the pool and service account that `GCP_WIF_POOL_ID` and `GCP_SERVICE_ACCOUNT_ID` name now: if either changed since the connection was made, remove the `principalSet://…/workloadIdentityPools/<old-pool>/*` member from the previous service account by hand. If another installation shared that service account through `pool/*`, it loses access as soon as the first setup removes that member, so re-run that installation's setup promptly too, so it gets its own scoped binding. A platform GCP workload identity credential needs a pool the installation configures for it; the guided setup only creates user-scoped pools.
+
+Within one installation a pool has one owner: one user, or the installation for platform credentials. SAM refuses to save, or to exchange tokens for, a credential naming a pool that another owner claimed or that a different owner's credential names (`409 GCP_WIF_POOL_OWNED_BY_ANOTHER_OWNER`; see [Security](/docs/architecture/security/#one-owner-per-workload-identity-pool)). Give every user and the platform credential its own Google Cloud project or pool. The same applies to app deployments: the first SAM user to connect deployments in a Google Cloud project owns that project's deployment pool (`GCP_DEPLOY_WIF_POOL_ID`), and a different user's deployment setup in the same project is refused before it changes anything in Google. Project members re-running setup act as the original owner.
+
+A claim stays after its credential is deleted, because the Google-side trust may stay too. Deleting a SAM account leaves its claims behind for the same reason. To hand a pool to a different owner (for example after a Google Cloud project changes hands):
+
+1. Remove the old owner's trust in Google: delete the old workload identity provider, or remove its members from the service account's `roles/iam.workloadIdentityUser` binding.
+2. Delete or re-point every SAM credential of the old owner that still names the pool. A live credential keeps blocking other owners even without a claim.
+3. Release the claim (`<projectNumber>/<poolId>`, lowercase pool ID):
+
+```bash
+npx wrangler d1 execute <your-d1-database> --remote \
+  --command "DELETE FROM gcp_wif_pool_claims WHERE pool_key = '123456789012/sam-pool'"
+```
+
+If STS reports an issuer mismatch, another installation's setup replaced the shared provider this connection was recorded against (setups before per-installation providers all used `sam-oidc`). Reconnect the affected installation through its Connect GCP flow, which creates its own provider. Do not switch a shared provider back and forth or accept both issuers. A failed token exchange does not prove a failed node has no cloud server. After independently checking the provider account and in-flight allocation, the existing owner-confirmed removal action can remove a failed node on user-owned cloud capacity. Its audit reason stays `owner_attested_manual_deletion`, separate from strict provider-confirmed termination. Fresh terminal provisioning failures positively proven to precede the provider create request retain an exact incarnation and placement absence proof, allowing normal teardown without minting another token. Intermediate durable retries keep their allocation state.
+
 ### Service account JSON (OAuth-free alternative)
 
 If the installation has no infrastructure OAuth client, a user can paste or choose a dedicated Google service-account JSON key. SAM ignores endpoint fields from the upload, signs RS256 assertions, exchanges them only at Google's fixed token endpoint, and verifies access to the selected Compute zone before replacing a working credential.
@@ -336,7 +547,7 @@ stop routing to them) or `D1_SESSION_MODE=disabled` to keep the replicas but rou
 query at the primary. Replication needs no extra API-token permission beyond the
 **Account → Cloudflare Workers: D1 → Edit** grant the deploy token already requires.
 
-The reviewed default churning selectors are `DATABASE.deployment_releases`, `DATABASE.github_webhook_deliveries`, `DATABASE.project_files`, `DATABASE.registry_credential_rate_limits`, `DATABASE.session_snapshots`, `DATABASE.sessions`, `DATABASE.trigger_executions`, `DATABASE.verifications`, `DATABASE.webhook_deliveries`, and `OBSERVABILITY_DATABASE.platform_errors`. All other application tables retain zero row-decrease tolerance. Leave `D1_MIGRATION_CHURNING_TABLES` unset to use the complete reviewed default list.
+The reviewed default churning selectors are listed in the [configuration reference](/docs/reference/configuration/) (`DEFAULT_D1_MIGRATION_CHURNING_TABLES` in `scripts/deploy/d1-migration-churning-tables.ts`). All other application tables retain zero row-decrease tolerance. Leave `D1_MIGRATION_CHURNING_TABLES` unset to use the complete reviewed default list.
 
 The guided setup generates `RESOURCE_PREFIX` from `BASE_DOMAIN` as `s` plus the
 first six hex characters of the domain's SHA-256 hash. Use that generated value
@@ -388,7 +599,7 @@ GitHub App secrets use `GH_*` prefix because GitHub Actions secret names cannot 
 :::
 
 :::note
-Security keys (`ENCRYPTION_KEY`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, `DEPLOY_SIGNING_PRIVATE_KEY`, `DEPLOY_SIGNING_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`) are automatically generated during deployment. Pulumi persists the source key material, and the deployment workflow derives/copies the runtime Worker secrets. No manual setup required. Generated `RandomId` key encodings (`b64Std`, `b64Url`, `dec`, `hex`) are marked secret, but Pulumi cannot encrypt the special resource ID through secret-output annotations; that ID is the same key bytes encoded as unpadded base64url. Keep the state backend and backups private. Annotation updates preserve existing keys and do not rotate credentials.
+Security keys (`ENCRYPTION_KEY`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, `DEPLOY_SIGNING_PRIVATE_KEY`, `DEPLOY_SIGNING_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`) are automatically generated during deployment. Pulumi persists the source key material, and the deployment workflow derives/copies the runtime Worker secrets (`scripts/deploy/configure-secrets.sh`), registering every value it reads from Pulumi with GitHub's log masking before any other use. No manual setup required. Generated `RandomId` key encodings (`b64Std`, `b64Url`, `dec`, `hex`) are marked secret, but Pulumi cannot encrypt the special resource ID through secret-output annotations; that ID is the same key bytes encoded as unpadded base64url. Keep the state backend and backups private. Annotation updates preserve existing keys and do not rotate credentials.
 :::
 
 :::note[Generated-key metadata preview]
@@ -492,6 +703,20 @@ Open the Cloudflare dashboard link printed by the workflow, copy the plaintext `
 
 Open `https://app.yourdomain.com` — you should see the login page with whichever providers you configured, plus **Email me a sign-in code** when the deploy prepared email.
 
+**Check that setup is closed.** Once you have signed in as the first superadmin, nobody else can
+use the setup page. Confirm it from any machine:
+
+```bash
+curl -i https://api.yourdomain.com/api/setup/status
+# Should return: HTTP/2 410 with "error":"SETUP_CLOSED"
+```
+
+A `200` response with `"open":true` means setup is still open to anyone holding the `SETUP_TOKEN`:
+finish setup now. If it shows `"forced":true`, the `SETUP_FORCE=true` lockout-recovery override is
+set; remove it from the Worker's variables once you have recovered access, because it keeps setup
+open even after a superadmin exists. See the
+[security advisory on setup takeover](/blog/security-advisory-setup-takeover/) for why this matters.
+
 If you enabled GitLab in platform configuration, create a test project from a GitLab repository and start a lightweight chat before inviting users. That validates the OAuth app, repository metadata propagation, and workspace credential helper path together.
 
 ## Updating an Existing Self-Hosted Instance
@@ -538,6 +763,8 @@ There's no rollback. If a release misbehaves, update to a newer one that fixes i
 
 Use the manual workflow when you rotate deployment secrets, change GitHub Environment variables, or want to re-apply Pulumi-managed infrastructure.
 
+### Deploys wait for container rollout
+
 Staging and production deployments wait for container application rollouts to reach
 100% before reporting success. Wrangler returning successfully only means the
 rollout started; the workflow's **Wait for container rollout completion** step
@@ -559,30 +786,94 @@ Optional GitHub Environment variables `CONTAINER_ROLLOUT_TIMEOUT_MS` (default
 accept positive integer milliseconds. These are deployment runner settings, not
 Worker runtime settings. Timeout errors include the rollout ID and last status.
 
+### Container image reuse
+
+Before the API Worker is deployed, the **Resolve container images** step
+(`scripts/deploy/container-image-reuse.ts`) gives each Instant container image a
+content key. The key covers the Dockerfile, every file it copies, and a
+fingerprint of every input installed from the network: the apt package indexes
+of each suite the image installs from, every URL the build fetches, the resolved
+dependency tree of each `npm install -g` package, and the resolved PyPI
+dependencies of each `uv tool install` (`container-image-inputs.ts`,
+`container-image-fingerprints.ts`). The registry tag `inputs-<key>` in your
+account's container registry records an image built from those inputs.
+
+- **Inputs unchanged:** the deploy uses that image's digest. Nothing is built or
+  pushed, and when it is the running image Wrangler reports no change and starts
+  no rollout, so the rollout gate returns at once.
+- **Inputs changed** (including an upstream security update or dependency
+  release): the image is built and pushed under the new key, and the rollout
+  gate waits for the rollout as usual.
+- **Latest rollout failed or cancelled** (or its state cannot be read): the image
+  is rebuilt to a fresh digest even when its inputs are unchanged, so the deploy
+  starts a new rollout instead of re-pointing at the one that failed.
+- **Any doubt** (a Dockerfile command, fetched URL or npm install script outside
+  the reviewed lists in `container-image-reviewed-inputs.ts`, a failed
+  fingerprint, a registry error): the Dockerfile is left in place and Wrangler
+  builds the image as it would without this step. A failed image build fails the
+  deployment.
+
+Anyone who can push to a repository in your account's container registry can
+replace the image a tag points at, so registry write access is deploy access. That
+was already true of the deploy token, which can publish Workers too; keep
+production in a Cloudflare account, or behind a token, that staging cannot use.
+
+The step's job summary lists each image's outcome and reason. A clean install
+has no recorded images, so its first deploy builds them. To always build with
+Wrangler, set the GitHub Environment variable `CONTAINER_IMAGE_REUSE_ENABLED` to
+exactly `false`. Optional `CONTAINER_IMAGE_FINGERPRINT_TIMEOUT_MS` (default
+`180000`) bounds each fingerprint request and all of an image's lookups together, and `CONTAINER_REGISTRY_CREDENTIAL_MINUTES`
+(default `30`) sets the lifetime of each short-lived registry credential.
+
 ## First Login & Admin Access
 
-On ordinary deployments without an installer owner binding, the first genuine human to sign in becomes the **superadmin** — the account that can approve other users, manage platform credentials, and reach the admin dashboard.
-
-Installer deployments set the API Worker secret `BOOTSTRAP_OWNER_EMAIL` before enabling login. Until that owner is established, other identities are refused; only a matching verified email (from an OAuth provider, or proven by an emailed sign-in code) can establish initial administration. The owner is elected with an atomic database update, including concurrent callbacks from different providers. `SETUP_TOKEN` authorizes first-run setup; it does not itself grant a SAM user session. Finish `/setup`, then sign in with the approved owner email.
+On ordinary deployments without an installer owner binding, the first genuine human to sign in becomes the **superadmin**: the account that can approve other users, manage platform credentials, and reach the admin dashboard. The promotion happens once, when that person's first session is created (`establishFirstSuperadmin`, `apps/api/src/services/first-superadmin.ts`), and only while they are the **only** real account on the instance.
 
 Email sign-in codes (`services/email-sign-in.ts`) create an account only for the installer owner email, before that owner exists. Otherwise only addresses that already belong to an account receive a code. Deployments without an owner email never create accounts by email, because the first person to ask for a code would become the administrator. The response is the same for every address, and the code is sent after the response, so its timing reveals nothing either. The password-reset, verification and email-change code routes are closed. Codes expire after 5 minutes and allow 3 attempts. Each address gets at most 5 codes an hour, each IP address at most 20 requests, and each address at most 10 code guesses an hour from all IP addresses combined (the `agentEmail.signInCodesPerEmailPerHour`, `agentEmail.signInCodesPerIpPerHour` and `agentEmail.signInCodeAttemptsPerEmailPerHour` settings). GitHub is not required before the instance exists. Preserve the owner binding across routine updates.
 
-Fresh deployments are seeded with an internal system user (`system_anonymous_trials`, `status='system'`, created by a database migration). Its id dates from SAM's retired anonymous-trial product; it now records SAM itself as the author of platform settings saved during unattended setup, and it owns the placeholder GitHub installation row that Artifacts- and GitLab-backed projects point at. Never delete either row. This system user is **not** a real user, cannot sign in, and never counts toward "is this the first human" checks. Without the installer owner binding, two mechanisms handle first-user promotion regardless of the system user:
+Fresh deployments are seeded with an internal system user (`system_anonymous_trials`, `status='system'`, created by a database migration). Its id dates from SAM's retired anonymous-trial product; it now records SAM itself as the author of platform settings saved during unattended setup, and it owns the placeholder GitHub installation row that Artifacts- and GitLab-backed projects point at. Never delete either row. This system user is **not** a real user, cannot sign in, and never counts toward "is this the first human" checks.
 
-- **Deploy-time backfill** (migration): when a deployment has exactly one non-system human and no superadmin yet, that human is promoted to `superadmin`/`active` when migrations run. This also covers accounts created via token-login or device-flow.
-- **Login-time self-heal** (all sign-in paths): on every session creation — GitHub OAuth, token-login, and device-flow — if the signing-in user is the only non-system human and no superadmin exists, they are promoted in a single atomic, idempotent write. A failure here never blocks login.
+Without the installer owner binding, the first-superadmin election works like this:
 
-Both mechanisms apply the same promotion conditions and are strictly no-ops in any other state — they never promote a second user, never touch an existing superadmin, and never auto-promote a `suspended` or `system` account. They differ only in how they exclude the system user: the login-time hook excludes it by both `status='system'` and id, while the deploy-time migration excludes it by `status='system'` alone. On managed/multi-user deployments nothing changes.
+- **One atomic write.** The promotion is a single guarded database update, so two sign-ups can never both become superadmin. It promotes the signing-in user only if they are not `suspended`, no other real account exists, and the election has not already happened. It then records the winner in the `platform_settings` row `setup.firstSuperadminEstablished`.
+- **A later sign-up never wins.** If any other real account already exists, whether active, pending or suspended, nobody is promoted. If two people sign up at the same moment on a fresh instance and both accounts exist before either election runs, neither becomes superadmin. Use the recovery steps below.
+- **The election happens once.** After the marker row exists, no sign-in is ever auto-promoted, even if every superadmin is later deleted. Instances that already had a superadmin got the marker from the `first_superadmin_election` database migration. That migration only writes the marker and never changes a user.
+- **Login always succeeds.** If the database fails during the election, the sign-in still completes without promotion and the error is logged as `auth.first_superadmin_election.failed`. The next sign-in tries again.
+- **Login-time self-heal** (`session.create.after`, `apps/api/src/auth.ts`) applies the same conditions and is a second attempt in the same sign-in. It is a no-op once the marker exists.
+
+#### More than one superadmin
+
+The admin API never grants the superadmin role, so an instance has at most one unless it was hit by the concurrent first-sign-up race that existed before this election, or someone edited the database by hand. SAM does not demote anyone automatically. On an instance without `BOOTSTRAP_OWNER_EMAIL`, each sign-in logs the warning `first-superadmin.multiple_superadmins` with the count, visible in the API Worker's logs (Cloudflare dashboard → Workers → your API worker → Logs, or `wrangler tail`). To review the accounts, run this against your D1 database:
+
+```sql
+SELECT id, email, status, created_at FROM users
+WHERE role = 'superadmin' AND status != 'system' ORDER BY created_at;
+```
+
+Demote any account you do not recognise with `UPDATE users SET role = 'user' WHERE id = '<id>';`. The admin UI can't do this, because it refuses to modify superadmin accounts.
+
+#### Recovering when no account can administer the instance
+
+This applies when the only superadmin was deleted, or when no superadmin was ever elected (for example, after the simultaneous-sign-up case above). Pick one:
+
+1. **Bind an owner email (recommended).** Add the API Worker secret `BOOTSTRAP_OWNER_EMAIL` with the email address of the person who should administer the instance: `wrangler secret put BOOTSTRAP_OWNER_EMAIL --name <your-api-worker-name>` (the worker is named `<resource-prefix>-api-<stack>`), or in the Cloudflare dashboard under the API worker's **Settings → Variables and Secrets**. Deploys leave a secret they don't set in place (`scripts/deploy/configure-secrets.sh` skips an empty value). That person then signs in with that address as a **verified** email. While no superadmin exists, the owner path (`bootstrapSessionAllowed`, `apps/api/src/services/bootstrap-owner.ts`) promotes them. It does not depend on the first-superadmin marker. Until the owner has signed in, every other sign-in is refused. After that, normal sign-in resumes and the secret can stay or be removed. This option does not work on an installer-bound instance whose owner was already established (the `setup.bootstrapOwnerEstablished` row exists): the owner path runs only until that row is written, so use option 2 there.
+2. **Edit D1 directly.** Promote a specific account: `UPDATE users SET role = 'superadmin', status = 'active' WHERE id = '<id>';` (`wrangler d1 execute <database> --remote --command "..."`). Role checks read the database on every request, so a page refresh is enough.
+
+Deleting the `setup.firstSuperadminEstablished` row does not choose an account. It only lets the election run again, and the election still promotes nobody unless exactly one real account exists.
 
 Notes:
 
 - **Promotion is independent of `REQUIRE_APPROVAL`.** Installer-bound deployments still require the configured verified owner identity.
-- **Installer first-login race:** the owner-bound election promotes at most one matching verified user, including simultaneous provider callbacks.
+- **First-login races:** both the owner-bound election and the ordinary election promote at most one user, including simultaneous provider callbacks.
 - **Session freshness:** SAM disables BetterAuth’s session-cookie cache when reading authorization state, so role and suspension checks use current database data. Refresh the page after a promotion; if access is still missing, recheck the promotion conditions rather than waiting for a cookie-cache timeout.
 
 ### Signup approval
 
-When signup approval is on (`REQUIRE_APPROVAL`, or the runtime switch in **Admin → Users**), new accounts are created **pending** (except the very first, which becomes superadmin) and stay pending until a superadmin approves them there. Accounts created while approval was off stay active. A pending account can sign in, see that it is waiting for approval, sign out, and link its own GitHub App installation. SAM's features answer `403 APPROVAL_REQUIRED` until the account is approved, including the SAM and project agent chats, API token management, every project route, and browser-session workspace access. This also applies to pending accounts that already own resources when approval is turned on. Admins and superadmins are never held for approval, and suspended accounts are refused on authenticated account surfaces. Publicly published workspace ports and valid port-access links use their own anonymous or capability access model.
+Signup approval is **on by default**. To let new accounts in without approval, turn it off with the switch in **Admin → Users**, or set the `REQUIRE_APPROVAL` GitHub Environment variable to `false`; the switch overrides the variable (`getSignupApprovalConfig`, `apps/api/src/services/signup-approval.ts`). Any value other than `false`, including unset, keeps approval on.
+
+**Upgrading:** before November 2026, approval was off unless `REQUIRE_APPROVAL` was `true`. An installation that never set the variable and never used the switch now creates new accounts as pending. Existing accounts are unchanged.
+
+When signup approval is on, new accounts are created **pending** (the very first is promoted to an active superadmin when its first session starts) and stay pending until a superadmin approves them there. Accounts created while approval was off stay active. A pending account can sign in, see that it is waiting for approval, sign out, and link its own GitHub App installation. SAM's features answer `403 APPROVAL_REQUIRED` until the account is approved, including the SAM and project agent chats, API token management, every project route, and browser-session workspace access. This also applies to pending accounts that already own resources when approval is turned on. Admins and superadmins are never held for approval, and suspended accounts are refused on authenticated account surfaces. Publicly published workspace ports and valid port-access links use their own anonymous or capability access model.
 
 ### Storage and archive circuit breakers
 
@@ -628,6 +919,14 @@ resolve stuck archive migrations through **Admin → Storage** before writes sto
 ## Teardown
 
 To remove all resources: Actions → Teardown → Run workflow → type `DELETE` to confirm.
+
+A full teardown (with **keep_data** off) empties the installation's assets bucket before it
+deletes the stack, because R2 refuses to delete a non-empty bucket. The emptying stops after
+`TEARDOWN_R2_EMPTY_DEADLINE_SECONDS` (GitHub Environment variable, default 600, roughly 2,000
+objects); if anything is left the bucket deletion fails and the summary says so, and running the
+teardown again continues where it stopped. Full teardown also deletes the API Worker's Durable
+Object data; **keep_data** leaves the Worker in place. Teardown does not delete VMs: delete
+workspaces and nodes in the app first.
 
 ## Cost Estimation
 
@@ -700,7 +999,7 @@ admission records is part of the parent section C integration.
 | Medium (vc2-4c-8gb) | 4 vCPU, 8GB RAM, 160GB  | ~$40    |
 | Large (vc2-6c-16gb) | 6 vCPU, 16GB RAM, 320GB | ~$80    |
 
-Vultr bills hourly and the default region is `fra` (Frankfurt). When you create the Vultr Personal Access Token, its **IP access control** allowlist must be set to **Allow All IPv4/IPv6** — SAM calls the Vultr API from Cloudflare Workers, which have no static egress IP, so a restricted allowlist will reject provisioning requests.
+Vultr bills hourly. Machines go to the regions your [compute pool](/docs/guides/compute-pools/) allows; `fra` (Frankfurt) is only the provider fallback when nothing else names a region. When you create the Vultr Personal Access Token, its **IP access control** allowlist must be set to **Allow All IPv4/IPv6** — SAM calls the Vultr API from Cloudflare Workers, which have no static egress IP, so a restricted allowlist will reject provisioning requests.
 
 **DigitalOcean:**
 
@@ -710,7 +1009,7 @@ Vultr bills hourly and the default region is `fra` (Frankfurt). When you create 
 | Medium (s-4vcpu-8gb) | 4 vCPU, 8GB RAM, 160GB  | ~$48    |
 | Large (s-8vcpu-16gb) | 8 vCPU, 16GB RAM, 320GB | ~$96    |
 
-DigitalOcean bills hourly, defaults to `fra1` (Frankfurt), and requires a Full Access Personal Access Token (or equivalent custom scopes for droplets, block storage, tags, account, actions, images, regions, and sizes).
+DigitalOcean bills hourly (machines go to the regions your compute pool allows; `fra1`, Frankfurt, is only the provider fallback) and requires a Full Access Personal Access Token (or equivalent custom scopes for droplets, block storage, tags, account, actions, images, regions, and sizes).
 
 **UpCloud:**
 
@@ -720,7 +1019,7 @@ DigitalOcean bills hourly, defaults to `fra1` (Frankfurt), and requires a Full A
 | Medium (4xCPU-8GB) | 4 vCPU, 8GB RAM  | ~$24            |
 | Large (8xCPU-16GB) | 8 vCPU, 16GB RAM | ~$48            |
 
-UpCloud billing is usage-based. SAM verifies the configured simple plan and zone through the current API before provisioning; the default zone is `de-fra1` (Frankfurt). Create a dedicated API subaccount with API access and storage permissions, then enter its username and password in Settings. Prices are indicative; verify current regional pricing in the UpCloud calculator.
+UpCloud billing is usage-based. SAM verifies the configured simple plan and zone through the current API before provisioning; machines go to the zones your compute pool allows, with `de-fra1` (Frankfurt) as the provider fallback. Create a dedicated API subaccount with API access and storage permissions, then enter its username and password in Settings. Prices are indicative; verify current regional pricing in the UpCloud calculator.
 
 ### Unresponsive machines are released automatically
 
@@ -858,3 +1157,22 @@ and [observability pricing](https://developers.cloudflare.com/observability/pric
 choosing ongoing sampling. The generated configuration redacts query strings from observability URLs because callback
 and terminal URLs can contain credentials. Traces can still include URL paths and database
 statement metadata; restrict access to observability data as you would for production logs.
+
+## Application deployment builds
+
+Instant sessions publish applications through a dedicated Cloudflare Container build executor. Cloudflare Containers are already part of SAM's supported setup, so this adds no separate cloud account or manual secret prerequisite. Deployment targets remain VMs. VM sessions retain the node executor by default; keep `deployments.buildExecutor=node` in **Admin → Settings** until a staging VM trial verifies a served release with unchanged source build/save counters. VM publishing through Cloudflare remains unverified. `DEPLOY_BUILDER_INSTANCE_TYPE` and `DEPLOY_BUILDER_MAX_INSTANCES` are deployment-time sizing controls; see the [configuration reference](/docs/reference/configuration/#cloudflare-application-build-executor).
+
+The builder runs one job per ephemeral container and can execute arbitrary Dockerfile steps as root inside DinD with host build networking and unrestricted internet access, just like VM workspaces. Context and image transfers use direct presigned URLs; no outbound proxy or HTTPS interception CA is installed. It receives no user or installation credentials, runtime secret values or workspace token. Its callback token stays in the Go supervisor's memory and authorizes only one job and attempt until that job's deadline or terminal state. Treat arbitrary root code as having that job's authority. The bootstrap listener closes before build steps run, and a durable alarm attempts to destroy the microVM at the hard deadline, independent of source-session liveness. If shutdown cannot be confirmed, cron force-releases the reservation after the stored deadline plus `deployments.builderReservationGraceMs` (five minutes by default), marks unfinished jobs `unknown` and records an alert. This permits deletion and new admissions without claiming physical shutdown; Cloudflare capacity can remain occupied until reclaimed. See the [build trust model](/docs/architecture/security/#application-build-executor) for the enforcing code paths.
+
+
+### Connect a repository sign-in to an email account
+
+A person who signs in by email or Google can open **Settings → GitHub** to connect GitHub or GitLab, if that provider is configured. Connecting adds a sign-in method and repository authorization to the same SAM account. Google cannot be linked to an existing account.
+
+Choose **Connect**, then open the confirmation email in the same browser. Choose **Confirm connection** to continue to the provider's consent screen. The email is a fresh, one-time sign-in check for that account, session and provider; an existing session alone cannot add a new sign-in method. Confirmation expires after five minutes by default. An administrator can change `security.accountLinkProofTtlSeconds` (60–900 seconds) in **Admin → Settings → Email**; new confirmation emails use the updated value and existing proofs keep their original deadline. A revoked session or expired confirmation must start again. Your account email must already be confirmed and the installation must support email delivery. If your provider has not confirmed it, sign in with that provider after confirming your email there, or contact the installation administrator.
+
+The existing OAuth application registration stays unchanged: GitHub uses `https://api.<your-domain>/api/auth/callback/github` and GitLab uses `https://api.<your-domain>/api/auth/callback/gitlab`. Flow context travels in protected OAuth state, never in per-user redirect URIs. GitLab retains its configured host and identity-trust restrictions.
+
+The connected provider may have a different email. Linking and later provider sign-ins preserve the already-verified SAM account email; name and avatar may refresh. SAM sends a linked-provider security notification to the account owner's stored email. Review the connected provider in **Settings → GitHub** and choose **Disconnect** if you do not recognize it. Disconnect requires a confirmed account email and available email sign-in, so removing a provider cannot remove your last sign-in method. An old session may require signing out and signing in again first.
+
+Accounts created by a provider with an unverified email receive a provider-sign-in reminder instead of a sign-in code. Their email-code redemption is refused so BetterAuth cannot remove their provider link while proving a previously unverified email. Existing verified email users can continue using email codes after connecting or disconnecting a provider.

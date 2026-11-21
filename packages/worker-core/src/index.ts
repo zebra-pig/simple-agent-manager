@@ -42,6 +42,34 @@ export {
   type LogLevel,
   serializeError,
 } from './logger';
+export {
+  assertOutboundUrl,
+  classifyHost,
+  DEFAULT_OUTBOUND_MAX_REDIRECTS,
+  guardedFetch,
+  type HostClass,
+  MAX_OUTBOUND_REDIRECTS,
+  type OutboundPolicy,
+  type OutboundRefusalReason,
+  OutboundRequestRefusedError,
+} from './network-hosts';
+export {
+  type AskAttentionSummary,
+  DEFAULT_OPEN_QUESTION_READ_LIMIT,
+  hasOpenQuestionAsk,
+  type OpenQuestionQuery,
+  openWakeErrorForChat,
+  preferAttention,
+  QUESTION_ASK_SOURCE,
+  questionAttentionFromRow,
+  type QuestionAttentionSummary,
+  questionOptions,
+  readOpenQuestionAttention,
+  WAKE_FAILED_ASK_SOURCE,
+  WAKE_FAILED_KEY_PREFIX,
+  wakeFailedAttentionFromRow,
+  type WakeFailedAttentionSummary,
+} from './question-asks';
 export { parsePositiveInt, requireRouteParam } from './route-helpers';
 export { mapRows, parseRow, parseRowOrNull } from './row-parsing';
 export {
@@ -76,4 +104,13 @@ export {
   type SearchQueryLimitEnv,
   type SearchQueryLimits,
 } from './search-query-limits';
+export {
+  __setSharedFlightResumeOnOwnTimerForTest,
+  DEFAULT_SHARED_FLIGHT_JOIN_GRACE_MS,
+  joinSharedFlight,
+  resumeSharedFlightJoinsOnOwnTimer,
+  settleSharedFlight,
+  SHARED_FLIGHT_POLL_MS,
+  SharedFlightAbandonedError,
+} from './shared-flight';
 export { ulid } from './ulid';

@@ -32,7 +32,10 @@ const {
 } = await import('../../src/ai-monthly-cost-cron');
 
 /** The worker binds these from admin settings; the cron passes them through to log reads. */
-const TEST_PORTS = { externalReadTimeoutMs: async () => 15_000 };
+const TEST_PORTS = {
+  externalReadTimeoutMs: async () => 15_000,
+  monthlyCostCeilingUsd: async () => 0,
+};
 const runMonthlyCostAggregation = (env: Env) => runMonthlyCostAggregationWithPorts(env, TEST_PORTS);
 
 function makeGatewayEntry(overrides: Partial<AIGatewayLogEntry> = {}): AIGatewayLogEntry {
@@ -83,6 +86,7 @@ function createMockKV(failingKeys: Set<string> = new Set()): KVNamespace & {
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     AI_GATEWAY_ID: 'gateway-1',
+    CF_ACCOUNT_ID: 'account-1',
     KV: createMockKV(),
     AI_MONTHLY_COST_CACHE_TTL_SECONDS: undefined,
     AI_MONTHLY_COST_AGGREGATION_MAX_PAGES: undefined,

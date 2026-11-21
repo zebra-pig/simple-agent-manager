@@ -363,16 +363,57 @@ your decisions:
   machine that fits.
 - A provider API failure during refresh is reported as a refresh error; SAM does not invent
   availability it could not confirm.
-- When a source's catalog changed, SAM writes the whole new catalog during that refresh, in batches,
-  for up to `operations.capacityPoolPublishBudgetMs` (20 seconds by default). Until it finishes the
-  pool shows as pending and cannot place new machines. A catalog too large for one refresh carries on
-  from where it stopped on the next one (`ensureCandidatesForSource()`).
-- **Starting work never refreshes the catalog.** Placement reads the pool as it stands, so a
-  submission is never delayed by a provider API call and a deliberately emptied pool is never
-  quietly repopulated. Refreshing happens when you press **Refresh** or change a credential — not
-  as a side effect of running a task. (The one exception is an installation upgraded from the old size presets, whose
-  pool gets its native offerings listed once. Like any new row they start out of the pool, so a pool
-  whose only machines were size presets is empty until you add machines.)
+- A pool with a previously validated, published catalog keeps using that catalog while a replacement
+  is unfinished, interrupted or failing. Each source's replacement is published together after it
+  is validated and fully written. A new pool stays pending until its first validated catalog is
+  published. A successful, explicitly validated bundled catalog can supply known offerings even
+  without a complete live inventory. Failed fallbacks and partial provider responses stay private;
+  they cannot start VMs. Missing machines are marked unavailable only after a complete provider
+  inventory has been published.
+- Interrupted refreshes resume automatically, including after a restart. A dedicated check runs
+  every minute, independently of the daily catalog discovery. Work becomes eligible after a
+  backoff that starts at 15 seconds and rises to five minutes by default; the next check picks it up.
+  A claimed pass that crashes can be retried after its lease expires (3 minutes by default).
+  Upgrade adoption queues at most the configured scope batch size (25 by default) per pass;
+  previously tracked failures do not prevent later scopes from being adopted.
+- After a rollback to a version that wrote catalog batches directly into live rows, an interrupted
+  publication cannot safely use its earlier catalog proof. SAM reports that unfinished legacy
+  publication and blocks placement until a fresh publication completes. The minute check adopts
+  pending pools even if a previous build left a completed refresh record. If a settings edit has
+  already marked the pool complete, the next normal placement queues that one pool for automatic
+  continuation; read-only catalog views do not trigger a refresh. Existing failed episodes keep
+  their error and cooldown rather than restarting on every request.
+- By default, SAM spends up to 20 seconds per source publishing a changed catalog, within a shared
+  20-second budget across sources and scopes for each pass. Its two-hour recovery deadline starts
+  with the first claim, after discovery queue time. If it runs out, the pool summary and Admin Errors
+  report the failure and operators are notified; the last committed catalog is retained. Daily
+  discovery may retry after a six-hour cooldown. Check the cloud account and use **Refresh** to retry sooner.
+  Superadmins can adjust these [refresh settings](/docs/guides/admin-settings/#compute-pool-refresh).
+  Live provider lookup and its fallback share the remaining pass deadline, including credential
+  preparation; a slow fallback cannot start a fresh timeout after that deadline.
+- Switching an account off, revoking a credential, removing a machine or losing project access
+  takes effect immediately, even while an older catalog is retained.
+- A running machine can still be reused after a harmless catalog revision. SAM checks today's
+  permissions, allowed offering, credentials, agent compatibility and free resources before adding
+  work. A plan to rent a new machine must still match the current catalog and settings.
+- **Starting work uses an established pool without refreshing its catalog.** Placement reads the
+  pool as it stands, so a submission avoids provider catalog calls and a deliberately emptied pool is never
+  quietly repopulated. Refreshing happens in the background, when you press **Refresh**, or when
+  you change a credential. Initial setup can list offerings once for a missing pool or one upgraded
+  from the old size presets. Like any new row they start out of the pool, so a pool whose only
+  machines were size presets is empty until you add machines.
+
+A sleeping session with an accepted message or event waiting in its durable inbox resumes
+automatically when a temporary catalog problem clears and placement becomes available. The original message or event remains the request;
+you do not need to send **Continue** again. Cancellation, archive, lost permissions and the existing
+request and snapshot expirations still stop recovery. Missing credentials, an empty pool or
+requirements no allowed machine can meet remain actionable failures. Disabled sources and revoked
+accounts also require action; SAM reports an actionable failure instead of waiting for the request
+to expire. Unavailable catalog offerings, including those in a previously published pool,
+wait automatically only while a refresh is pending within its recovery budget.
+
+An eviction blocked before its first recovery claim, without an accepted inbox message or event,
+is a separate recovery path and is not covered by this automatic continuation.
 
 :::note
 Adding a machine adds it for **both** workspace machines and
@@ -461,16 +502,17 @@ Cancelling queued work revokes its admission authority. A later free slot cannot
 task or provision a machine for it. If cancellation races a new allocation, SAM retires only
 that newly allocated empty machine, preserving occupied hosts and other placement claims.
 
-A machine provisioned for a task is held for that task while it is active and has no workspace.
-Other tasks cannot reuse it during boot; the hold ends when its owner places, fails, or is
-cancelled. Both selection and atomic workspace admission enforce this through
-`buildProvisionedNodeHoldSqlPredicate` in `apps/api/src/services/placement-authority.ts`.
+A VM provisioned for an active task is held until that task places its workspace, fails, or is
+cancelled. Other tasks skip it during selection, and atomic workspace admission also enforces
+the hold, including direct workspace creation, attachment, and restart
+(`services/provisioned-node-ownership.ts:buildProvisionedNodeHoldSqlPredicate`).
 
-If the held machine can no longer admit its owner, TaskRunner returns once to normal placement
-after the configured refusal budget: reuse another machine, provision within the existing
-limits, or wait under the pool policy. A replacement has the same bounded refusal budget;
-it cannot start an endless chain of replacements
-(`apps/api/src/durable-objects/task-runner/workspace-placement-rejection.ts:handleWorkspacePlacementRefused`).
+If the owner's VM still cannot admit it after `operations.workspacePlacementMaxRejections`,
+TaskRunner releases the claim once and returns to normal placement. It can reuse another VM,
+provision within the existing limits, or wait under the pool's exhaustion policy. The rejected
+VM retains its normal cleanup and lifetime guards; occupied VMs are preserved. A second
+exhausted refusal budget fails the run instead of starting an endless replacement chain
+(`task-runner/workspace-placement-fallback.ts:resumeWorkspacePlacementFallback`).
 
 ## Exhaustion policy: what happens when nothing is available
 
@@ -664,8 +706,15 @@ reason a new machine can appear while an existing one still looks roomy. The poo
 [**Deployment strategy**](#the-four-policy-fields) only orders the _provisioning_ step; under its
 **Smallest fit** default that means the smallest allowed machine that can hold the deployment.
 
-A deployment **with** persistent volumes skips that search entirely and always gets its own
-machine — see below.
+On a new release, a healthy linked deployment node stays in use while it matches any candidate
+in the effective pool and has room for the declared reservation. Adding a provider or changing
+provider priorities does not move an eligible deployment. The preferred candidate is used when
+a fresh machine must be provisioned.
+
+A deployment **with** persistent volumes gets an exclusive machine. New releases keep that
+machine under the same eligibility and capacity checks. Existing volumes pin release placement
+and any newly declared volumes to their provider and location. If the pool no longer allows that
+placement, the release fails rather than moving the volumes to another provider.
 
 What drives the size is your **deployment manifest**:
 
@@ -720,14 +769,15 @@ The "Current compute pool" line in the workspace sidebar and chat infrastructure
 state of the pool in effect. When a pool cannot start machines, the settings panel shows the same
 problem as a warning in plain words:
 
-| State                                     | Settings panel says                                                                                                                                                                                         | What to do                                                                                                                                                                                                                                                                   |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Available**                             | _(no warning)_                                                                                                                                                                                              | Nothing to do.                                                                                                                                                                                                                                                               |
-| **Not configured**                        | "No machines yet" or "You're using shared machines" (on a project: "No machines for this project yet" or "This project uses shared machines"; on the installation pool: "No platform cloud account yet")    | If it says you're using shared machines, nothing is needed. To get machines of your own, connect a cloud credential to the project or your account, and the pool is created for you. For the installation pool, a platform superadmin selects **Add a platform credential**. |
-| **Empty — no eligible offerings**         | "Your pool is empty, so only Instant sessions can run." ("This project's pool…" or "The shared pool…" for those scopes; read-only views: "No machines are allowed, so SAM can't start any from this pool.") | Add a machine from **Available machines**, switch an account back on, or attach a credential.                                                                                                                                                                                |
-| **Unavailable — compute source disabled** | "The cloud account behind this pool is turned off or was removed."                                                                                                                                          | Reconnect or re-enable the credential. The pool updates when you do.                                                                                                                                                                                                         |
-| **Unavailable — catalog refresh needed**  | "SAM couldn't read the provider's machine list. Try Refresh."                                                                                                                                               | **Refresh**, then add a machine that is still available.                                                                                                                                                                                                                     |
-| **Migration in progress**                 | "This pool is being updated. Try again in a minute."                                                                                                                                                        | Wait, then reload.                                                                                                                                                                                                                                                           |
+| State                                              | Settings panel says                                                                                                                                                                                         | What to do                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Available**                                      | _(no warning)_                                                                                                                                                                                              | Nothing to do.                                                                                                                                                                                                                                                               |
+| **Not configured**                                 | "No machines yet" or "You're using shared machines" (on a project: "No machines for this project yet" or "This project uses shared machines"; on the installation pool: "No platform cloud account yet")    | If it says you're using shared machines, nothing is needed. To get machines of your own, connect a cloud credential to the project or your account, and the pool is created for you. For the installation pool, a platform superadmin selects **Add a platform credential**. |
+| **Empty — no eligible offerings**                  | "Your pool is empty, so only Instant sessions can run." ("This project's pool…" or "The shared pool…" for those scopes; read-only views: "No machines are allowed, so SAM can't start any from this pool.") | Add a machine from **Available machines**, switch an account back on, or attach a credential.                                                                                                                                                                                |
+| **Unavailable — compute source disabled**          | "The cloud account behind this pool is turned off or was removed."                                                                                                                                          | Reconnect or re-enable the credential. The pool updates when you do.                                                                                                                                                                                                         |
+| **Unavailable — catalog refresh needed**           | "SAM couldn't read the provider's machine list. Try Refresh."                                                                                                                                               | **Refresh**, then add a machine that is still available.                                                                                                                                                                                                                     |
+| **Available, but the machine list didn't refresh** | "Machine list refresh failed. Check the connected cloud accounts, then select Refresh to retry." The pool keeps working from the list it last read.                                                         | Check that the cloud accounts are still connected and valid, then **Refresh**.                                                                                                                                                                                               |
+| **Migration in progress**                          | "This pool is being updated. Try again in a minute."                                                                                                                                                        | Wait, then reload.                                                                                                                                                                                                                                                           |
 
 Remember that a project pool in any of the unhealthy states stays authoritative — fix it, or
 remove it so a lower scope applies.
@@ -736,7 +786,7 @@ remove it so a lower scope applies.
 
 | Symptom                                                                | Likely cause                                                                                                                                                                                                                                                                                                                                                                                            |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Waiting for capacity" that never clears                               | The pool's allowed offerings are sold out in the chosen region. Add more machines or regions, or switch the policy to **Fallback chain**.                                                                                                                                                                                                                                                               |
+| "Waiting for capacity" that never clears                               | With **Queue**, SAM tries one offering per cloud account, so the work waits while that offering is sold out even if another allowed machine or region has room. Switch the policy to **Fallback chain** so it tries the others, or add machines or regions.                                                                                                                                             |
 | Work fails immediately with a capacity error                           | Exhaustion policy is **Fail**, or the pool has no allowed offering that satisfies the requirements.                                                                                                                                                                                                                                                                                                     |
 | "Capacity pool node limit (N) reached and no node can fit the request" | The user is at the pool's **Machine limit** and no running node has room. Raise the limit, lower the requirements so an existing node fits, or free a node.                                                                                                                                                                                                                                             |
 | No offering satisfies the request                                      | Requirements exceed every allowed machine — remember the host memory reserve, so a 4 GiB offering tops out at a 3072 MiB reservation. Lower the requirements or add a bigger instance type.                                                                                                                                                                                                             |

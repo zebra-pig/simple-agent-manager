@@ -8,6 +8,7 @@ import type { ProjectDataEnv } from '@simple-agent-manager/project-data';
 import type { ArtifactsBinding, RepoHostingEnv } from '@simple-agent-manager/repo-hosting';
 import type { WorkspaceAdmissionEnv } from '@simple-agent-manager/scheduler-core';
 
+import type { ComposeBuilderContainer } from './durable-objects/compose-builder-container';
 import type { VmAgentContainer } from './durable-objects/vm-agent-container';
 import type { TaskRecoveryEnv } from './task-recovery-env';
 import type { WebhookTriggerEnv } from './webhook-trigger-env';
@@ -25,6 +26,8 @@ export interface Env
     OperationsEnv,
     RepoHostingEnv,
     AiProxyEnv {
+  COMPOSE_BUILDER: DurableObjectNamespace<ComposeBuilderContainer>;
+  DEPLOY_BUILDER_CLASS_MAX_INSTANCES?: string;
   CLI_RECEIPT_REQUEST_MAX_BYTES?: string; // default 262144
   CLI_RECEIPT_RESPONSE_MAX_BYTES?: string; // default 65536
   // D1 Database.
@@ -59,10 +62,26 @@ export interface Env
   R2: R2Bucket;
   // Private R2 archive for ProjectData tool payload JSON
   PROJECT_DATA_ARCHIVE_R2: R2Bucket;
+  // apps/web build served for app.${BASE_DOMAIN}. Bound only on self-hosted (celld)
+  // deployments; Cloudflare deployments serve the web UI from Pages (lib/pages-proxy.ts).
+  ASSETS?: Fetcher;
   // Workers AI for speech-to-text transcription
   AI: Ai;
   // Agent email (preview): AGENT_EMAIL and AGENT_EMAIL_WORKER_NAME are declared in
   // @simple-agent-manager/agent-email's AgentEmailEnv.
+  // SMTP relay for SAM's own email (sign-in codes, owner security alerts) where AGENT_EMAIL is
+  // absent, e.g. a self-hosted celld box. Ignored when AGENT_EMAIL exists. Parsed and validated by
+  // @simple-agent-manager/agent-email's smtp-config.ts; invalid settings disable it.
+  SMTP_HOST?: string;
+  SMTP_PORT?: string; // default by SMTP_TLS: 587 (starttls), 465 (tls); required for none
+  SMTP_TLS?: string; // 'starttls' (default) | 'tls' | 'none' (loopback hosts only)
+  SMTP_USERNAME?: string;
+  SMTP_PASSWORD?: string; // secret
+  SMTP_FROM?: string; // address SAM's own email comes from, e.g. sign-in@<BASE_DOMAIN>
+  // 'true' when the self-host deploy installed the sam-mx SMTP receiver: agent email then runs
+  // without AGENT_EMAIL, inbound through the loopback gateway route and replies over SMTP
+  // (services/agent-email/self-host-inbound.ts). Ignored when AGENT_EMAIL exists.
+  AGENT_EMAIL_INBOUND_SMTP?: string;
   // Cloudflare Artifacts for SAM-native Git repos (optional — absent when ARTIFACTS_ENABLED is falsy)
   ARTIFACTS?: ArtifactsBinding;
   // Analytics Engine for usage tracking (optional — binding absent in local dev / Miniflare)
@@ -177,9 +196,17 @@ export interface Env
   PLATFORM_FEEDBACK_INCIDENT_TRIGGER_TEMPLATE?: string;
   JWT_PRIVATE_KEY: string;
   JWT_PUBLIC_KEY: string;
+  // Self-hosted JWT key rotation (services/jwt-keys.ts). Unset = one key, kid `key-YYYY-MM`.
+  JWT_KEY_ID?: string; // kid for the current key when signing and in /.well-known/jwks.json; unset = `key-YYYY-MM`
+  JWT_PUBLIC_KEY_PREVIOUS?: string; // SPKI PEM of the previous public key: still accepted for callback tokens while the window is open, never published in a JWKS
+  JWT_PREVIOUS_KEY_ID?: string; // label of the previous key in logs only (never published); unset = `key-YYYY-MM` (the kid old tokens carry)
+  JWT_PUBLIC_KEY_PREVIOUS_UNTIL?: string; // ISO-8601 instant with offset ending the overlap; absent/unparseable = previous key ignored
   ENCRYPTION_KEY: string;
   // Purpose-specific secret overrides (fall back to ENCRYPTION_KEY when unset)
   BETTER_AUTH_SECRET?: string; // BetterAuth session management
+  BETTER_AUTH_SECRET_VERSION?: string; // Positive integer; set to enable versioned BetterAuth secrets (rotation)
+  BETTER_AUTH_SECRET_PREVIOUS?: string; // Previous BetterAuth secret, kept so stored OAuth tokens still decrypt
+  BETTER_AUTH_SECRET_PREVIOUS_VERSION?: string; // Version the previous secret ran under; unset = it was unversioned
   CREDENTIAL_ENCRYPTION_KEY?: string; // AES-GCM user credential encryption
   GITHUB_WEBHOOK_SECRET?: string; // GitHub webhook HMAC verification
   BOOTSTRAP_OWNER_EMAIL?: string; // Installer-only first-admin binding; must match a verified login email
@@ -991,7 +1018,6 @@ export interface Env
   ORCHESTRATOR_STOP_CAS_MAX_ATTEMPTS?: string; // Max task-status CAS attempts after a hard stop (default: 2)
   ORCHESTRATOR_MESSAGE_MAX_LENGTH?: string; // Max length for injected messages to child agents (default: 32768)
   // Attention markers
-  HUMAN_INPUT_TIMEOUT_MS?: string; // Attention marker expiry for needs_input (default: 7200000 = 2 hours)
   HUMAN_INPUT_ESCALATION_FRACTIONS?: string; // Comma-separated fractions of initial window (default: 0.25,0.75)
   HUMAN_INPUT_UNDELIVERED_GRACE_MS?: string; // Extension without confirmed delivery (default: 7200000)
   HUMAN_INPUT_MAX_WAIT_MS?: string; // Hard marker residence limit (default: 86400000)
@@ -1252,11 +1278,11 @@ export interface Env
   ANALYTICS_DEFAULT_PERIOD_DAYS?: string; // Default query period (default: 30)
   ANALYTICS_DATASET?: string; // Dataset name (set by deployment from resource prefix)
   ANALYTICS_TOP_EVENTS_LIMIT?: string; // Max events in top events query (default: 50)
-  ANALYTICS_GEO_LIMIT?: string; // Max countries in geo distribution (default: 50)
-  ANALYTICS_RETENTION_WEEKS?: string; // Retention cohort lookback weeks (default: 12)
   ANALYTICS_WEBSITE_TRAFFIC_TOP_PAGES_LIMIT?: string; // Max top pages per section in website traffic (default: 20)
   // Analytics ingest endpoint (Phase 2 — client-side events)
   ANALYTICS_INGEST_ENABLED?: string; // "true" (default) or "false"
+  /** "d1" records and reads product analytics in OBSERVABILITY_DATABASE when the self-host build installed the D1 sink (selfhost/analytics/). Unset: Analytics Engine. */
+  ANALYTICS_SINK?: string;
   RATE_LIMIT_ANALYTICS_INGEST?: string; // Rate limit per IP per hour (default: 500)
   MAX_ANALYTICS_INGEST_BATCH_SIZE?: string; // Max events per batch (default: 25)
   MAX_ANALYTICS_INGEST_BODY_BYTES?: string; // Max request body bytes (default: 65536)
@@ -1293,6 +1319,14 @@ export interface Env
   R2_SECRET_ACCESS_KEY?: string;
   // R2 bucket name (runtime — set by wrangler sync script; used for presigned URL generation)
   R2_BUCKET_NAME?: string;
+  // Operator-run S3 store that holds the R2 binding's objects (non-Cloudflare runtimes such as
+  // celld). When R2_S3_ENDPOINT is set, presigned URLs target R2_S3_BUCKET at
+  // `${R2_S3_KEY_PREFIX}${key}` instead of Cloudflare R2. See services/r2-presign-config.ts.
+  R2_S3_ENDPOINT?: string;
+  R2_S3_BUCKET?: string;
+  R2_S3_KEY_PREFIX?: string;
+  R2_S3_REGION?: string; // Signing region of that store; required with R2_S3_ENDPOINT ("auto" for GCS/R2, e.g. "us-east-1" for MinIO or AWS)
+  R2_S3_FORCE_PATH_STYLE?: string; // "false" for virtual-host addressing (default with R2_S3_ENDPOINT: path style)
   // Task attachment upload limits (all configurable per constitution Principle XI)
   ATTACHMENT_UPLOAD_MAX_BYTES?: string;
   ATTACHMENT_UPLOAD_BATCH_MAX_BYTES?: string;
@@ -1302,6 +1336,13 @@ export interface Env
   ATTACHMENT_TRANSFER_TIMEOUT_MS?: string;
   // Project file library (all configurable per constitution Principle XI)
   LIBRARY_ENCRYPTION_KEY?: string; // Purpose-specific KEK for file library (falls back to ENCRYPTION_KEY)
+  // Self-hosted platform-key rotation (scripts/selfhost/rotate-*.ts). Root secrets from the
+  // sealed bundle; never set on Cloudflare.
+  ENCRYPTION_KEY_PREVIOUS?: string; // Old ENCRYPTION_KEY, read-only fallback while rows are re-encrypted
+  CREDENTIAL_ENCRYPTION_KEY_PREVIOUS?: string; // Old CREDENTIAL_ENCRYPTION_KEY, same
+  LIBRARY_ENCRYPTION_KEY_PREVIOUS?: string; // Old LIBRARY_ENCRYPTION_KEY, same
+  TOKEN_HASH_KEY?: string; // HMAC key for bearer-token lookup hashes (lib/secrets.ts getTokenHashKey)
+  SAM_KEY_ROTATION_CONTROL_KEY?: string; // Authenticates the rotation control endpoint (selfhost/key-rotation)
   LIBRARY_UPLOAD_MAX_BYTES?: string; // Max file size per upload (default: 50MB)
   FILE_PREVIEW_MAX_BYTES?: string; // Max file size for inline preview (default: 50MB)
   LIBRARY_MAX_FILES_PER_PROJECT?: string; // Max files per project (default: 10000)
@@ -1381,7 +1422,6 @@ export interface Env
   AI_PROXY_RATE_LIMIT_WINDOW_SECONDS?: string; // Rate limit window in seconds (default: 60)
   // Cost Monitoring
   COST_MONITORING_ENABLED?: string; // Enable/disable cost monitoring endpoint (default: true)
-  COMPUTE_VCPU_HOUR_COST_USD?: string; // Estimated cost per vCPU-hour in USD (default: 0.003)
   /** Deployment environment name ("staging" | "production"), set by the deploy pipeline. */
   ENVIRONMENT?: string;
   // Cloudflare Artifacts (GitHub-optional project creation)
@@ -1399,7 +1439,7 @@ export interface Env
   /** Max changed files returned by an Artifacts compare before truncating (default: 300). */
   REPO_BROWSE_MAX_COMPARE_FILES?: string;
   // SAM Agent (Top-Level Agent) configuration
-  SAM_MODEL?: string; // LLM model (default: claude-sonnet-5)
+  SAM_MODEL?: string; // LLM model (default: @cf/deepseek-ai/deepseek-v4.1-flash-1017)
   SAM_MAX_TOKENS?: string; // Max output tokens per turn (default: 4096)
   SAM_MAX_TURNS?: string; // Max tool-use loop iterations (default: 20)
   SAM_SYSTEM_PROMPT_APPEND?: string; // Additional system prompt text
@@ -1459,6 +1499,8 @@ export interface Env
   CF_CONTAINER_HARNESS_LEASE_CHECK_TIMEOUT_MS?: string; // Max time for the ProjectData RPC that checks harness work lease before sleep (default: 5000)
   CF_CONTAINER_CLONE_FILTER?: string; // Git partial-clone filter passed to the container as STANDALONE_CLONE_FILTER (vm-agent default: blob:none; "off" disables)
   CF_CONTAINER_WORKSPACE_BASE_DIR?: string; // Base checkout dir inside raw container (default: /workspaces)
+  /** "false" when no tail consumer feeds the AdminLogs DO (self-host: celld has no tail handler). Unset: available. */
+  LOG_TAIL_AVAILABLE?: string;
   // Legacy Sandbox SDK prototype (admin-only)
   SANDBOX_ENABLED?: string; // Legacy/fallback kill switch for sandbox routes and older staging config (default: false)
   SANDBOX_EXEC_TIMEOUT_MS?: string; // Default exec timeout in ms (default: 30000)

@@ -27,6 +27,20 @@ import {
   handleUpdateIdea,
 } from './idea-tools';
 import {
+  handleInboxAsk,
+  handleInboxAssign,
+  handleInboxAttach,
+  handleInboxCancelItem,
+  handleInboxComment,
+  handleInboxGetItem,
+  handleInboxListItems,
+  handleInboxResolve,
+  handleInboxRespond,
+  handleInboxResult,
+  handleInboxReview,
+  handleInboxUpdateItem,
+} from './inbox-tools';
+import {
   handleClaimIncident,
   handleGetIncident,
   handleListIncidentQueue,
@@ -120,6 +134,7 @@ import {
   handleUpdateAgentProfile,
 } from './profile-tools';
 import { handleAckEventDelivery, handleGetEvent } from './project-event-tools';
+import { handleProjectInsights } from './project-insights-tool';
 import { handleListRuntimeEnv, handleRequestSecret } from './secret-request-tools';
 import {
   handleGetResourceHistory,
@@ -199,6 +214,18 @@ export const MCP_TOOL_HANDLERS: ReadonlyMap<string, McpToolHandler> = new Map<
   ['run_ai_model', handleRunAiModel],
   ['update_task_status', handleUpdateTaskStatus],
   ['request_human_input', handleRequestHumanInput],
+  ['inbox_ask', handleInboxAsk],
+  ['inbox_review', handleInboxReview],
+  ['inbox_result', handleInboxResult],
+  ['inbox_update_item', handleInboxUpdateItem],
+  ['inbox_respond', handleInboxRespond],
+  ['inbox_resolve', handleInboxResolve],
+  ['inbox_cancel_item', handleInboxCancelItem],
+  ['inbox_assign', handleInboxAssign],
+  ['inbox_comment', handleInboxComment],
+  ['inbox_attach', handleInboxAttach],
+  ['inbox_list_items', handleInboxListItems],
+  ['inbox_get_item', handleInboxGetItem],
   ['request_secret', handleRequestSecret],
   ['list_runtime_env', handleListRuntimeEnv],
   ['wait_for_subtasks', handleWaitForSubtasks],
@@ -215,6 +242,7 @@ export const MCP_TOOL_HANDLERS: ReadonlyMap<string, McpToolHandler> = new Map<
   ['list_tasks', handleListTasks],
   ['get_task_details', handleGetTaskDetails],
   ['search_tasks', handleSearchTasks],
+  ['project_insights', handleProjectInsights],
   ['list_sessions', handleListSessions],
   ['get_session_messages', handleGetSessionMessages],
   ['get_resource_history', handleGetResourceHistory],

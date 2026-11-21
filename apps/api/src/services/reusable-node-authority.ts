@@ -1,10 +1,8 @@
 import type { CapacityPlacementSnapshot } from '@simple-agent-manager/shared';
 
 import { D1_MAX_BOUND_PARAMETERS } from '../lib/d1-limits';
-import {
-  buildPlacementAuthoritySqlPredicate,
-  buildProvisionedNodeHoldSqlPredicate,
-} from './placement-authority';
+import { buildPlacementAuthoritySqlPredicate } from './placement-authority';
+import { buildProvisionedNodeHoldSqlPredicate } from './provisioned-node-ownership';
 
 export interface ReusableNodeAuthoritySelection {
   nodeId: string;
@@ -44,6 +42,7 @@ export async function filterReusableNodesByCurrentAuthority(
       nodeRole: 'workspace',
       workloadRole: 'workspace',
       capacityPlacementSnapshot: first.capacityPlacementSnapshot,
+      authorityMode: 'existing-node',
     });
     const hold = buildProvisionedNodeHoldSqlPredicate('n', input.requestingTaskId);
     const chunkSize = D1_MAX_BOUND_PARAMETERS - predicate.binds.length - hold.binds.length;

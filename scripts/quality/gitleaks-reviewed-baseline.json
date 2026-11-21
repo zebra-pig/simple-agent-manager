@@ -5,12 +5,13 @@
   "groups": [
     {
       "classification": "code-identifier",
-      "reason": "Fresh pinned current-tree review: analytics-forward.ts reads an environment-variable identifier; github-app-tokens.ts findings span PEM delimiter comments and parser/encoder code, with no embedded key body. Exact current rule/path/line/bytes only.",
+      "reason": "Fresh pinned current-tree review: analytics-forward.ts reads an environment-variable identifier (same bytes at line 339, and at line 343 after PR #2889 added four lines above it); github-app-tokens.ts findings span PEM delimiter comments and parser/encoder code, with no embedded key body. Exact current rule/path/line/bytes only.",
       "owner": "security",
       "reviewedAt": "2026-11-06T12:30:14.413Z",
       "expiresAt": "2026-12-06T12:30:14.413Z",
       "digests": [
         "43311ab05444a3deed84ddf803f7d4a523e4ab4a97d044200e84fedc73661f5f",
+        "ecc456aef877ed66b358ddeca553c9a7ae1f9cf5aa429fb514335a9b0942de31",
         "81f3369b6025e96d9c0e14739af278a7174b8ea9387c1e8a307e7ee1b50ad36e",
         "b0eb549c5588a1c5a61aec95eca31cc8d4008a6f86f9f78845482246d19a19fb",
         "b1dcd2817cc876421ba0377a672cd178370f310251e33ea7936f5e25436359c6"
@@ -88,10 +89,10 @@
     },
     {
       "classification": "code-identifier",
-      "reason": "Reviewed PEM header/footer string references in convertPkcs1ToPkcs8() at shifted line positions after KV caching code added earlier in github-app.ts; same code as main lines 189/196/207, now at 204/211/222.",
+      "reason": "Re-reviewed exact historical findings from e079597ab21ce94d5962a04e8c97bf6a320783b7: apps/api/src/services/github-app.ts lines 204/211/222 span PEM delimiter comments, conditional checks, stripping and ASN.1 wrapping/encoding code in convertPkcs1ToPkcs8(), with no embedded key body. All three digests reproduced with pinned Gitleaks 8.30.1; retained for PR-range history. Current converter is separately reviewed at packages/repo-hosting/src/github-app-tokens.ts.",
       "owner": "security",
-      "reviewedAt": "2026-08-19T00:00:00.000Z",
-      "expiresAt": "2026-11-17T00:00:00.000Z",
+      "reviewedAt": "2026-11-17T00:18:34.412Z",
+      "expiresAt": "2026-12-17T00:18:34.412Z",
       "digests": [
         "1b2e5830af04890ec8044656187a4435d76062a4c0c4b19b561046bac67d32a0",
         "0ed74e33345c51812e64da9c1525503195b08302331375958aaa089366731f2d",
@@ -201,6 +202,83 @@
       "reviewedAt": "2026-11-14T01:20:00.000Z",
       "expiresAt": "2026-12-14T01:20:00.000Z",
       "digests": ["3baab23fcd18d079d16ea924fd23f9846a7353b819614beeaf9fa2698251b2ee"]
+    },
+    {
+      "classification": "synthetic-test-fixture",
+      "reason": "PR 2760 registers the pre-migration message fixture Durable Object, shifting three previously reviewed test-only signing/encryption fixtures in apps/api/vitest.workers.config.ts by four lines. Verified full matched spans byte-identical to origin/main and each prior line-specific digest already reviewed; only the exact shifted digests are added.",
+      "owner": "security",
+      "reviewedAt": "2026-11-15T16:12:25.640Z",
+      "expiresAt": "2026-12-06T12:30:14.413Z",
+      "digests": [
+        "caec4310082d0b8549cf4445c9030ecdb8a23e98613f581e9050228cfe5582dc",
+        "e80c7e20e86a0c09d48491a9ad0f681a161185399834abf689c491cc58404d18",
+        "751da363c1e618b01b169097dbbc341d6dd0e3e2cceef8beaa5092403a04a45d"
+      ]
+    },
+    {
+      "classification": "code-identifier",
+      "reason": "Self-host inbound email (L21, #2887): deploy/selfhost/sam-mx config.go agentAddressKeyChars is the public agent-address alphabet (Crockford-style base32 characters), not key material. Exact findings only: the current line and the same line at its earlier position in the port commit 1c023420a.",
+      "owner": "security",
+      "reviewedAt": "2026-11-18T15:45:00.000Z",
+      "expiresAt": "2026-12-18T15:45:00.000Z",
+      "digests": [
+        "9129fd74cffbdc8442feed3af75699051839080524f42afdafdcbaedc227ef56",
+        "eab7bddde682c4104f263aefb4b6004bff8ce1ba7a01c73787b347142fa7241d"
+      ]
+    },
+    {
+      "classification": "synthetic-test-fixture",
+      "reason": "Self-host inbound email (L21, #2887) tests: a fixed agent address key (a routing identifier inside a public email address) in selfhost-inbound-email.test.ts, and a literal gateway shared secret ending in -test used only by the sam-mx receiver test against an httptest server. Exact current findings only.",
+      "owner": "security",
+      "reviewedAt": "2026-11-18T15:45:00.000Z",
+      "expiresAt": "2026-12-18T15:45:00.000Z",
+      "digests": [
+        "3ea24e85ceb78d673fcb02e42f5d44dfabe7a97fa680f090d0fcf1e79c0eff74",
+        "e2345bc2c8f9744b9067ec77eebb1d7baa52999404834bfb429fb63579062263"
+      ]
+    },
+    {
+      "classification": "synthetic-test-fixture",
+      "reason": "PR #2906 commit range: scripts/selfhost/deploy-harness.ts BASE_BOX_ENV sets AWS_SECRET_ACCESS_KEY to a fixed, human-readable fleet fixture lengthened to 24+ characters for the objectstore minimum (commit 6ffc0c89d). It is the deploy test harness box .env, never a real credential. Exact finding only.",
+      "owner": "security",
+      "reviewedAt": "2026-11-19T08:20:34.012Z",
+      "expiresAt": "2026-12-19T08:20:34.012Z",
+      "digests": ["bf079eb1d64eb9f1ada2812def7fc669b390aaa9b56fc1010923fe4095706b31"]
+    },
+    {
+      "classification": "documented-example",
+      "reason": "Self-host AWS KMS provider (sealed secrets): scripts/selfhost/testdata/aws-sigv4/get-vanilla-with-session-token holds AWS's published SigV4 test-suite example session token (awslabs/aws-c-auth, AKIDEXAMPLE credentials), copied byte-exact so the signer is checked against AWS's own vectors. Not a credential. Exact current findings only.",
+      "owner": "security",
+      "reviewedAt": "2026-11-20T08:00:00.000Z",
+      "expiresAt": "2026-12-20T08:00:00.000Z",
+      "digests": [
+        "2f680fbf092613edf6d693f56b9f6935342a3210f0d3bc2f14c5c4a6f68aefb2",
+        "89e46bd75a609cb349a30aa5488628928ae95c50aa7f3c8f1161f1857f539762"
+      ]
+    },
+    {
+      "classification": "synthetic-test-fixture",
+      "reason": "Intermediate PR-range bytes only (sealed secrets landing slice): scripts/selfhost/agent-vm-credentials.test.ts briefly held a fixed, human-readable fake bucket secret; the tip generates it with randomBytes at test time. No credential. Exact rule/path/line/bytes only.",
+      "owner": "security",
+      "reviewedAt": "2026-11-20T08:00:00.000Z",
+      "expiresAt": "2026-12-20T08:00:00.000Z",
+      "digests": ["e5bd003b9f7208606c3924b881aa5a4e175bcddcf7332b53fa8dffe22f517066"]
+    },
+    {
+      "classification": "synthetic-test-fixture",
+      "reason": "Fork-only iOS UI test fixture: apps/native/ios/tests/ui/chat-scroll/server.py builds an unbroken layout-stress token by repeating the literal \"a1b2c3d4e5f6\" to test wide chat rows. Not a credential. Exact rule/path/line/bytes only.",
+      "owner": "security",
+      "reviewedAt": "2026-11-21T19:00:00.000Z",
+      "expiresAt": "2026-12-21T19:00:00.000Z",
+      "digests": ["27749e8dfc238183299e7648078716f94d4dbe207814fd945229dbfe5c8eb528"]
+    },
+    {
+      "classification": "synthetic-test-fixture",
+      "reason": "Upstream sync range (5cef2fa into the fork): upstream commit 917077fef (#2906) has scripts/selfhost/deploy-harness.ts line 26 set AWS_SECRET_ACCESS_KEY to the fixed fleet-secret-0123456789abcdef deploy-harness fixture already reviewed upstream for its own PR range. Never a real credential. Exact rule/path/line/bytes only.",
+      "owner": "security",
+      "reviewedAt": "2026-11-21T19:00:00.000Z",
+      "expiresAt": "2026-12-21T19:00:00.000Z",
+      "digests": ["47532b752c21745f780b725e48ad30bac30eaa443b0cd13a388ab5b577356eb4"]
     }
   ]
 }

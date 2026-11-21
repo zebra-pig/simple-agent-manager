@@ -41,7 +41,7 @@ Before moving ANY task from `tasks/active/` to `tasks/archive/`, you MUST run th
 ### Validation Rules
 
 - **CRITICAL/HIGH findings block merge.** Fix them in the branch before merging. Filing a backlog task is NOT an acceptable alternative — the validator exists to catch gaps _before_ they ship, not to generate follow-up work. The only exception is explicit human approval to defer a specific finding.
-- **A validator FAIL means the task is not complete.** Return to implementation. Do NOT proceed to PR creation or merge.
+- **A validator FAIL means the task is not complete.** Return to implementation. Do NOT mark the PR ready or merge.
 - **Do NOT rationalize gaps.** "It works when I test it manually" is not an answer to "no test covers this acceptance criterion." Either add the test or document the manual verification with evidence.
 - **"Fix or defer" is not a real choice.** If you have time to write a backlog task file, you have time to write the test or fix the gap. The backlog escape hatch has been abused in every case where it was used (PR #568, PR #570) — the follow-up tasks add friction and delay but deliver the same work that should have been done in the original PR.
 
@@ -152,7 +152,7 @@ When a task asks you to review a previous session or recover context from recent
 
 ### Why This Matters
 
-Without the `/do` instruction, a dispatched agent may skip critical phases like staging verification, specialist review, or proper PR creation. The `/do` workflow enforces all quality gates defined in this project's rules.
+Without `/do`, a dispatched agent may skip staging verification, specialist review, or proper PR creation.
 
 ## Integration with Other Systems
 
@@ -162,7 +162,9 @@ Without the `/do` instruction, a dispatched agent may skip critical phases like 
 
 ## CI Wait Recovery
 
-For CI subscriptions and PR shepherd owner reconciliation, follow
-[CI wait recovery](../../docs/guides/ci-wait-recovery.md): exact completion event
-names, full head SHAs, current checks before/after waits, and one independent
-fallback. Expiry or a stale continuation is not evidence of a future wake.
+CI: `check_suite.completed` + `workflow_run.completed` on full SHA; opt in to
+`check_run.completed` for early per-job failure. Follow
+[CI wait recovery](../../docs/guides/ci-wait-recovery.md): reconcile GitHub on
+resume; keep the subscription/fallback while checks pend. Expiry is no wake.
+On opening a PR, subscribe to `subjectType: pull_request`, `subjectId: <PR #>` so
+Codex/CodeRabbit reviews and comments reach you; answer each finding.
