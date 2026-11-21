@@ -47,6 +47,12 @@ export interface AcceptPromptDeliveryInput {
   ttlMs?: number | null;
   /** Absolute source deadline; retries cannot extend it. */
   expiresAt?: number | null;
+  /**
+   * Wait for a running turn to end rather than expire behind it: each busy answer from the
+   * target restarts the TTL (bounded by `expiresAt` and PROMPT_DELIVERY_BUSY_MAX_WAIT_MS).
+   * For messages a person or agent sent to a chat; without it the TTL is a deadline.
+   */
+  holdWhileBusy?: boolean;
   maxMessages?: number;
 }
 
@@ -121,6 +127,7 @@ export function acceptPromptDeliveryInTransaction(
     ackTimeoutMs: input.ackTimeoutMs ?? null,
     ttlMs: input.ttlMs ?? null,
     expiresAt: input.expiresAt ?? null,
+    holdWhileBusy: input.holdWhileBusy === true,
     maxMessages: input.maxMessages,
     sourceKind: input.sourceKind,
     promptMessageId: persisted.id,

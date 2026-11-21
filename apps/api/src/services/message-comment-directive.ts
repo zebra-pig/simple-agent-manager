@@ -105,6 +105,8 @@ export async function sendMessageCommentDirective(
     messageClass: 'deliver',
     sourceKind: 'comment_directive',
     ttlMs: durableConfig.ttlMs,
+    // A follow-up waits for a long running turn to end instead of expiring behind it.
+    holdWhileBusy: true,
     metadata: {
       commentThreadId: thread.id,
       sourceMessageId: thread.anchor.messageId,

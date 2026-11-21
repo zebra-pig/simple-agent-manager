@@ -2810,6 +2810,24 @@ export const MIGRATIONS: Migration[] = [
   // Retired before release: `059-message-upload-parts` ran on staging only. Objects
   // that ran it keep an unused `message_upload_parts` table, since DO migrations
   // never drop tables, so neither that migration name nor that table name may be reused.
+  {
+    // The sender's deadline, kept apart from expires_at. expires_at may move later while
+    // the target is busy with a long turn (`applyPromptDeliveryResult`); this never does.
+    // It equals the TTL deadline unless the sender opted into `holdWhileBusy`, and is NULL
+    // for such rows without an explicit `expiresAt` and for rows from before this column.
+    name: '083-session-inbox-source-expires-at',
+    run(sql) {
+      const existing = new Set(
+        sql
+          .exec('PRAGMA table_info(session_inbox)')
+          .toArray()
+          .map((column) => column.name)
+      );
+      if (!existing.has('source_expires_at')) {
+        sql.exec('ALTER TABLE session_inbox ADD COLUMN source_expires_at INTEGER');
+      }
+    },
+  },
 ];
 
 /**

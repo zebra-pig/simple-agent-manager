@@ -28,6 +28,14 @@ export const DEFAULT_PROMPT_DELIVERY_RETRY_MAX_MS = 5 * 60 * 1000;
 /** Accepted prompt intent must resolve within this finite lifetime. */
 export const DEFAULT_PROMPT_DELIVERY_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * Hard ceiling, measured from enqueue, for a queued prompt delivery that keeps waiting behind a
+ * running turn. While the target VM answers "busy" (its authoritative 409: a turn is in flight),
+ * the delivery's TTL restarts after every busy probe, so it waits for turn end instead of
+ * expiring mid-turn. Only this ceiling or an explicit sender deadline still ends that wait.
+ */
+export const PROMPT_DELIVERY_BUSY_MAX_WAIT_MS = 24 * 60 * 60 * 1000;
+
 /** A claimed attempt is reconciled after this duration rather than blindly replayed. */
 export const DEFAULT_PROMPT_DELIVERY_RECEIPT_TIMEOUT_MS = 30 * 1000;
 
