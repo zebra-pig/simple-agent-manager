@@ -135,3 +135,38 @@ func TestDeleteWorkspaceExecutionProtocolRemovesOnlyTargetWorkspaceLedgers(t *te
 		t.Fatalf("unrelated steer receipt removed: %v", err)
 	}
 }
+
+// The control plane stores a receipt's acceptedAt as the turn's promptStartedAt
+// and passes it back to guarded interrupts. The VM compares the attempt's own
+// start, so the claim must replace the earlier accept-time clock read with it.
+func TestClaimPromptDeliveryAtCarriesPromptEpoch(t *testing.T) {
+	store, err := Open(tempDBPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	accepted, _, _, err := store.AcceptPromptDelivery("ws", "session", "delivery-1", 1, "hash")
+	if err != nil || accepted.AcceptedAt == nil {
+		t.Fatalf("accept = %+v err=%v", accepted, err)
+	}
+	epoch := *accepted.AcceptedAt + 37
+	claimed, won, err := store.ClaimPromptDeliveryAt("ws", "session", "delivery-1", "runtime", epoch)
+	if err != nil || !won || claimed.AcceptedAt == nil || *claimed.AcceptedAt != epoch {
+		t.Fatalf("claim = %+v won=%v err=%v, want acceptedAt %d", claimed, won, err, epoch)
+	}
+	reread, err := store.GetPromptDelivery("ws", "session", "delivery-1", "runtime")
+	if err != nil || reread.AcceptedAt == nil || *reread.AcceptedAt != epoch {
+		t.Fatalf("duplicate lookup = %+v err=%v, want acceptedAt %d", reread, err, epoch)
+	}
+
+	// Without an epoch (agent start: the prompt begins after the agent boots),
+	// the accept-time value stays.
+	first, _, _, err := store.AcceptPromptDelivery("ws", "session", "delivery-2", 1, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, won, err = store.ClaimPromptDelivery("ws", "session", "delivery-2", "runtime")
+	if err != nil || !won || claimed.AcceptedAt == nil || *claimed.AcceptedAt != *first.AcceptedAt {
+		t.Fatalf("claim without epoch = %+v won=%v err=%v", claimed, won, err)
+	}
+}

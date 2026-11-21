@@ -193,7 +193,7 @@ describe('Session State Mirror — vertical slice', () => {
       expect(state).toBeNull();
     });
 
-    it('preserves the original prompt epoch across same-epoch prompting and recovering rereports', () => {
+    it("preserves the prompt epoch across rereports; only the VM's own newer start moves promptStartedAt", () => {
       sessionState.upsertActivityState(sql, 'sess-epoch', {
         activity: 'prompting',
         promptStartedAt: 1_000,
@@ -201,17 +201,93 @@ describe('Session State Mirror — vertical slice', () => {
       });
       sessionState.upsertActivityState(sql, 'sess-epoch', {
         activity: 'prompting',
+        promptStartedAt: 1_000,
+        now: 3_100,
+      });
+      expect(sessionState.getSessionState(sql, 'sess-epoch')?.promptStartedAt).toBe(1_000);
+
+      sessionState.upsertActivityState(sql, 'sess-epoch', {
+        activity: 'prompting',
         promptStartedAt: 5_000,
         now: 5_100,
       });
+      // A recovering report is not the VM naming a running attempt's start.
       sessionState.upsertActivityState(sql, 'sess-epoch', {
         activity: 'recovering',
         promptStartedAt: 8_000,
         now: 8_100,
       });
 
-      expect(sessionState.getSessionState(sql, 'sess-epoch')?.promptStartedAt).toBe(1_000);
+      expect(sessionState.getSessionState(sql, 'sess-epoch')?.promptStartedAt).toBe(5_000);
+      // The delivery fence still advances only through positive acceptance.
       expect(sessionState.getPromptEpoch(sql, 'sess-epoch')).toBe(1_000);
+    });
+
+    describe('guarded-interrupt token (regression: FilmKit long turns, 2026-11-21)', () => {
+      // `promptStartedAt` is what sam_chat_status reports and what a guarded interrupt
+      // sends back; the VM accepts only its running attempt's exact start.
+      it('replaces the accept-time seed with the VM-reported attempt start for the whole turn', () => {
+        expect(sessionState.markPromptAccepted(sql, 'sess-guard', 10_000, 10_000)).toBe(true);
+        sessionState.upsertActivityState(sql, 'sess-guard', {
+          activity: 'prompting',
+          promptStartedAt: 10_003,
+          now: 10_050,
+        });
+        expect(sessionState.getSessionState(sql, 'sess-guard')?.promptStartedAt).toBe(10_003);
+
+        // An hour of 60 s rereports of the same attempt keeps it.
+        for (let minute = 1; minute <= 60; minute++) {
+          sessionState.upsertActivityState(sql, 'sess-guard', {
+            activity: 'prompting',
+            promptStartedAt: 10_003,
+            now: 10_050 + minute * 60_000,
+          });
+        }
+        expect(sessionState.getSessionState(sql, 'sess-guard')?.promptStartedAt).toBe(10_003);
+        expect(sessionState.getPromptEpoch(sql, 'sess-guard')).toBe(10_000);
+      });
+
+      it('ignores a delayed report from the previous turn', () => {
+        sessionState.upsertActivityState(sql, 'sess-guard-old', {
+          activity: 'prompting',
+          promptStartedAt: 1_000,
+          now: 1_000,
+        });
+        sessionState.upsertActivityState(sql, 'sess-guard-old', { activity: 'idle', now: 5_000 });
+        expect(sessionState.markPromptAccepted(sql, 'sess-guard-old', 6_000, 6_000)).toBe(true);
+        sessionState.upsertActivityState(sql, 'sess-guard-old', {
+          activity: 'prompting',
+          promptStartedAt: 6_002,
+          now: 6_100,
+        });
+        // The old turn's last rereport lands late.
+        sessionState.upsertActivityState(sql, 'sess-guard-old', {
+          activity: 'prompting',
+          promptStartedAt: 1_000,
+          now: 6_200,
+        });
+        expect(sessionState.getSessionState(sql, 'sess-guard-old')?.promptStartedAt).toBe(6_002);
+      });
+
+      it('adopts the VM start from a report the upsert drops as stale-ordered', () => {
+        expect(sessionState.markPromptAccepted(sql, 'sess-guard-stale', 20_000, 20_000)).toBe(true);
+        // Message persistence keeps bumping activity_at while the turn streams.
+        sessionState.upsertActivityState(sql, 'sess-guard-stale', {
+          activity: 'prompting',
+          promptStartedAt: 20_000,
+          observedAt: 30_000,
+          now: 30_000,
+        });
+        expect(
+          sessionState.upsertActivityState(sql, 'sess-guard-stale', {
+            activity: 'prompting',
+            promptStartedAt: 20_004,
+            observedAt: 25_000,
+            now: 31_000,
+          })
+        ).toBe(false);
+        expect(sessionState.getSessionState(sql, 'sess-guard-stale')?.promptStartedAt).toBe(20_004);
+      });
     });
 
     it('accepts a newer epoch only through positive prompt acceptance', () => {

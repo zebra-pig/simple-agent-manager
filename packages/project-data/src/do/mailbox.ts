@@ -83,10 +83,9 @@ export function enqueueMessage(sql: SqlStorage, opts: EnqueueOptions): AgentMail
     opts.ackRequired === undefined ? (isDurable ? 1 : 0) : opts.ackRequired ? 1 : 0;
   const ttlMs =
     typeof opts.ttlMs === 'number' && opts.ttlMs > 0 ? opts.ttlMs : MAILBOX_DEFAULTS.TTL_MS;
-  const expiresAt =
-    typeof opts.expiresAt === 'number' && Number.isFinite(opts.expiresAt)
-      ? Math.min(now + ttlMs, opts.expiresAt)
-      : now + ttlMs;
+  const sourceExpiresAt =
+    typeof opts.expiresAt === 'number' && Number.isFinite(opts.expiresAt) ? opts.expiresAt : null;
+  const expiresAt = sourceExpiresAt !== null ? Math.min(now + ttlMs, sourceExpiresAt) : now + ttlMs;
 
   // Enforce per-project message cap
   if (opts.maxMessages && isMailboxAtCapacity(sql, opts.maxMessages)) {
@@ -99,8 +98,8 @@ export function enqueueMessage(sql: SqlStorage, opts: EnqueueOptions): AgentMail
        created_at, delivered_at, message_class, delivery_state, sender_type,
        sender_id, ack_required, acked_at, ack_timeout_ms, expires_at,
        delivery_attempts, last_delivery_at, metadata, source_kind,
-       prompt_message_id, next_attempt_at, durable_delivery, delivery_intent)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?)`,
+       prompt_message_id, next_attempt_at, durable_delivery, delivery_intent, source_expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     opts.targetSessionId,
     opts.sourceTaskId,
@@ -120,7 +119,8 @@ export function enqueueMessage(sql: SqlStorage, opts: EnqueueOptions): AgentMail
     opts.promptMessageId ?? id,
     now,
     opts.durableDelivery ? 1 : 0,
-    opts.deliveryIntent ?? 'queue'
+    opts.deliveryIntent ?? 'queue',
+    sourceExpiresAt
   );
 
   log.info('mailbox.enqueued', {

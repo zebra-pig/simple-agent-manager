@@ -21,7 +21,10 @@ import {
 } from '@simple-agent-manager/project-data/internal/do/prompt-delivery';
 import { runPromptDeliveryClaim } from '@simple-agent-manager/project-data/internal/do/prompt-delivery-runner';
 import * as sessionState from '@simple-agent-manager/project-data/internal/do/session-state';
-import type { PromptDeliverySource } from '@simple-agent-manager/shared';
+import {
+  PROMPT_DELIVERY_BUSY_MAX_WAIT_MS,
+  type PromptDeliverySource,
+} from '@simple-agent-manager/shared';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -185,6 +188,23 @@ describe('ProjectData durable prompt delivery', () => {
       );
     }
   );
+
+  function acceptedPromptResult(acceptedAt: number) {
+    return {
+      kind: 'accepted' as const,
+      acpSessionId: 'acp-1',
+      promptEpoch: acceptedAt,
+      runtimeIdentity: 'runtime-1',
+      capabilities,
+      receipt: {
+        deliveryId: 'delivery-1',
+        state: 'accepted' as const,
+        runtimeIdentity: 'runtime-1',
+        acceptedAt,
+        completedAt: null,
+      },
+    };
+  }
 
   function acceptParentWake(deliveryId: string) {
     acceptPromptDelivery(
@@ -963,6 +983,100 @@ describe('ProjectData durable prompt delivery', () => {
       expiredWakeFailures: [],
     });
     expect(mailbox.getMessage(sql, 'delivery-1')?.terminalReason).toBe('ttl_expired');
+  });
+
+  describe('busy hold (regression: FilmKit long turns, 2026-11-21)', () => {
+    // A follow-up queued behind a turn that runs longer than the delivery TTL used to
+    // expire in retry_wait while that turn was still running.
+    const busy = {
+      kind: 'retry' as const,
+      reason: 'busy' as const,
+      error: 'Target VM is currently processing a prompt',
+      runtimeIdentity: 'runtime-1',
+      capabilities,
+    };
+
+    function parkBusy(deliveryId: string, now: number) {
+      const [claim] = claimDuePromptDeliveries(sql, config, now);
+      expect(claim?.message.id).toBe(deliveryId);
+      expect(applyPromptDeliveryResult(sql, claim!, busy, config, now)).toBe(true);
+      return mailbox.getMessage(sql, deliveryId)!;
+    }
+
+    it('waits through a turn several TTLs long and is delivered at turn end', () => {
+      accept();
+      let now = 10_000;
+      const turnEndsAt = 10_000 + 5 * config.ttlMs;
+      while (now < turnEndsAt) {
+        const pending = parkBusy('delivery-1', now);
+        expect(pending.deliveryState).toBe('retry_wait');
+        // The next busy probe always comes before the delivery could expire.
+        expect(pending.expiresAt!).toBeGreaterThan(pending.nextAttemptAt!);
+        now = pending.nextAttemptAt!;
+        expect(expireDuePromptDeliveries(sql, config, now).expired).toBe(0);
+      }
+
+      // The turn ends: the idle report nudges the target and the VM accepts.
+      expect(nudgePromptDeliveriesForTarget(sql, 'chat-1', now)).toBeGreaterThan(0);
+      const [claim] = claimDuePromptDeliveries(sql, config, now);
+      expect(applyPromptDeliveryResult(sql, claim!, acceptedPromptResult(now), config, now)).toBe(
+        true
+      );
+      expect(mailbox.getMessage(sql, 'delivery-1')).toMatchObject({
+        deliveryState: 'acked',
+        terminalReason: null,
+      });
+    });
+
+    it('still expires one TTL after the target stops answering busy', () => {
+      accept();
+      const pending = parkBusy('delivery-1', 10_000);
+      const holdUntil = pending.expiresAt!;
+      expect(holdUntil).toBe(pending.nextAttemptAt! + config.ttlMs);
+      // The runtime went away: later probes are not_ready, which never extends.
+      const [claim] = claimDuePromptDeliveries(sql, config, pending.nextAttemptAt!);
+      applyPromptDeliveryResult(
+        sql,
+        claim!,
+        { ...busy, reason: 'not_ready', error: 'agent session gone' },
+        config,
+        pending.nextAttemptAt!
+      );
+      expect(mailbox.getMessage(sql, 'delivery-1')?.expiresAt).toBe(holdUntil);
+      expect(expireDuePromptDeliveries(sql, config, holdUntil).expired).toBe(1);
+    });
+
+    it('never extends an explicit sender deadline', () => {
+      acceptPromptDelivery(
+        sql,
+        {},
+        {
+          deliveryId: 'delivery-deadline',
+          targetSessionId: 'chat-1',
+          displayContent: 'Due soon',
+          senderType: 'human',
+          senderId: 'user-1',
+          messageClass: 'deliver',
+          sourceKind: 'user_followup',
+          expiresAt: 40_000,
+        },
+        10_000
+      );
+      expect(parkBusy('delivery-deadline', 10_000).expiresAt).toBe(40_000);
+      expect(expireDuePromptDeliveries(sql, config, 40_000).expired).toBe(1);
+    });
+
+    it('stops extending at the hard ceiling from enqueue', () => {
+      accept();
+      const ceiling = 10_000 + PROMPT_DELIVERY_BUSY_MAX_WAIT_MS;
+      // Fast-forward to just before the ceiling, as if busy probes had held it there.
+      sql.exec(
+        `UPDATE session_inbox SET expires_at = ?, next_attempt_at = ? WHERE id = 'delivery-1'`,
+        ceiling - 1_000,
+        ceiling - 2_000
+      );
+      expect(parkBusy('delivery-1', ceiling - 2_000).expiresAt).toBe(ceiling);
+    });
   });
 
   it('reconciles a stale in-flight attempt without replaying it', () => {

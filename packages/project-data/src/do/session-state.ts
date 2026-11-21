@@ -70,6 +70,47 @@ function normalizeActivityObservedAt(value: number | null | undefined, fallback:
   return Math.trunc(value);
 }
 
+/**
+ * When a `prompting` report's own turn start replaces the stored `prompt_started_at`.
+ *
+ * `prompt_started_at` is the token guarded interrupts send back to the VM, which
+ * compares it with the running attempt's exact start (`CancelPromptGuarded`).
+ * `markPromptAccepted` seeds it with the delivery receipt's accept time, which an
+ * older VM reads before the attempt starts, and a same-turn re-report used to keep
+ * that seed for the whole turn. Every interrupt of such a turn then failed with
+ * `turn_changed`. The VM's report is authoritative for the turn it describes, so it
+ * wins unless it is older than a turn this row already knows: below the newest
+ * start the VM reported, or below the control plane's accepted epoch (a delayed
+ * report from the previous turn). VM epochs only increase (`beginPrompt`).
+ */
+const ADOPT_REPORTED_TURN_START_SQL = `excluded.activity = 'prompting'
+           AND excluded.reported_prompt_started_at IS NOT NULL
+           AND excluded.reported_prompt_started_at >= MAX(
+             COALESCE(session_state.reported_prompt_started_at, 0),
+             COALESCE(session_state.prompt_epoch, 0)
+           )`;
+
+/** The stale-ordered twin of `ADOPT_REPORTED_TURN_START_SQL` for a report the upsert dropped. */
+function adoptStaleReportedTurnStart(
+  sql: SqlStorage,
+  sessionId: string,
+  reportedPromptStartedAt: number | null
+): void {
+  if (reportedPromptStartedAt === null) return;
+  sql.exec(
+    `UPDATE session_state
+     SET prompt_started_at = ?
+     WHERE session_id = ?
+       AND activity = 'prompting'
+       AND prompt_started_at IS NOT ?
+       AND ? >= MAX(COALESCE(reported_prompt_started_at, 0), COALESCE(prompt_epoch, 0))`,
+    reportedPromptStartedAt,
+    sessionId,
+    reportedPromptStartedAt,
+    reportedPromptStartedAt
+  );
+}
+
 export function upsertActivityState(
   sql: SqlStorage,
   sessionId: string,
@@ -126,6 +167,7 @@ export function upsertActivityState(
        activity_at = excluded.activity_at,
        prompt_started_at = CASE
          WHEN excluded.activity NOT IN ('prompting', 'recovering', 'error') THEN NULL
+         WHEN ${ADOPT_REPORTED_TURN_START_SQL} THEN excluded.reported_prompt_started_at
          WHEN session_state.activity IN ('prompting', 'recovering', 'error')
            AND session_state.prompt_started_at IS NOT NULL
            THEN session_state.prompt_started_at
@@ -206,6 +248,9 @@ export function upsertActivityState(
   );
   if (cursor.rowsWritten === 0) {
     // A stale-ordered report still carries the VM's evidence of a new turn.
+    if (update.activity === 'prompting') {
+      adoptStaleReportedTurnStart(sql, sessionId, reportedPromptStartedAt);
+    }
     keepReportedTurnStart(sql, sessionId, reportedPromptStartedAt);
     return false;
   }
@@ -223,8 +268,10 @@ export function upsertActivityState(
  *   evidence?" Used by control-plane observations (cancel, force-stop, dead
  *   target) whose `observedAt` is a wall-clock instant captured BEFORE a slow
  *   VM call (.claude/rules/49). Compares `prompt_started_at`, which is written
- *   once when a turn begins and is explicitly PRESERVED across same-turn
- *   re-reports by `upsertActivityState`, so it is stable for the life of a turn.
+ *   when a turn begins and PRESERVED across same-turn re-reports by
+ *   `upsertActivityState`, so it is stable for the life of a turn. (The VM's
+ *   first report of its own start may replace the control plane's slightly
+ *   earlier accept time; both precede any later observation of the turn.)
  *
  *   It must NOT compare `activity_at`, which is a LAST-REPORT clock:
  *   `refreshWorkingActivityForChatSession` rewrites it to `now` on EVERY

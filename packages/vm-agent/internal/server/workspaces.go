@@ -1755,8 +1755,10 @@ func (s *Server) handleVersionedPromptDelivery(
 		writeVersionedPromptResponse(w, http.StatusConflict, "not_ready", sessionID, receipt)
 		return
 	}
-	receipt, claimed, err := s.store.ClaimPromptDelivery(workspaceID, sessionID,
-		deliveryID, s.executionRuntimeID)
+	// The receipt's acceptedAt becomes the control plane's promptStartedAt for
+	// this turn; carry the attempt's epoch so guarded interrupts match it.
+	receipt, claimed, err := s.store.ClaimPromptDeliveryAt(workspaceID, sessionID,
+		deliveryID, s.executionRuntimeID, accepted.StartedAt())
 	if err != nil || !claimed {
 		claimErr := err
 		if claimErr == nil {

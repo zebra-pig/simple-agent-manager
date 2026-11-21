@@ -1,6 +1,7 @@
-import type {
-  VmPromptDeliveryCapabilities,
-  VmPromptDeliveryReceipt,
+import {
+  PROMPT_DELIVERY_BUSY_MAX_WAIT_MS,
+  type VmPromptDeliveryCapabilities,
+  type VmPromptDeliveryReceipt,
 } from '@simple-agent-manager/shared';
 
 import { type DurableExecutionConfig, promptDeliveryBackoffMs } from './durable-execution-config';
@@ -164,10 +165,20 @@ export function applyPromptDeliveryResult(
     // remains the hard bound. Rows stranded at the cap without an applied
     // result are still failed by expireDuePromptDeliveries above.
     const retryAttemptOrdinal = Math.max(0, config.maxAttempts - 1);
+    // "Busy" is the VM's authoritative 409: a turn is running. A message that cannot
+    // steer into it waits for that turn to end (the idle report nudges it), so its TTL
+    // restarts from each busy probe instead of running out mid-turn. A busy probe
+    // always comes again before the extended deadline. An explicit sender deadline
+    // and PROMPT_DELIVERY_BUSY_MAX_WAIT_MS from enqueue still bound the wait. Rows
+    // without `holdWhileBusy` carry their TTL as source_expires_at, so they never move.
+    const busyHoldUntil = result.reason === 'busy' ? nextAttemptAt + config.ttlMs : null;
     return (
       sql.exec(
         `UPDATE session_inbox
        SET delivery_state = 'retry_wait',
+           expires_at = CASE WHEN ? IS NOT NULL AND expires_at IS NOT NULL
+             THEN MAX(expires_at, MIN(?, COALESCE(source_expires_at, ?), created_at + ?))
+             ELSE expires_at END,
            prompt_delivery_phase = CASE WHEN ? IN ('busy', 'receipt_not_found')
              THEN 'preparing' ELSE prompt_delivery_phase END,
            delivery_attempts = MIN(delivery_attempts, ?),
@@ -179,6 +190,10 @@ export function applyPromptDeliveryResult(
            adapter_protocol_version = ?,
            receipt_supported = ?
        WHERE id = ? AND delivery_state = 'delivering' AND attempt_id = ?`,
+        busyHoldUntil,
+        busyHoldUntil,
+        busyHoldUntil,
+        PROMPT_DELIVERY_BUSY_MAX_WAIT_MS,
         result.reason,
         retryAttemptOrdinal,
         result.reason,

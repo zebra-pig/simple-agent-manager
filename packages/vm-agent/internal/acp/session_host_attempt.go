@@ -46,6 +46,16 @@ type promptAttempt struct {
 	guardedCancel       atomic.Bool // guarded stop/process monitor owns terminal activity
 }
 
+// StartedAt is the accepted attempt's immutable prompt epoch (Unix ms): the
+// value activity reports carry as promptStartedAt and CancelPromptGuarded
+// compares.
+func (p *AcceptedPrompt) StartedAt() int64 {
+	if p == nil || p.attempt == nil {
+		return 0
+	}
+	return p.attempt.startedAt.UnixMilli()
+}
+
 type checkpointRolloverEpisode struct {
 	sessionID    string
 	attempt      *promptAttempt

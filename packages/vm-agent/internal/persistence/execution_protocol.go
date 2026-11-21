@@ -60,13 +60,24 @@ func (s *Store) AcceptPromptDelivery(workspaceID, sessionID, deliveryID string, 
 // ClaimPromptDelivery atomically crosses the durable boundary immediately
 // before agent invocation. A non-accepted receipt is never claimable again.
 func (s *Store) ClaimPromptDelivery(workspaceID, sessionID, deliveryID, runtimeID string) (PromptDeliveryReceipt, bool, error) {
+	return s.ClaimPromptDeliveryAt(workspaceID, sessionID, deliveryID, runtimeID, 0)
+}
+
+// ClaimPromptDeliveryAt claims like ClaimPromptDelivery and, when
+// promptStartedAt is positive, replaces acceptedAt with that prompt epoch
+// (Unix ms). The control plane stores acceptedAt as the turn's
+// promptStartedAt, and guarded cancellation compares the attempt's own start,
+// so the two must be the same value from the first response on.
+func (s *Store) ClaimPromptDeliveryAt(workspaceID, sessionID, deliveryID, runtimeID string, promptStartedAt int64) (PromptDeliveryReceipt, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UnixMilli()
 	result, err := s.db.Exec(`UPDATE prompt_delivery_receipts
-		SET state = ?, runtime_id = ?, updated_at = ?
+		SET state = ?, runtime_id = ?, updated_at = ?,
+			accepted_at = CASE WHEN ? > 0 THEN ? ELSE accepted_at END
 		WHERE workspace_id = ? AND session_id = ? AND delivery_id = ? AND state = ?`,
-		PromptReceiptInFlight, runtimeID, now, workspaceID, sessionID, deliveryID, PromptReceiptAccepted)
+		PromptReceiptInFlight, runtimeID, now, promptStartedAt, promptStartedAt,
+		workspaceID, sessionID, deliveryID, PromptReceiptAccepted)
 	if err != nil {
 		return PromptDeliveryReceipt{}, false, fmt.Errorf("claim prompt delivery: %w", err)
 	}
