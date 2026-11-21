@@ -9,6 +9,7 @@ import { WORKFLOW_TOOLS } from './tool-definitions-workflow-tools';
  * See the individual files for the full schema of each group:
  *   - tool-definitions-task-tools.ts          (task lifecycle, dispatch, notifications)
  *   - tool-definitions-project-awareness.ts   (list/get/search tasks, sessions, messages)
+ *   - tool-definitions-insights-tools.ts      (project_insights: Insights numbers for agents)
  *   - tool-definitions-session-idea-tools.ts  (session management, idea CRUD, linking)
  *   - tool-definitions-workspace-tools.ts     (workspace info, env, CI, cost, onboarding)
  *   - tool-definitions-library-tools.ts       (project file library)
@@ -24,6 +25,7 @@ import { WORKFLOW_TOOLS } from './tool-definitions-workflow-tools';
 export { COMMENT_TOOLS } from './tool-definitions-comment-tools';
 export { DEPLOYMENT_TOOLS } from './tool-definitions-deployment-tools';
 export { PROJECT_EVENT_SUBSCRIPTION_TOOLS } from './tool-definitions-event-subscription-tools';
+export { INBOX_TOOLS } from './tool-definitions-inbox-tools';
 export { INCIDENT_TOOLS } from './tool-definitions-incident-tools';
 export { KNOWLEDGE_TOOLS } from './tool-definitions-knowledge-tools';
 export { LIBRARY_FILE_COMMENT_TOOLS } from './tool-definitions-library-file-comment-tools';
@@ -46,7 +48,9 @@ import { AGENT_MODEL_TOOLS } from './tool-definitions-agent-model-tools';
 import { COMMENT_TOOLS } from './tool-definitions-comment-tools';
 import { DEPLOYMENT_TOOLS } from './tool-definitions-deployment-tools';
 import { PROJECT_EVENT_SUBSCRIPTION_TOOLS } from './tool-definitions-event-subscription-tools';
+import { INBOX_TOOLS } from './tool-definitions-inbox-tools';
 import { INCIDENT_TOOLS } from './tool-definitions-incident-tools';
+import { INSIGHTS_TOOLS } from './tool-definitions-insights-tools';
 import { KNOWLEDGE_TOOLS } from './tool-definitions-knowledge-tools';
 import { LIBRARY_FILE_COMMENT_TOOLS } from './tool-definitions-library-file-comment-tools';
 import { LIBRARY_TOOLS } from './tool-definitions-library-tools';
@@ -70,7 +74,9 @@ export const MCP_TOOLS = [
   ...SECRET_EXEC_TOOLS,
   ...SECRET_REQUEST_TOOLS,
   ...TASK_LIFECYCLE_TOOLS,
+  ...INBOX_TOOLS,
   ...PROJECT_AWARENESS_TOOLS,
+  ...INSIGHTS_TOOLS,
   ...SESSION_IDEA_TOOLS,
   ...WORKSPACE_TOOLS,
   ...AGENT_MODEL_TOOLS,

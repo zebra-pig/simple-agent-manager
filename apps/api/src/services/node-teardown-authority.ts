@@ -8,7 +8,7 @@
  * proven from the instance itself: immediately before the provider delete, the instance is re-read
  * and must carry the recorded provider instance ID and every exact SAM ownership label (managed,
  * node, role, environment, installation, runtime incarnation). This is the destructive ownership
- * proof `packages/providers/.claude/rules/56` requires. A VM that does not prove ownership is
+ * proof `.claude/rules/56` requires. A VM that does not prove ownership is
  * preserved, and a credential that cannot see the VM never counts as proof it is gone.
  *
  * Every refusal on the current-credential path is a {@link NodeTeardownBlockedError} naming its
@@ -58,6 +58,18 @@ export const NODE_TEARDOWN_BLOCKED_REASONS = [
   'teardown_delete_refused',
   /** A started provider deletion is still not confirmed by the provider's own record. */
   'teardown_deletion_unconfirmed',
+  /**
+   * Providerless node: its pinned credential row still exists and is enabled, but its secret was
+   * re-saved or rotated after placement. Only that exact generation could prove the node's VM was
+   * never created, so SAM can never finish this node by itself; an operator must attest.
+   */
+  'teardown_credential_generation_changed',
+  /**
+   * Providerless node: the exact credential's complete inventory shows no server for this node.
+   * List absence is never accepted as allocation finality (a late create stays discoverable),
+   * so an operator must attest that the create never produced a server.
+   */
+  'teardown_allocation_unresolved',
 ] as const;
 
 export type NodeTeardownBlockedReason = (typeof NODE_TEARDOWN_BLOCKED_REASONS)[number];

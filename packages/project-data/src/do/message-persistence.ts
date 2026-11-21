@@ -3,10 +3,13 @@ import { createModuleLogger } from '@simple-agent-manager/worker-core';
 import * as activity from './activity';
 import * as attention from './attention';
 import * as idleCleanup from './idle-cleanup';
+import type { MessageIngestMetrics } from './message-ingest-metrics';
+import type { MessageIngestSource, MessageMergeConfig } from './message-stream-ingest';
 import * as messages from './messages';
 import { observeReconciliationMessage } from './reconciliation-episode';
 import * as sessionState from './session-state';
 import type { SessionIdentityGuard } from './sessions';
+import { hydrateCanonicalTools } from './tool-call-hydration';
 import type { Env } from './types';
 
 const log = createModuleLogger('project_data.messages');
@@ -22,9 +25,21 @@ export type BatchMessageInput = {
 };
 
 export type MessagePersistenceHooks = {
+  isLegacyToolClient?: (sessionId: string) => boolean;
+  recordMessageIngest?: (metrics: MessageIngestMetrics) => void;
+  transactionSync?: <T>(fn: () => T) => T;
   recalculateAlarm: () => Promise<void>;
   scheduleSummarySync: () => void;
   broadcastEvent: (type: string, payload: Record<string, unknown>, sessionId?: string) => void;
+  /**
+   * A person's chat message answers the chat's open questions in D1 `asks` (inbox slice G), as it
+   * resolves its attention markers. Never throws (`question-asks.ts`).
+   */
+  closeQuestionAsks?: (
+    sessionId: string,
+    messageId: string,
+    messageCreatedAt: number
+  ) => Promise<unknown>;
 };
 
 export type MessageBatchPersistenceResult = {
@@ -78,7 +93,10 @@ export async function runPersistedMessageSideEffects(
   }
 ): Promise<void> {
   const attentionResolution = resolveAttentionForRoles(sql, hooks, sessionId, [
-    { id: result.id, role },
+    {
+      id: result.id,
+      role: isInboxReply(parseToolMetadata(result.toolMetadata, sessionId)) ? 'inbox_reply' : role,
+    },
   ]);
   observeReconciliationMessage(
     sql,
@@ -122,6 +140,14 @@ export async function runPersistedMessageSideEffects(
     },
     sessionId
   );
+  await closeQuestionsForHumanMessage(hooks, sessionId, [
+    {
+      id: result.id,
+      role,
+      createdAt: result.now,
+      toolMetadata: parseToolMetadata(result.toolMetadata, sessionId),
+    },
+  ]);
 }
 
 export async function persistMessageBatchWithSideEffects(
@@ -129,9 +155,34 @@ export async function persistMessageBatchWithSideEffects(
   env: Env,
   hooks: MessagePersistenceHooks,
   sessionId: string,
-  batchMessages: BatchMessageInput[]
+  batchMessages: BatchMessageInput[],
+  merge?: {
+    source?: MessageIngestSource;
+    config: MessageMergeConfig;
+    metrics?: MessageIngestMetrics;
+  }
 ): Promise<MessageBatchPersistenceResult> {
-  const result = messages.persistMessageBatch(sql, env, sessionId, batchMessages);
+  if (merge && hooks.isLegacyToolClient?.(sessionId))
+    merge.config = { ...merge.config, toolLegacyClient: true };
+  const hydration =
+    merge?.config.toolUpdatesEnabled && merge.source?.outboxIncarnation
+      ? await hydrateCanonicalTools(sql, env, sessionId, merge.source, batchMessages, merge.config)
+      : undefined;
+  // Browser admission may interleave with R2 I/O; fence legacy caches at commit time.
+  if (merge && hooks.isLegacyToolClient?.(sessionId))
+    merge.config = { ...merge.config, toolLegacyClient: true };
+  const persist = () =>
+    messages.persistMessageBatch(
+      sql,
+      env,
+      sessionId,
+      batchMessages,
+      merge ? { ...merge, hydration } : undefined
+    );
+  const result = hooks.transactionSync ? hooks.transactionSync(persist) : persist();
+  if (merge?.metrics) merge.metrics.toolHydratedRows = hydration?.size ?? 0;
+  // Publish only after the synchronous transaction commits; later effects may fail.
+  if (merge?.metrics) hooks.recordMessageIngest?.(merge.metrics);
   if (result.persisted === 0) {
     return {
       persisted: result.persisted,
@@ -151,7 +202,11 @@ export async function persistMessageBatchWithSideEffects(
   for (const message of result.persistedMessages) {
     observeReconciliationMessage(sql, env, sessionId, message, hooks.broadcastEvent);
   }
-  const idleReset = idleCleanup.resetIdleCleanup(sql, env, sessionId);
+  // Batches arrive every few seconds during a turn; coalesce the deadline extension and the
+  // alarm re-arm it needs (`resetIdleCleanup`), instead of 4 row writes per batch.
+  const idleReset = idleCleanup.resetIdleCleanup(sql, env, sessionId, {
+    extendIntervalMs: merge?.config.idleExtendIntervalMs,
+  });
   if (idleReset.cleanupAt > 0) await hooks.recalculateAlarm();
 
   // Extract latest plan message from the batch to update session state
@@ -178,9 +233,12 @@ export async function persistMessageBatchWithSideEffects(
   hooks.scheduleSummarySync();
   hooks.broadcastEvent(
     'messages.batch',
-    { sessionId, messages: result.persistedMessages, count: result.persisted },
+    { sessionId, messages: result.broadcastMessages, count: result.persisted },
     sessionId
   );
+  for (const append of result.appends)
+    hooks.broadcastEvent('message.append', { ...append }, sessionId);
+  await closeQuestionsForHumanMessage(hooks, sessionId, result.persistedMessages);
   return {
     persisted: result.persisted,
     duplicates: result.duplicates,
@@ -194,9 +252,16 @@ async function resolveAttentionForRoles(
   sql: SqlStorage,
   hooks: MessagePersistenceHooks,
   sessionId: string,
-  persistedMessages: Array<{ id: string; role: string; origin?: string | null }>
+  persistedMessages: Array<{
+    id: string;
+    role: string;
+    origin?: string | null;
+    toolMetadata?: unknown;
+  }>
 ): Promise<void> {
-  const firstUserMsg = persistedMessages.find((m) => m.role === 'user' && m.origin !== 'system');
+  const firstUserMsg = persistedMessages.find(
+    (m) => m.role === 'user' && m.origin !== 'system' && !isInboxReply(m.toolMetadata)
+  );
   const firstAssistantMsg = persistedMessages.find((m) => m.role === 'assistant');
   let resolved = 0;
   let reason: string | null = null;
@@ -226,6 +291,39 @@ async function resolveAttentionForRoles(
     await hooks.recalculateAlarm();
     hooks.broadcastEvent('attention.resolved', { sessionId, count: resolved, reason }, sessionId);
   }
+}
+
+/**
+ * A person's message answers the chat's open questions in D1 `asks` (inbox slice G), as it
+ * resolves the chat's markers above. Run after the live broadcast, so a D1 round trip never
+ * delays it; never throws (`question-asks.ts`).
+ */
+async function closeQuestionsForHumanMessage(
+  hooks: MessagePersistenceHooks,
+  sessionId: string,
+  persistedMessages: Array<{
+    id: string;
+    role: string;
+    origin?: string | null;
+    toolMetadata?: unknown;
+    createdAt: number;
+  }>
+): Promise<void> {
+  const firstUserMsg = persistedMessages.find(
+    (m) => m.role === 'user' && m.origin !== 'system' && !isInboxReply(m.toolMetadata)
+  );
+  if (firstUserMsg) {
+    await hooks.closeQuestionAsks?.(sessionId, firstUserMsg.id, firstUserMsg.createdAt);
+  }
+}
+
+function isInboxReply(metadata: unknown): boolean {
+  return Boolean(
+    metadata &&
+    typeof metadata === 'object' &&
+    'source' in metadata &&
+    metadata.source === 'inbox_reply'
+  );
 }
 
 function parseToolMetadata(toolMetadata: string | null, sessionId: string): unknown {

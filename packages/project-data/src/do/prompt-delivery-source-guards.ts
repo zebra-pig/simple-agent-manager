@@ -10,7 +10,11 @@ import {
 } from '@simple-agent-manager/shared';
 
 import { projectDataPorts, type SessionRecoverySourceTaskGuard } from './ports';
-import type { PromptDeliveryClaim, PromptDeliveryResult } from './prompt-delivery';
+import {
+  type PromptDeliveryClaim,
+  promptDeliveryClaimSubmissionCheckpoint,
+  type PromptDeliveryResult,
+} from './prompt-delivery';
 import { labelUndeliveredPrompt, senderLacksSessionAccess } from './session-access';
 import type { Env } from './types';
 
@@ -184,6 +188,9 @@ export function sourceTaskGuardForClaim(
     // A secret request outcome wakes the requesting agent only while its task (or that task's
     // own session-recovery successor) is live, for the same reason.
     claim.message.sourceKind !== 'secret_request' &&
+    // An inbox ask notice (archived / expired) wakes the filing agent only while its task (or
+    // that task's own session-recovery successor) is live, for the same reason.
+    claim.message.sourceKind !== 'inbox_ask' &&
     // A continuation re-wakes the chat only while its own task is live: unguarded, the
     // recovery claim would reactivate even a terminal task.
     claim.message.sourceKind !== 'checkpoint_continuation'
@@ -207,7 +214,8 @@ export function sourceTaskGuardForClaim(
     ...((claim.message.sourceKind === 'scheduled_action' ||
       claim.message.sourceKind === 'github_trigger' ||
       // A secret request outcome only wakes a requester who is still an active project member.
-      claim.message.sourceKind === 'secret_request') &&
+      claim.message.sourceKind === 'secret_request' ||
+      claim.message.sourceKind === 'inbox_ask') &&
     typeof metadata.creatorUserId === 'string'
       ? { requiredProjectMemberId: metadata.creatorUserId }
       : {}),
@@ -220,14 +228,17 @@ export async function invalidProjectEventWakeSourceTaskResult(
   claim: PromptDeliveryClaim
 ): Promise<PromptDeliveryResult | null> {
   if (
-    claim.message.sourceKind === 'secret_request' &&
+    (claim.message.sourceKind === 'secret_request' || claim.message.sourceKind === 'inbox_ask') &&
     typeof claim.message.metadata?.creatorUserId !== 'string'
   ) {
     // Without the requester the membership guard cannot be built; refuse rather than wake.
     return {
       kind: 'failed',
       reason: 'terminal_target',
-      error: 'Secret request notice has no requester',
+      error:
+        claim.message.sourceKind === 'inbox_ask'
+          ? 'Inbox ask notice has no requester'
+          : 'Secret request notice has no requester',
       runtimeIdentity: claim.message.runtimeIdentity,
       capabilities: null,
     };
@@ -293,6 +304,19 @@ export function invalidSessionWriterSenderResult(
   if (claim.mode !== 'submit') return null;
   const denied = senderLacksSessionAccess(sql, claim.message);
   if (!denied) return null;
+  const submission = promptDeliveryClaimSubmissionCheckpoint(sql, claim);
+  if (submission) {
+    // The checkpoint precedes the transport guard as well as receipt lookup.
+    // Still refuse a new send, but never label a possibly issued prompt as unsent.
+    return {
+      kind: 'ambiguous',
+      reason: 'receipt_unavailable',
+      error: denied.error,
+      runtimeIdentity: submission.runtimeIdentity,
+      capabilities: null,
+      receipt: null,
+    };
+  }
   // The sweep labels prompts it cancels; label here too, so a prompt that reached delivery
   // between an expiry and the sweep does not read as delivered.
   if (denied.deliveryCancelled && claim.message.promptMessageId) {

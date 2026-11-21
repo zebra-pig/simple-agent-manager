@@ -1,4 +1,5 @@
 /** Canonical trigger creation shared by authenticated REST and project-scoped MCP. */
+import { cronToNextFire, validateCronExpression } from '@simple-agent-manager/cron';
 import {
   ResourceRequirementsValidationError,
   serializeResourceRequirementsInput,
@@ -20,12 +21,12 @@ import type * as v from 'valibot';
 import * as schema from '../db/schema';
 import type { Env } from '../env';
 import { parsePositiveInt } from '../lib/route-helpers';
+import { getTokenHashKey } from '../lib/secrets';
 import { ulid } from '../lib/ulid';
 import { errors } from '../middleware/error';
 import type { CreateTriggerSchema } from '../schemas/triggers';
 import { generateAddressKey } from './agent-email/address';
 import { requireAgentEmailOn, resolveAllowedSenders } from './agent-email/trigger-config';
-import { cronToNextFire, validateCronExpression } from './cron-utils';
 import { validateGitHubTriggerQueueConfig } from './github-trigger-config';
 import type { McpTokenData } from './mcp-token';
 import { clearTriggerPageCaches } from './trigger-cache';
@@ -285,7 +286,7 @@ export async function createTrigger(
       : undefined;
   let webhookToken: Awaited<ReturnType<typeof createWebhookTokenMaterial>> | undefined;
   if (body.sourceType === 'webhook' && body.webhookConfig) {
-    webhookToken = await createWebhookTokenMaterial(env.ENCRYPTION_KEY);
+    webhookToken = await createWebhookTokenMaterial(getTokenHashKey(env));
     await db.batch([
       db.insert(schema.triggers).values(values),
       db

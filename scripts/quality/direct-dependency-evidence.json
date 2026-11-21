@@ -1,6 +1,11 @@
 {
   "$schema": "./fixtures/supply-chain/direct-dependency-evidence.schema.json",
   "npm": {
+    "@ai-sdk/openai-compatible": {
+      "registryUrl": "https://www.npmjs.com/package/@ai-sdk/openai-compatible",
+      "homepageUrl": "https://ai-sdk.dev/providers/openai-compatible-providers",
+      "necessity": "Exposes the typed custom fetch extension for guarded OpenAI-compatible SAM endpoint calls; Mastra model routing has no such hook. Reuses the existing transitive 2.0.87 version with no new resolved SDK version; actual doGenerate is integration-tested."
+    },
     "@astrojs/check": {
       "registryUrl": "https://www.npmjs.com/package/@astrojs/check",
       "necessity": "Validates Astro templates and embedded TypeScript."
@@ -50,6 +55,11 @@
       "registryUrl": "https://www.npmjs.com/package/@playwright/test",
       "necessity": "Executes browser evidence and screenshot checks."
     },
+    "@remix-run/multipart-parser": {
+      "registryUrl": "https://www.npmjs.com/package/@remix-run/multipart-parser",
+      "homepageUrl": "https://github.com/remix-run/remix/tree/main/packages/multipart-parser",
+      "necessity": "Stable incremental multipart parsing bounds Library request bytes, parts and headers without Hono's full-body cache; preserves existing whole-file encryption and storage. Native formData materializes the full multipart body before application limits can run."
+    },
     "@storybook/addon-a11y": {
       "registryUrl": "https://www.npmjs.com/package/@storybook/addon-a11y",
       "necessity": "Adds Storybook accessibility testing integration."
@@ -81,6 +91,11 @@
     "@types/node": {
       "registryUrl": "https://www.npmjs.com/package/@types/node",
       "necessity": "Types for node:crypto, which project-data's archive hashing uses under the Worker's nodejs_compat; same catalog version as the root."
+    },
+    "@types/pako": {
+      "registryUrl": "https://www.npmjs.com/package/@types/pako",
+      "homepageUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/pako",
+      "necessity": "Type declarations for the pako incremental compression API used by the self-host git engine and its resource-boundary tests."
     },
     "@typescript-eslint/eslint-plugin": {
       "registryUrl": "https://www.npmjs.com/package/@typescript-eslint/eslint-plugin",
@@ -138,9 +153,17 @@
       "registryUrl": "https://www.npmjs.com/package/fast-check",
       "necessity": "Property-based generator for the scheduler lifecycle simulation in scheduler-core; already the API worker's test dependency at the same pinned version."
     },
+    "gaxios": {
+      "registryUrl": "https://www.npmjs.com/package/gaxios",
+      "necessity": "Bounds metadata and STS transport timeouts, redirects and response sizes for the isolated self-host CAB broker."
+    },
     "globals": {
       "registryUrl": "https://www.npmjs.com/package/globals",
       "necessity": "Defines explicit flat-config runtime globals."
+    },
+    "google-auth-library": {
+      "registryUrl": "https://www.npmjs.com/package/google-auth-library",
+      "necessity": "Official Google STS token exchange applies a fixed fleet-bucket Credential Access Boundary; the source VM token never leaves the broker."
     },
     "idb-keyval": {
       "registryUrl": "https://www.npmjs.com/package/idb-keyval",
@@ -157,6 +180,11 @@
     "oxlint": {
       "registryUrl": "https://www.npmjs.com/package/oxlint",
       "necessity": "Measures native lint findings in shadow mode."
+    },
+    "pako": {
+      "registryUrl": "https://www.npmjs.com/package/pako",
+      "homepageUrl": "https://github.com/nodeca/pako",
+      "necessity": "Incremental zlib Inflate callbacks let the self-host-only git engine enforce output budgets before retaining decompressed objects; native one-shot decompression cannot apply those bounds. Excluded from the Cloudflare import graph."
     },
     "postal-mime": {
       "registryUrl": "https://www.npmjs.com/package/postal-mime",
@@ -237,6 +265,26 @@
     "golang.org/x/vuln/cmd/govulncheck": {
       "registryUrl": "https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck",
       "necessity": "Pins the official govulncheck CLI used by the diff-local Go vulnerability gate."
+    },
+    "blitiri.com.ar/go/spf": {
+      "registryUrl": "https://pkg.go.dev/blitiri.com.ar/go/spf",
+      "homepageUrl": "https://blitiri.com.ar/git/r/spf",
+      "necessity": "sam-mx (self-host inbound agent email) checks the sending host SPF record before accepting mail for an agent address (auth.go)."
+    },
+    "github.com/emersion/go-msgauth": {
+      "registryUrl": "https://pkg.go.dev/github.com/emersion/go-msgauth",
+      "homepageUrl": "https://github.com/emersion/go-msgauth",
+      "necessity": "sam-mx verifies DKIM signatures before relaying inbound agent email to the Worker, and parses DMARC records when relaxed alignment is enabled (auth.go)."
+    },
+    "github.com/emersion/go-smtp": {
+      "registryUrl": "https://pkg.go.dev/github.com/emersion/go-smtp",
+      "homepageUrl": "https://github.com/emersion/go-smtp",
+      "necessity": "sam-mx is an SMTP server; go-smtp provides the protocol server and session handling for inbound agent email (main.go, session.go)."
+    },
+    "golang.org/x/net": {
+      "registryUrl": "https://pkg.go.dev/golang.org/x/net",
+      "homepageUrl": "https://go.googlesource.com/net",
+      "necessity": "sam-mx uses publicsuffix.EffectiveTLDPlusOne to find the organizational domain for relaxed DMARC alignment and the DMARC record fallback (auth.go)."
     }
   }
 }

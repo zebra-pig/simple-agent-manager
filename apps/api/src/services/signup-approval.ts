@@ -11,8 +11,13 @@ const log = createModuleLogger('signup-approval');
 
 export const SIGNUP_APPROVAL_SETTING_KEY = 'signup.requireApproval';
 
+/**
+ * Signup approval is on unless the deployment explicitly opts out with `REQUIRE_APPROVAL=false`.
+ * Any other value, including unset or a typo, keeps it on: an internet-facing installation must not
+ * hand active accounts to anyone who can sign in by default.
+ */
 function envRequiresApproval(env: Env): boolean {
-  return env.REQUIRE_APPROVAL === 'true';
+  return env.REQUIRE_APPROVAL?.trim().toLowerCase() !== 'false';
 }
 
 function parseStoredBoolean(value: string | null | undefined): boolean | null {
@@ -120,18 +125,40 @@ export async function assertSessionUserApproved(
   assertUserAllowedBySignupApproval(await isSignupApprovalRequired(env), user);
 }
 
+/**
+ * Resolve a stored `signup.requireApproval` value exactly as `getSignupApprovalConfig` does:
+ * a missing or unparseable row falls back to `REQUIRE_APPROVAL`. Lets a caller that already
+ * joined the setting row into its own query apply the gate without a second D1 read.
+ */
+export function signupApprovalRequiredFromStoredValue(
+  env: Env,
+  value: string | null | undefined
+): boolean {
+  const parsed = parseStoredBoolean(value);
+  if (parsed !== null) return parsed;
+  if (value !== null && value !== undefined) {
+    log.error('invalid_runtime_value', { key: SIGNUP_APPROVAL_SETTING_KEY });
+  }
+  return envRequiresApproval(env);
+}
+
+/** True when signup approval denies this account (REST answers `APPROVAL_REQUIRED`). */
+export function isBlockedBySignupApproval(
+  requireApproval: boolean,
+  user: { role?: string | null; status?: string | null }
+): boolean {
+  if (!requireApproval) return false;
+  const isAdmin = user.role === 'superadmin' || user.role === 'admin';
+  return user.status !== 'active' && !isAdmin;
+}
+
 export function assertUserAllowedBySignupApproval(
   requireApproval: boolean,
   user: { role?: string | null; status?: string | null }
 ): void {
   assertUserNotSuspended(user);
 
-  if (!requireApproval) {
-    return;
-  }
-
-  const isAdmin = user.role === 'superadmin' || user.role === 'admin';
-  if (user.status !== 'active' && !isAdmin) {
+  if (isBlockedBySignupApproval(requireApproval, user)) {
     throw new AppError(403, 'APPROVAL_REQUIRED', 'Your account is pending admin approval');
   }
 }

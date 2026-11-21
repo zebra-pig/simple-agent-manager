@@ -2,6 +2,7 @@ import type {
   ToolCallContentItem,
   UserMessageAttribution,
   UserMessageDelivery,
+  UserMessageInboxReply,
 } from '@simple-agent-manager/acp-client';
 import {
   AgentCrashReportView,
@@ -10,10 +11,13 @@ import {
   RawFallbackView,
   ThinkingBlock as AcpThinkingBlock,
 } from '@simple-agent-manager/acp-client';
+import { Inbox } from 'lucide-react';
 import { memo, useCallback } from 'react';
+import { Link } from 'react-router';
 
 import { useGlobalAudio } from '../../contexts/GlobalAudioContext';
 import { getTtsApiUrl } from '../../lib/api';
+import { projectInboxItemPath } from '../../lib/project-routes';
 import { noticeOf, systemRowNotice } from './sam-notice/notice-items';
 import { NoticeRow } from './sam-notice/NoticeRow';
 import type { DisplayItem } from './tool-call-groups';
@@ -51,6 +55,46 @@ function UserMessageAttributionLine({ attribution }: { attribution: UserMessageA
           {attribution.notDelivered === 'access_expired'
             ? 'Not delivered — access expired'
             : 'Not delivered — access was removed'}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Above a user message sent as a reply from the inbox: which item it is about. Opens the item in
+ * the project inbox. The title is the agent's own text from when the reply was sent.
+ */
+function InboxReplyChip({
+  inboxReply,
+  projectId,
+}: {
+  inboxReply: UserMessageInboxReply;
+  projectId?: string;
+}) {
+  const label = `Re: ${inboxReply.title ?? 'an inbox item'}`;
+  const chip =
+    'sam-raised flex min-h-11 max-w-[85%] min-w-0 items-center gap-1.5 rounded-full px-3 text-xs text-fg-secondary no-underline sm:min-h-9';
+  const content = (
+    <>
+      <Inbox size={13} aria-hidden="true" className="shrink-0 text-fg-muted" />
+      <span className="min-w-0 truncate">{label}</span>
+    </>
+  );
+  return (
+    <div className="mb-1 flex justify-end" data-testid="inbox-reply-chip">
+      {projectId ? (
+        <Link
+          to={projectInboxItemPath(projectId, inboxReply.ref)}
+          className={`${chip} hover:text-fg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring`}
+          title={label}
+          aria-label={`Open the inbox item: ${inboxReply.title ?? 'an inbox item'}`}
+        >
+          {content}
+        </Link>
+      ) : (
+        <span className={chip} title={label}>
+          {content}
         </span>
       )}
     </div>
@@ -107,6 +151,13 @@ interface AcpConversationItemViewProps {
   onToggleGroup?: (groupId: string) => void;
   /** True when this group is the tail row and the agent is mid-turn. */
   groupLive?: boolean;
+  /**
+   * Whether server read-aloud (text-to-speech) exists on this installation. Read once by the
+   * list that owns the rows (`usePlatformCapabilities`) and passed down as a primitive, so a
+   * long conversation is one query observer, and rows re-render only if the answer changes.
+   * Without it the bubble falls back to the browser's own speech synthesis.
+   */
+  serverTextToSpeech: boolean;
 }
 
 const NOTICE_DELIVERY_PROBLEMS: ReadonlySet<UserMessageDelivery['status']> = new Set([
@@ -128,6 +179,7 @@ function AcpConversationItemViewImpl({
   groupExpanded,
   onToggleGroup,
   groupLive,
+  serverTextToSpeech,
 }: AcpConversationItemViewProps) {
   // Depend on `startPlayback` (a stable useCallback) rather than the whole
   // GlobalAudio context value — that value is memoized but re-created as
@@ -162,7 +214,7 @@ function AcpConversationItemViewImpl({
     });
   }, [startPlayback, audioId, audioText]);
 
-  const handlePlayAudio = isAgentMessage ? playAudio : undefined;
+  const handlePlayAudio = isAgentMessage && serverTextToSpeech ? playAudio : undefined;
 
   switch (item.kind) {
     case 'user_message': {
@@ -191,6 +243,7 @@ function AcpConversationItemViewImpl({
       // The timestamp is what turns on the bubble's Info + Copy actions.
       return (
         <>
+          {item.inboxReply && <InboxReplyChip inboxReply={item.inboxReply} projectId={projectId} />}
           {item.attribution && <UserMessageAttributionLine attribution={item.attribution} />}
           <AcpMessageBubble
             text={item.text}
@@ -211,7 +264,7 @@ function AcpConversationItemViewImpl({
           streaming={item.streaming}
           animated={animateText}
           timestamp={item.timestamp}
-          ttsApiUrl={getTtsUrl()}
+          ttsApiUrl={serverTextToSpeech ? getTtsUrl() : undefined}
           ttsStorageId={item.id}
           onPlayAudio={handlePlayAudio}
           onFileClick={onFileClick}

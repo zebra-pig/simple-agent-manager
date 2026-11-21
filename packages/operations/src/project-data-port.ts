@@ -20,6 +20,10 @@ import type {
   ProjectSchedule,
   ProjectScheduleList,
   ProjectScheduleMutationResult,
+  RunNudgeCounts,
+  RunNudgeWindow,
+  RunReceiptFacts,
+  RunReceiptFactsInput,
   SchedulePromptAuthor,
 } from '@simple-agent-manager/shared';
 
@@ -157,6 +161,16 @@ export interface OperationProjectDataPort {
   resolveTranscriptOwner(projectId: string, sessionId: string): Promise<ProjectDataArchiveLocation>;
   getMailboxMessage(projectId: string, messageId: string): Promise<AgentMailboxMessage | null>;
   listActiveAttentionMarkers(projectId: string, sessionId: string): Promise<AttentionMarker[]>;
+  /** Awake chats whose agent is mid-turn (`project-data/do/session-state-read.ts`). */
+  listWorkingChatSessionIds(projectId: string): Promise<string[]>;
+  /** One chat's run-receipt facts for a window (`project-data/do/run-receipt-facts.ts`). */
+  getRunReceiptFacts(projectId: string, input: RunReceiptFactsInput): Promise<RunReceiptFacts>;
+  /** Human follow-ups per run window (`project-data/do/run-nudges.ts`). */
+  countRunNudges(
+    projectId: string,
+    windows: RunNudgeWindow[],
+    maxWindows: number
+  ): Promise<RunNudgeCounts>;
   searchKnowledgeObservations(
     projectId: string,
     query: string,

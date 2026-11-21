@@ -21,6 +21,14 @@ export interface UserMessage {
   attribution?: UserMessageAttribution;
   /** Present when the sender asked to steer the agent's running turn. */
   delivery?: UserMessageDelivery;
+  /** Present when the message is a reply to an inbox item, sent from the inbox. */
+  inboxReply?: UserMessageInboxReply;
+}
+
+/** The inbox item a user message replies to. `title` is the item's title when the reply was sent. */
+export interface UserMessageInboxReply {
+  ref: string;
+  title: string | null;
 }
 
 /**
@@ -88,6 +96,8 @@ export interface ToolCallItem {
   contentSize?: number;
   /** Whether content has been lazy-loaded (false = needs fetch on expand). */
   contentLoaded?: boolean;
+  /** Durable snapshot revision; invalidates cached and in-flight lazy output. */
+  revision?: number;
   /** Message ID for lazy-loading content via the tool-content endpoint. */
   messageId?: string;
 }

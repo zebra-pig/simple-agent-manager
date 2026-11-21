@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 
 import * as schema from '../db/schema';
 import type { Env } from '../env';
+import { getTokenHashKey } from '../lib/secrets';
 import { ulid } from '../lib/ulid';
 import {
   getUserId,
@@ -117,7 +118,7 @@ apiTokenRoutes.post(
 
     const tokenBytes = parseInt(c.env.API_TOKEN_BYTES || '', 10) || DEFAULT_TOKEN_BYTES;
     const rawToken = generateToken(tokenBytes);
-    const tokenHash = await hmacToken(rawToken, c.env.ENCRYPTION_KEY);
+    const tokenHash = await hmacToken(rawToken, getTokenHashKey(c.env));
     const id = ulid();
 
     await db.insert(schema.apiTokens).values({
@@ -164,7 +165,7 @@ apiTokenRoutes.post(
       throw errors.unauthorized('Invalid token format');
     }
 
-    const tokenHash = await hmacToken(rawToken, c.env.ENCRYPTION_KEY);
+    const tokenHash = await hmacToken(rawToken, getTokenHashKey(c.env));
     const db = drizzle(c.env.DATABASE, { schema });
 
     const tokenRecord = await db
@@ -198,7 +199,7 @@ apiTokenRoutes.post(
       .set({ lastUsedAt: new Date() })
       .where(eq(schema.apiTokens.id, tokenRecord.id));
 
-    return buildSessionLoginResponse(c.env, user);
+    return buildSessionLoginResponse(c.env, user, c.req.raw.headers);
   }
 );
 

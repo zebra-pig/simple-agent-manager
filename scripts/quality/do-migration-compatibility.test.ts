@@ -142,12 +142,21 @@ describe('resolveDurableObjectMigrations', () => {
     expect(envConfig.migrations).toEqual(history);
   });
 
+  it('adds the builder SQLite class after the immutable deployed v22 prefix', () => {
+    const history = loadCheckedInMigrations();
+    const resolved = resolveDurableObjectMigrations(history, 'v22');
+    expect(resolved.slice(0, 22)).toEqual(history.slice(0, 22));
+    expect(resolved.slice(22)).toEqual([
+      { tag: 'v23', new_sqlite_classes: ['ComposeBuilderContainer'] },
+    ]);
+  });
+
   it('appends both Reliability SQLite classes after an unchanged deployed v21 prefix', () => {
     const history = loadCheckedInMigrations();
     const resolved = resolveDurableObjectMigrations(history, 'v21');
     expect(resolved.slice(0, 21)).toEqual(history.slice(0, 21));
     resolved.slice(0, 21).forEach((entry, index) => expect(entry).toBe(history[index]));
-    expect(resolved.slice(21)).toEqual([
+    expect(resolved.slice(21, 22)).toEqual([
       { tag: 'v22', new_sqlite_classes: ['McpRateCounter', 'WorkspaceBootLog'] },
       { tag: 'v23', new_sqlite_classes: ['InstantLaunchRunner'] },
     ]);

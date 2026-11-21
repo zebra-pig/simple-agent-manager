@@ -1,5 +1,6 @@
 import {
   applyGcpBootDiskPolicy,
+  applyInfomaniakBootVolumeSize,
   createProvider,
   type GcpBootDiskPolicy,
   type GcpPriceTable,
@@ -24,10 +25,11 @@ import { log, serializeError } from '../lib/logger';
 import { getCredentialEncryptionKey } from '../lib/secrets';
 import { resolveAdminSetting } from './admin-settings-resolution';
 import { decrypt } from './encryption';
-import { withDeadline } from './fetch-timeout';
+import { IoTimeoutError, withDeadline } from './fetch-timeout';
 import { readGcpPriceTable } from './gcp-price-table';
 import { createGcpProviderForEnv } from './gcp-provider-factory';
 import { createGcpTokenProvider, type GcpTokenOwner } from './gcp-token-provider';
+import { buildProviderConfigForEnv } from './infomaniak-provider-settings';
 import {
   type Db,
   DEFAULT_PROVIDER_CATALOG_TIMEOUT_MS,
@@ -41,17 +43,20 @@ import {
   listProjectProviderCatalogSeeds,
   listUserProviderCatalogSeeds,
 } from './provider-catalogs-seeds';
-import {
-  buildProviderConfig,
-  extractCloudProviderToken,
-  parseGcpCredential,
-} from './provider-credential-codecs';
+import { extractCloudProviderToken, parseGcpCredential } from './provider-credential-codecs';
 
 export async function listProviderCatalogOfferings(
   providerName: CredentialProvider,
   provider: CloudProvider,
-  timeoutMs = DEFAULT_PROVIDER_CATALOG_TIMEOUT_MS
+  timeoutMs = DEFAULT_PROVIDER_CATALOG_TIMEOUT_MS,
+  budget: { deadlineAt?: number; signal?: AbortSignal } = {}
 ): Promise<ProviderCatalogOfferingResolution> {
+  const remainingTimeout = () => {
+    budget.signal?.throwIfAborted();
+    const remaining = Math.min(timeoutMs, (budget.deadlineAt ?? Infinity) - Date.now());
+    if (remaining <= 0) throw new IoTimeoutError('Compute catalog pass deadline reached');
+    return remaining;
+  };
   try {
     const offerings = await withDeadline(
       (signal) =>
@@ -62,7 +67,8 @@ export async function listProviderCatalogOfferings(
           },
           { signal }
         ),
-      timeoutMs
+      remainingTimeout(),
+      budget.signal
     );
     return {
       offerings,
@@ -89,7 +95,8 @@ export async function listProviderCatalogOfferings(
       return {
         offerings: await withDeadline(
           (signal) => provider.listInstanceOfferings({ preferApi: false }, { signal }),
-          timeoutMs
+          remainingTimeout(),
+          budget.signal
         ),
         refreshStatus: { succeeded: false, origin: 'static', complete: false },
       };
@@ -105,12 +112,13 @@ export async function listProviderCatalogOfferings(
 
 /**
  * The static catalog, used when a live catalog cannot be read. GCP offerings are re-sized to the
- * boot disk policy (`gcpBootDiskPolicy`, default when omitted) so this fallback advertises the
- * disk `GcpProvider.createVM` will create.
+ * boot disk policy (`gcpBootDiskPolicy`, default when omitted) and Infomaniak offerings to the boot
+ * volume size (`infomaniakBootVolumeGb`, default when omitted), so this fallback advertises the
+ * disk `createVM` will create.
  */
 export function getStaticProviderCatalogOfferings(
   provider: CredentialProvider,
-  options: { gcpBootDiskPolicy?: GcpBootDiskPolicy } = {}
+  options: { gcpBootDiskPolicy?: GcpBootDiskPolicy; infomaniakBootVolumeGb?: number } = {}
 ): ProviderInstanceOffering[] {
   const locations = getLocationsForProvider(provider);
   const locationMetadata = Object.fromEntries(
@@ -121,17 +129,34 @@ export function getStaticProviderCatalogOfferings(
     locations.map((location) => location.id),
     locationMetadata
   );
-  return provider === 'gcp'
-    ? applyGcpBootDiskPolicy(offerings, options.gcpBootDiskPolicy)
-    : offerings;
+  if (provider === 'gcp') return applyGcpBootDiskPolicy(offerings, options.gcpBootDiskPolicy);
+  if (provider === 'infomaniak' && options.infomaniakBootVolumeGb !== undefined)
+    return applyInfomaniakBootVolumeSize(offerings, options.infomaniakBootVolumeGb);
+  return offerings;
 }
 
-export async function buildProviderCatalogForCredential(input: {
+interface ProviderCatalogBuildInput {
   env: Env;
   seed: ProviderCatalogCredentialSeed;
   /** Shared GCP price-table read for a multi-credential build; read on demand when absent. */
   gcpPriceTable?: () => Promise<GcpPriceTable | null>;
-}): Promise<ProviderCatalog> {
+  /** A refresh shares one deadline across credential preparation, live lookup and fallback. */
+  deadlineAt?: number;
+}
+
+export async function buildProviderCatalogForCredential(
+  input: ProviderCatalogBuildInput
+): Promise<ProviderCatalog> {
+  if (input.deadlineAt === undefined) return buildCredentialCatalog(input);
+  const remaining = input.deadlineAt - Date.now();
+  if (remaining <= 0) throw new IoTimeoutError('Compute catalog pass deadline reached');
+  return withDeadline((signal) => buildCredentialCatalog(input, signal), remaining);
+}
+
+async function buildCredentialCatalog(
+  input: ProviderCatalogBuildInput,
+  signal?: AbortSignal
+): Promise<ProviderCatalog> {
   const providerName = input.seed.provider;
   const decryptedToken = await decrypt(
     input.seed.encryptedToken,
@@ -151,11 +176,14 @@ export async function buildProviderCatalogForCredential(input: {
           },
           input.gcpPriceTable ?? (() => readGcpPriceTable(input.env))
         )
-      : createCatalogProvider(providerName, providerToken, input.env);
+      : await createCatalogProvider(providerName, providerToken, input.env);
   const timeoutMs = Number(
     await resolveAdminSetting(input.env, 'performance.providerCatalogTimeoutMs')
   );
-  const resolved = await listProviderCatalogOfferings(providerName, provider, timeoutMs);
+  const resolved = await listProviderCatalogOfferings(providerName, provider, timeoutMs, {
+    deadlineAt: input.deadlineAt,
+    signal,
+  });
   return buildProviderCatalog({
     seed: input.seed,
     providerName,
@@ -226,12 +254,12 @@ async function createGcpCatalogProvider(
   });
 }
 
-export function createCatalogProvider(
+export async function createCatalogProvider(
   providerName: Exclude<CredentialProvider, 'gcp'>,
   decryptedToken: string,
   env: Env
-): CloudProvider {
-  const config = buildProviderConfig(providerName, decryptedToken, env);
+): Promise<CloudProvider> {
+  const config = await buildProviderConfigForEnv(providerName, decryptedToken, env);
   return createProvider(withCatalogProviderLogger(config, providerName));
 }
 

@@ -4,6 +4,8 @@
  * Handles the agent_session step: creating the session, generating MCP token,
  * and starting the agent with the initial prompt.
  */
+import { parseProviderLimitWait } from '@simple-agent-manager/scheduler-core';
+
 import { log } from '../../lib/logger';
 import {
   buildSamBootstrapInstructions,
@@ -115,6 +117,13 @@ export async function handleAgentSession(
       agentSessionId: sessionId,
       // Dispatch resolves the profile hint to its ID before persisting runner state.
       agentProfileId: state.config.agentProfileHint,
+      // A previously claimed runner predates this config field. Its newly
+      // approved receipt carries the same skill checked at every authority fence.
+      skillId:
+        state.config.skillId ??
+        parseProviderLimitWait(state.config.providerLimitRecoveryApproval?.receipt)?.ownerOverride
+          ?.skillId ??
+        null,
       label: buildTaskAgentSessionLabel(state.config.taskTitle),
       agentType,
       visibleInitialPrompt: buildVisibleTaskInitialPrompt(state),
@@ -193,8 +202,8 @@ export async function handleAgentSession(
     const { completeSessionSnapshotRecoveryGeneration } =
       await import('../../services/session-snapshots');
     const projectDataService = await import('../../services/project-data');
-    // Keep sleepingAt authoritative until the ProjectData lifecycle accepts the
-    // idempotent wake. If this RPC fails, the snapshot remains claimable and a
+    // Link the runtime while keeping the public chat sleeping until the guarded
+    // task handoff commits. If this RPC fails, the snapshot remains claimable and a
     // later recovery attempt can safely converge instead of becoming stranded.
     await rc.assertRecoveryAuthority(state);
     const sessionWoken = await projectDataService.wakeSessionForSnapshotRecovery(
@@ -202,7 +211,8 @@ export async function handleAgentSession(
       state.projectId,
       state.config.resumeSnapshotChatSessionId,
       state.stepResults.workspaceId,
-      state.taskId
+      state.taskId,
+      { deferActivation: true, recoveryAttemptId: state.config.recoveryAttemptId }
     );
     if (!sessionWoken) {
       throw Object.assign(

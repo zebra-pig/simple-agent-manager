@@ -1,4 +1,5 @@
 // Types
+export * from './chat-message-append';
 export * from './types';
 
 // Agents
@@ -23,6 +24,9 @@ export * from './agent-models';
 // Constants
 export * from './constants';
 
+// get_instructions policy line rendering (shared by the API formatter and the web size readout)
+export * from './policy-directive-format';
+
 // Mail DNS record comparison (agent email deploy step and admin setup)
 export * from './dns-mail-records';
 
@@ -42,6 +46,9 @@ export * from './deployment-manifest';
 
 // Compose Parser (Compose YAML → deployment manifest)
 export * from './compose-parser';
+
+// Cloudflare cost estimates from billed analytics (rule 76)
+export * from './cloudflare-cost';
 
 // Composable Credentials (three-primitive model)
 export * from './composable-credentials';
@@ -65,6 +72,11 @@ export * from './runtime-validation';
 export * from './resource-requirements';
 
 // Chat message pagination cursors (web client ↔ API contract)
+export {
+  isSensitiveAnalyticsPathSegment,
+  normalizeAnalyticsPath,
+  normalizeAnalyticsReferrer,
+} from './analytics-path';
 export { MERGED_MESSAGE_ROLES } from './chat-message-merge';
 export {
   DEFAULT_GITHUB_TRIGGER_QUEUE_MAX_PENDING,

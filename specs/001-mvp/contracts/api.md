@@ -821,6 +821,10 @@ context is valid. Reads use existing archive-owner routing. Missing session/requ
 Answers continue through the existing `POST .../attention/:markerId/resolve`; fixed choices
 must match the saved options exactly, and a request without options accepts a typed answer.
 
+### Start or resume despite a recorded provider limit
+
+`POST /api/projects/:projectId/tasks/:taskId/provider-limit/start-anyway` requires an approved authenticated task owner with project `task:write`. No body is required. Existing waiting admission holds return `202 { status: "starting", taskId }`. Waiting callback-origin holds on sleeping VM sessions return `202 { status: "waking", taskId }` after recording a bounded override for the same credential, profile and skill. Saved recovery requires current session-owner authority, an unexpired restorable sleeping snapshot and matching source credential generation. An existing waking claim is retained and its runner nudged; an unclaimed snapshot uses normal recovery. The operation does not re-post the original prompt or change accounts. A fresh provider rejection removes the override and parks normally. Changed, terminal or already-approved waits return `409`; another member returns `403`. An uncertain runner response retains the accepted override and claim and returns `409` asking the owner to refresh. Chat task embeds expose `providerLimitCanResumeAnyway` for the owner-facing **Resume anyway** control; the endpoint revalidates authority and snapshot eligibility.
+
 ### Resume a blocked provider-limit task
 
 `POST /api/projects/:projectId/tasks/:taskId/provider-limit/resume` requires an approved, authenticated task owner with project `task:write`. No body is required. Returns `202 { status: "waking", taskId }` after accepting the current credential selection and starting recovery from the retained sleeping snapshot (or nudging a first-dispatch admission wait). Returns `403` for another member and `409` when the wait is no longer blocked, sleep is incomplete, or a snapshot cannot be restored. Repeated approval is fenced against the current wait; retained WIP is never discarded.
@@ -832,8 +836,55 @@ These internal callbacks use a live workspace callback JWT, not a browser sessio
 - `POST /api/projects/:id/deployment-publish-jobs/:jobId/context/init`
 - `POST /api/projects/:id/deployment-publish-jobs/:jobId/context/complete`
 
-Both accept `{ attempt, sizeBytes, sha256, durationMs? }`. Identity, environment and object key come from the authorized job; the job must use `executor=cloudflare`. Init conditionally changes `queued` to `collecting`, records the descriptor, and returns a short-lived presigned R2 PUT. Complete verifies HEAD size plus recorded digest metadata and conditionally changes `collecting` to `context_ready`, setting `queued_at`. Scope/attempt/descriptor mismatch or terminal state returns 409; invalid/missing objects return 400. Successful transitions and collection timing are recorded atomically in job history. SHA metadata is a source assertion; the future builder must verify downloaded bytes. Context completion does not dispatch a build.
+Both accept `{ attempt, sizeBytes, sha256, durationMs?, projectName? }`. Non-shadow Cloudflare jobs require the collected Compose project name; receipts bind it alongside size and SHA. Identity, environment and object key come from the authorized job; the job must use `executor=cloudflare`. Init conditionally changes `queued` to `collecting`, records the descriptor, and returns a short-lived presigned R2 PUT. Complete verifies HEAD size plus recorded digest metadata and conditionally changes `collecting` to `context_ready`, setting `queued_at`. Scope/attempt/descriptor mismatch or terminal state returns 409; invalid/missing objects return 400. Successful transitions and collection timing are recorded atomically in job history. SHA metadata is a source assertion; the builder verifies downloaded bytes before extraction. Non-shadow completion attempts Cloudflare admission, then cron drains queued jobs under atomic project/platform/class caps.
 
 The node-management endpoint `POST /workspaces/:workspaceId/mcp/build-and-publish-jobs/:jobId/collect` accepts a source-owned job with `202`, then collects, spools, uploads, and completes one context from the devcontainer volume (VM) or `/workspaces` (Instant). `attempt` is required; optional `workingDir`, `buildInterpolationEnv`, `secretInterpolationKeys`, `maxBytes`, and `collectTimeoutMs` are supplied by the control plane. Missing legacy routes return an explicit unsupported capability result to callers. Existing node build/start routes are unchanged.
 
-Shadow probes (`context_shadow=1`) are internal rows only. They cannot link a release, are excluded from publish status/cancel reads and public lifecycle events/counts, and terminalize through normal source callbacks or the existing sweep. The typed collection-mode setting defaults off; shadow kickoff is bounded and does not delay the normal node path or Instant early gate.
+Shadow probes (`context_shadow=1`) are internal rows only. They cannot link a release, are excluded from publish status/cancel reads and public lifecycle events/counts, and terminalize through normal source callbacks or the existing sweep. The typed collection-mode setting defaults off; shadow kickoff is bounded and does not delay the normal node path or Cloudflare execution.
+
+## Cloudflare publish-job callback identity
+
+The existing publish-job events, artifact init/complete and compose release callbacks additionally accept a `publish-job` callback JWT bound to `{jobId,projectId,environmentId,agentProfileId,attempt}`. It expires at the persisted builder deadline and is valid only for the matching nonterminal, non-shadow Cloudflare job. Source-workspace/node liveness is not required. Other callback routes (including context uploads, registry credentials and token renewal) reject this scope.
+
+`GET /api/projects/:id/deployment-publish-jobs/:jobId/spec` uses this job identity to return the verified context's presigned GET, size, SHA, Compose project name, non-secret build variables and secret key names. Job tokens cannot request another job or environment. Artifact keys use the exact job-and-attempt upload namespace. Release submissions from job tokens must include matching job ID, attempt, environment, profile and task; the legacy unfenced path remains workspace-token-only. Event updates fence the current attempt atomically, and event release metadata must reference the already-linked release.
+
+
+### Explicit account linking
+
+`POST /api/auth/account-link/request` accepts `{provider: "github" | "gitlab"}` with a human browser session and same-app Origin. A verified stored email and working system email sender are required. It sends a one-time, session/provider-bound email sign-in check (default five minutes) and returns `{success:true}`. The confirmation URL uses a fragment so proof does not enter HTTP referrers or access logs. A new request replaces that session/provider's previous proof.
+
+`POST /api/auth/link-social` uses BetterAuth's existing static OAuth callback and accepts the confirmation proof as `additionalData.samLinkToken`. Linking refuses Google, missing/expired/replayed proof, another session, agent sign-in sessions and suspended users. The same live session, user, provider and proof deadline are rechecked before the OAuth callback mutates accounts (including existing-link token updates).
+
+`POST /api/auth/unlink-account` accepts BetterAuth `{accountId}`. Only the caller's GitHub/GitLab accounts can be removed; removing the last provider requires usable verified email sign-in. The affected account owner receives a linked-provider security notification at their preserved SAM email. Explicit links may have a different provider email; future sign-ins preserve an already-verified SAM email. A lookup failure aborts sign-in rather than replacing identity.
+
+GitHub repository errors distinguish `403 GITHUB_NOT_CONNECTED`, `401 GITHUB_REAUTH_REQUIRED`, `503 GITHUB_UNAVAILABLE`, `409 GITHUB_APP_NOT_CONFIGURED` and `404 FEATURE_UNAVAILABLE`. Only actual authorization failures request reauthentication; provider outages offer retry. Unverified provider-linked accounts receive a provider-sign-in note instead of an email code, and code redemption is refused without deleting links or sessions.
+
+## Self-hosted repository credentials
+
+### POST /api/projects/{id}/hosted-git/token
+
+Available only on self-host installations using the local hosted Git backend. Requires an
+approved, session-authenticated user. The `scope` query parameter is `write` for push access;
+all other values (including omission) select `read`. Read requires `project:read`; write
+requires `workspace:write` on the addressed project. No request body is required.
+
+Returns `200` with `{ cloneUrl, host, username: "x", token, scope, expiresAt }`. `expiresAt`
+is the token's expiry timestamp in ISO 8601 format. Use `username` and `token` as Git HTTP Basic
+credentials; keep the short-lived token private. This personal token is not workspace-bound.
+
+Returns `401` for missing authentication, `403` for insufficient capability, and `404` when
+the project is absent or does not use this installation's local hosted Git backend. Cloudflare
+Workers do not register this endpoint and return `404`; their Artifacts and forge behavior is unchanged.
+
+
+### Reply to an inbox item
+
+`POST /api/projects/:projectId/inbox/items/:ref/reply` accepts `{ content: string, attachments?: TaskAttachment[] }` and returns HTTP 202 with `{ ref, sessionId, status: 'queued', messageId, deliveryId }`. Requires an actable item with a source chat and the chat’s ordinary send authorization. The reply is queued durably before a pending permission is rejected; delivery retries the same rejection receipt and reaches the agent only after rejection succeeds. Other store statuses remain unchanged. The canonical transcript carries `inboxRef` in its tool metadata; item list and counts exclude items awaiting agent action, including team items for all members. Item detail adds `conversation: { replies, responses, nextReplyCursor, nextResponseCursor, hasMore }`, with canonical chat messages as replies and `InboxItemCommentThread` values as responses. `item.withAgent` marks an item awaiting agent action; `item.latestReply` is `{ userId, name, messageId, repliedAt }`. `replyCursor` continues earlier chat history; `responseCursor` continues later anchored response history. Both cursors come from the previous `conversation`. A rejected permission stays `status: 'done'` with `canAct: false`; `canReply: true` permits its conversation to continue. An agent response returns that settled conversation as nonblocking, without restoring permission buttons.
+
+Reply retry recovery reuses a matching accepted delivery receipt. A prior in-flight or ambiguous delivery returns409 without another prompt. A fresh POST may resend a failed/expired delivery under a new ID; its old suppression ledger stays unchanged, so delivery outcomes never automatically resurface an item. Expiry is not proof of nonreceipt. Agent `update` atomically changes the ask and acknowledges replies through its captured watermark.
+
+Agent `inbox_write` methods `respond` and `update` accept `replyMessageId`, required when replies are outstanding; `resolve` always requires it. The id comes from the received inbox reply’s delivery-only SAM header. Actions acknowledge only that exact observed reply. Resolve refuses while another reply is outstanding, and a concurrent human reply cannot reserve against an already-closed ask. No outstanding reply means an ordinary response or update needs no id.
+
+Agent responses and updates return `withAgent`. When true, other replies remain outstanding: `inbox_read` method `get` on the item returns the source chat’s canonical `conversation` and `pendingReplyIds` visible on that page. Follow `replyCursor` / `responseCursor` with the returned conversation cursors to read more, including earlier failed deliveries. Reading acknowledges nothing; handle each observed reply explicitly before resolving the ask. Other chats’ existing item reads do not expose the source conversation.
+
+Conversation pagination reads both streams initially. On continuation, supply only non-null returned cursors: `replyCursor` advances replies and `responseCursor` advances responses. An omitted stream is skipped on that continuation, preventing already-exhausted replies or responses from restarting. `hasMore` covers the streams requested in that call.

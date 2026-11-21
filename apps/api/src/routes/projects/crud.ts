@@ -1,3 +1,4 @@
+import { assertNoReservedCloudflareBuilds } from '@simple-agent-manager/app-deployment';
 import type { ListProjectsResponse } from '@simple-agent-manager/shared';
 import { and, count, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
@@ -10,12 +11,14 @@ import { toProjectSummaryResponse } from '../../lib/mappers';
 import { parsePositiveInt } from '../../lib/route-helpers';
 import { getUserId } from '../../middleware/auth';
 import { requireProjectCapability } from '../../middleware/project-auth';
+import { resolveArtifactsBackendForCleanup } from '../../services/artifacts/backend';
 import {
   buildProjectLibraryDeleteStatements,
   buildProjectLibraryR2Prefix,
   deleteProjectLibraryObjects,
   getProjectDeleteCleanupBatchSize,
 } from '../../services/file-library';
+import { reconcileGcpWifPoolIndex } from '../../services/gcp-wif-pool-ownership';
 import { getRuntimeLimits } from '../../services/limits';
 import { deleteWorkspaceResourceHistoryObjectsForProject } from '../../services/workspace-resource-history';
 import { registerProjectCreateRoute } from './project-create';
@@ -41,13 +44,15 @@ async function cleanupArtifactsRepoOnProjectDelete(
     action: 'orphaned_artifacts_repo_on_delete',
   };
 
-  if (!env.ARTIFACTS || typeof env.ARTIFACTS.delete !== 'function') {
+  // Disabling Artifacts stops serving, but must not prevent cleanup of existing repositories.
+  const artifacts = resolveArtifactsBackendForCleanup(env);
+  if (!artifacts || typeof artifacts.delete !== 'function') {
     log.warn('project_delete.artifacts_delete_unavailable', orphanDetails);
     return;
   }
 
   try {
-    const deleted = await env.ARTIFACTS.delete(project.artifactsRepoId);
+    const deleted = await artifacts.delete(project.artifactsRepoId);
     if (!deleted) {
       log.warn('project_delete.artifacts_delete_returned_false', orphanDetails);
     }
@@ -155,6 +160,21 @@ crudRoutes.delete('/:id', async (c) => {
   const db = drizzle(c.env.DATABASE, { schema });
 
   const project = await requireProjectCapability(db, projectId, userId, 'project:delete');
+  await assertNoReservedCloudflareBuilds(db, { projectId });
+  // Deleting the project deletes its GCP cloud credentials. Record the pools they name first:
+  // Google may still trust them after the rows are gone (gcp-wif-pool-ownership.ts).
+  const [gcpCredential] = await db
+    .select({ id: schema.credentials.id })
+    .from(schema.credentials)
+    .where(
+      and(
+        eq(schema.credentials.projectId, projectId),
+        eq(schema.credentials.provider, 'gcp'),
+        eq(schema.credentials.credentialType, 'cloud-provider')
+      )
+    )
+    .limit(1);
+  if (gcpCredential) await reconcileGcpWifPoolIndex(c.env, 'delete_project');
 
   // Explicitly delete child records instead of relying on D1 CASCADE.
   // SQLite ignores REFERENCES constraints added via ALTER TABLE, so
@@ -207,6 +227,10 @@ crudRoutes.delete('/:id', async (c) => {
   );
   statements.push(
     db.delete(schema.agentProfiles).where(eq(schema.agentProfiles.projectId, projectId))
+  );
+  // Run token usage (Insights slice U) has no FK to cascade from.
+  statements.push(
+    db.delete(schema.agentRunUsage).where(eq(schema.agentRunUsage.projectId, projectId))
   );
   statements.push(
     db

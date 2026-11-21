@@ -1,4 +1,9 @@
 import {
+  archiveInteractionMarkerFromInbox,
+  createAttentionMarker,
+  resolveAttentionMarkerById,
+} from '@simple-agent-manager/project-data/internal/do/attention';
+import {
   persistMessageBatchWithSideEffects,
   persistMessageWithSideEffects,
 } from '@simple-agent-manager/project-data/internal/do/message-persistence';
@@ -8,6 +13,11 @@ import {
   getReconciliationCandidates,
   processReconciliationCandidates,
 } from '@simple-agent-manager/project-data/internal/do/reconciliation';
+import {
+  excludeReconciliationCandidateForTask,
+  holdReconciliationAfterArchive,
+  releaseQuestionHold,
+} from '@simple-agent-manager/project-data/internal/do/reconciliation-candidate-state';
 import {
   ensureReconciliationEpisode,
   readReconciliationEpisode,
@@ -406,6 +416,84 @@ describe('bounded delivered check-in episodes', () => {
     const request = JSON.stringify(boundary.ai.mock.calls[0]);
     for (const secret of secrets) expect(request).not.toContain(secret);
     expect(request).toContain('[REDACTED_AUTH]');
+  });
+
+  it('an archived question holds check-ins off the chat until the person writes; then it is due again', async () => {
+    // Selection leases a candidate, so the first read is the one under test.
+    holdReconciliationAfterArchive(sql, 'session-1', Date.now() + 7 * 24 * 3_600_000);
+    expect(await getReconciliationCandidates(sql, env)).toEqual([]);
+    // Control: the person writes in the chat (`releaseQuestionHold`), and the same chat is due.
+    expect(releaseQuestionHold(sql, 'session-1')).toBe(true);
+    expect((await getReconciliationCandidates(sql, env)).map((c) => c.taskId)).toEqual(['1']);
+  });
+
+  it('an archive hold keeps a permanent task exclusion and never shortens a longer hold', () => {
+    const gate = (sessionId: string) => {
+      const row = sql
+        .exec('SELECT value FROM do_meta WHERE key = ?', `taskReconciliationGate:${sessionId}`)
+        .toArray()[0];
+      return JSON.parse(String(row?.value)) as Record<string, unknown>;
+    };
+    excludeReconciliationCandidateForTask(sql, 'session-1', '1');
+    holdReconciliationAfterArchive(sql, 'session-1', Date.now() + 1_000);
+    expect(gate('session-1')).toMatchObject({ excludedTaskId: '1' });
+    expect(gate('session-1').questionHold).toBeUndefined();
+
+    seed('2');
+    const later = Date.now() + 10 * 3_600_000;
+    holdReconciliationAfterArchive(sql, 'session-2', later);
+    holdReconciliationAfterArchive(sql, 'session-2', Date.now() + 1_000);
+    expect(gate('session-2')).toMatchObject({ nextAttemptAt: later, questionHold: true });
+  });
+
+  it('a permission archived from the inbox still holds off the check-in; resolving it releases the chat', async () => {
+    const marker = createAttentionMarker(sql, {
+      sessionId: 'session-1',
+      taskId: '1',
+      workspaceId: 'ws-1',
+      kind: 'needs_input',
+      source: 'acp_interaction',
+      reason: 'acp_interaction_pending',
+      metadata: JSON.stringify({
+        source: 'acp_interaction',
+        interactionId: 'i-1',
+        kind: 'permission',
+      }),
+      expiresAt: null,
+    });
+    // Selection leases a candidate, so the first read must be the one under test: nothing
+    // selected the chat before it.
+    const inboxArchivedAt = () =>
+      sql
+        .exec('SELECT inbox_archived_at FROM session_attention_markers WHERE id = ?', marker.id)
+        .toArray()[0]?.inbox_archived_at ?? null;
+    // Attack first, while the marker is still unarchived: another chat's id does not reach it.
+    expect(archiveInteractionMarkerFromInbox(sql, 'session-2', marker.id)).toBe(0);
+    expect(inboxArchivedAt()).toBeNull();
+    // Control: the owning chat archives it. The agent is still waiting on the permission, so SAM
+    // must not cancel its prompt or check in (every inbox archive is silent).
+    expect(archiveInteractionMarkerFromInbox(sql, 'session-1', marker.id)).toBe(1);
+    expect(inboxArchivedAt()).not.toBeNull();
+    expect(await getReconciliationCandidates(sql, env)).toEqual([]);
+    // A second archive changes nothing.
+    expect(archiveInteractionMarkerFromInbox(sql, 'session-1', marker.id)).toBe(0);
+    // Control: when the interaction ends its marker resolves, and the same chat is a candidate.
+    expect(resolveAttentionMarkerById(sql, marker.id, 'system', 'interaction_resolved')).toBe(1);
+    expect((await getReconciliationCandidates(sql, env)).map((c) => c.taskId)).toEqual(['1']);
+  });
+
+  it('archiving from the inbox touches only a pending ACP interaction marker', () => {
+    const question = createAttentionMarker(sql, {
+      sessionId: 'session-1',
+      taskId: '1',
+      workspaceId: 'ws-1',
+      kind: 'needs_input',
+      source: 'request_human_input',
+      reason: 'Which region?',
+      metadata: null,
+      expiresAt: null,
+    });
+    expect(archiveInteractionMarkerFromInbox(sql, 'session-1', question.id)).toBe(0);
   });
 
   it('reaches other work behind a full page of paused candidates', async () => {

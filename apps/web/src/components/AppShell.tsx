@@ -14,6 +14,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { useGlobalCommandPalette } from '../hooks/useGlobalCommandPalette';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { useNotificationSocket } from '../hooks/useNotificationSocket';
 import { useProjectList } from '../hooks/useProjectData';
 import { useSamSettings } from '../hooks/useSamSettings';
 import { signOut } from '../lib/auth';
@@ -30,6 +31,7 @@ import { useAuth } from './AuthProvider';
 import { CredentialHealthNavItem } from './CredentialHealthNavItem';
 import { GlobalAudioPlayer } from './GlobalAudioPlayer';
 import { GlobalCommandPalette } from './GlobalCommandPalette';
+import { useInboxCount } from './inbox/useInbox';
 import { MobileNavDrawer, type MobileNavItem } from './MobileNavDrawer';
 import { extractProjectId, getGlobalNavItems, PROJECT_NAV_ITEMS } from './NavSidebar';
 import { OnboardingProvider } from './onboarding';
@@ -165,36 +167,38 @@ export function AppShell({ children }: AppShellProps) {
   // Detect project context from URL (excludes reserved paths like /projects/new)
   const projectId = extractProjectId(location.pathname);
 
-  const mobileNavItems = useMemo((): MobileNavItem[] => {
-    if (projectId) {
-      return PROJECT_NAV_ITEMS.map((item) => ({
-        label: item.label,
-        path: `/projects/${projectId}/${item.path}`,
-        icon: item.icon,
-      }));
-    }
-    const items: MobileNavItem[] = getGlobalNavItems(sam.enabled).map((item) => ({
-      label: item.label,
-      path: item.path,
-      icon: item.icon,
-    }));
-    if (isSuperadmin) {
-      items.push({ label: 'Admin', path: '/admin', icon: <Shield size={18} /> });
-    }
-    return items;
-  }, [isSuperadmin, projectId, sam.enabled]);
+  // One notification socket for the app: its events refresh the inbox counts and lists (and the
+  // Updates chip), so nothing polls.
+  useNotificationSocket();
+
+  // The phone drawer shows the same inbox counts as the desktop nav (nav parity, rule 15).
+  const globalInboxCount = useInboxCount(null).data?.needsYou;
+  const projectInboxCount = useInboxCount(projectId ?? null).data?.needsYou;
 
   const mobileGlobalNavItems = useMemo((): MobileNavItem[] => {
     const items: MobileNavItem[] = getGlobalNavItems(sam.enabled).map((item) => ({
       label: item.label,
       path: item.path,
       icon: item.icon,
+      count: item.inboxCount ? globalInboxCount : undefined,
     }));
     if (isSuperadmin) {
       items.push({ label: 'Admin', path: '/admin', icon: <Shield size={18} /> });
     }
     return items;
-  }, [isSuperadmin, sam.enabled]);
+  }, [globalInboxCount, isSuperadmin, sam.enabled]);
+
+  const mobileNavItems = useMemo((): MobileNavItem[] => {
+    if (projectId) {
+      return PROJECT_NAV_ITEMS.map((item) => ({
+        label: item.label,
+        path: `/projects/${projectId}/${item.path}`,
+        icon: item.icon,
+        count: item.inboxCount ? projectInboxCount : undefined,
+      }));
+    }
+    return mobileGlobalNavItems;
+  }, [mobileGlobalNavItems, projectId, projectInboxCount]);
 
   const handleProjectNavigate = useCallback(
     (path: string) => {
@@ -329,8 +333,14 @@ export function AppShell({ children }: AppShellProps) {
           <OnboardingProvider>
             <ChoosePathWizard />
             <div
-              className={`sam-void flex h-screen flex-col gap-2.5 ${chatImmersive ? 'p-1.5' : 'p-2.5'}`}
+              className="sam-void flex h-screen flex-col gap-[var(--sam-shell-gap)] p-[var(--sam-shell-frame)]"
               data-chat-immersive={chatImmersive ? 'on' : undefined}
+              style={{
+                // The frame and the gap under the app bar. Full-bleed pages read these to reach
+                // the screen edge and the app bar with their scrollers (`OverviewLayout`).
+                ['--sam-shell-frame' as string]: chatImmersive ? '6px' : '10px',
+                ['--sam-shell-gap' as string]: '10px',
+              }}
             >
               <SkipToContent />
               <MobileAppBar
@@ -391,12 +401,19 @@ export function AppShell({ children }: AppShellProps) {
         <OnboardingProvider>
           <ChoosePathWizard />
           <div
-            className="sam-void grid h-screen overflow-hidden p-4 transition-[grid-template-columns] duration-200 ease-out motion-reduce:transition-none"
+            className="sam-void grid h-screen overflow-hidden p-[var(--sam-shell-frame)] transition-[grid-template-columns] duration-200 ease-out motion-reduce:transition-none"
             style={{
               gridTemplateColumns: `${navWidth}px minmax(0, 1fr)`,
               gridTemplateRows: 'minmax(0, 1fr) auto',
               // Zen collapses the nav column to nothing, so it must not keep a gutter either.
-              columnGap: navWidth > 0 ? 'var(--sam-space-gutter)' : 0,
+              columnGap: 'var(--sam-shell-gap)',
+              // The frame, the gap between the nav and the content, and how far the content's
+              // left edge is from the nav or, in Zen, the screen edge. Full-bleed pages read these
+              // to reach the screen edge and the nav with their scrollers (`OverviewLayout`).
+              ['--sam-shell-frame' as string]: '16px',
+              ['--sam-shell-gap' as string]: navWidth > 0 ? 'var(--sam-space-gutter)' : '0px',
+              ['--sam-shell-inset-start' as string]:
+                navWidth > 0 ? 'var(--sam-space-gutter)' : 'var(--sam-shell-frame)',
               ['--sam-void-x' as string]: '58%',
             }}
           >
@@ -432,29 +449,32 @@ export function AppShell({ children }: AppShellProps) {
                 />
               </ZenPeekRail>
             ) : (
-              /* `overflow-y-auto` is a backstop, not the primary scroller — NavSidebar scrolls
-               itself (it carries `flex-1 min-h-0`). It only engages on very short windows,
-               where the header, search, layout control and footer no longer fit, so sign-out
-               stays reachable. */
+              /* The inner div's `overflow-y-auto` is a backstop, not the primary scroller —
+               NavSidebar scrolls itself (it carries `flex-1 min-h-0`). It only engages on very
+               short windows, where the header, search, layout control and footer no longer
+               fit, so sign-out stays reachable. It sits inside the pane, not on it, so the
+               pane's rim and frost stay put (sam-glass-design-system.md, "Scrolling panes"). */
               <aside
                 ref={desktopSidebarRef}
                 aria-label="Sidebar"
-                className="sam-glass sam-glass-rim relative z-30 flex min-h-0 flex-col overflow-x-hidden overflow-y-auto rounded-[var(--sam-radius-pane)]"
+                className="sam-glass sam-glass-rim relative z-30 flex min-h-0 flex-col overflow-hidden rounded-[var(--sam-radius-pane)]"
                 style={{ gridRow: '1' }}
               >
-                <DesktopSidebar
-                  focusMode={focusMode}
-                  onSelectFocusMode={setFocusMode}
-                  onCycleFocusMode={cycleFocusMode}
-                  onOpenCommandPalette={commandPalette.open}
-                  projectName={projectName}
-                  showGlobalNav={showGlobalNav}
-                  onToggleGlobalNav={handleToggleGlobalNav}
-                  projectListSection={desktopProjectListSection}
-                  projectHealthElement={projectHealthElement}
-                  user={user ?? null}
-                  onSignOut={signOutHandler}
-                />
+                <div className="relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
+                  <DesktopSidebar
+                    focusMode={focusMode}
+                    onSelectFocusMode={setFocusMode}
+                    onCycleFocusMode={cycleFocusMode}
+                    onOpenCommandPalette={commandPalette.open}
+                    projectName={projectName}
+                    showGlobalNav={showGlobalNav}
+                    onToggleGlobalNav={handleToggleGlobalNav}
+                    projectListSection={desktopProjectListSection}
+                    projectHealthElement={projectHealthElement}
+                    user={user ?? null}
+                    onSignOut={signOutHandler}
+                  />
+                </div>
               </aside>
             )}
 

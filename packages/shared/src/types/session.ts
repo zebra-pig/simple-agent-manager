@@ -45,6 +45,7 @@ export interface ChatSessionTaskEmbed {
   /** True while a never-started task waits at admission on a provider limit, so its owner
    * may start it anyway (for example to spend extra credits the limit does not show). */
   providerLimitCanStartAnyway?: boolean;
+  providerLimitCanResumeAnyway?: boolean;
   id: string;
   /** Canonical, user-safe saved placement diagnostics, including queued runs. */
   placementExplanationJson?: string | null;
@@ -145,18 +146,6 @@ export interface PersistMessageBatchRequest {
 export interface PersistMessageBatchResponse {
   persisted: number;
   duplicates: number;
-}
-
-// =============================================================================
-// ProjectData WebSocket Broadcast Events
-// =============================================================================
-
-export type ProjectWebSocketEventType =
-  'message.new' | 'session.created' | 'session.stopped' | 'activity.new';
-
-export interface ProjectWebSocketEvent {
-  type: ProjectWebSocketEventType;
-  payload: Record<string, unknown>;
 }
 
 // =============================================================================

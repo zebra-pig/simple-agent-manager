@@ -70,8 +70,9 @@ async function findTargetUser(env: Env, target: string): Promise<TargetUserRow |
 
 /**
  * BetterAuth's session hooks promote a user to superadmin only while no superadmin exists
- * (`LOGIN_SELF_HEAL_SQL` and `bootstrapSessionAllowed` in auth.ts / bootstrap-owner.ts). Requiring
- * one keeps both inert, so an agent sign-in can never change a role.
+ * (`LOGIN_SELF_HEAL_SQL`, `establishFirstSuperadmin`, and `bootstrapSessionAllowed` in auth.ts and
+ * its bootstrap services). Requiring one keeps every promotion path inert, so an agent sign-in
+ * can never change a role.
  */
 async function hasEstablishedAdministrator(env: Env): Promise<boolean> {
   const row = await env.DATABASE.prepare(
@@ -194,6 +195,7 @@ async function exchange(c: Context<{ Bindings: Env }>, trust: AgentSignInTrust):
   // The approval gate already ran above, before anything was recorded.
   const session = await createSessionCookieForUser(env, user.id, {
     expiresAt: new Date(sessionExpiresAtMs),
+    headers: c.req.raw.headers,
   });
   await linkAgentSignInSession(env, claim.id, session.sessionId);
   log.info('agent_sign_in.accepted', {

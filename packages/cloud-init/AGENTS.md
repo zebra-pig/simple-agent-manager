@@ -14,6 +14,7 @@ Generates cloud-init YAML templates for VM provisioning. Produces the user-data 
 | `src/variables.ts` / `src/validate.ts` | `CloudInitVariables` and their validation |
 | `src/template-resources.ts` | Slice hierarchy and Docker headroom write_files, interpolated into the template |
 | `src/template-ingress.ts` / `src/tunnel.ts` | Ingress-mode blocks (Origin CA direct vs Cloudflare Tunnel) and tunnel validation; each node renders only its own mode |
+| `src/reverse-tunnel.ts` / `src/template-reverse-tunnel.ts` | Self-host reverse-tunnel (frpc) mode: validation, pinned release, replacements and connector blocks. Cloudflare nodes never set its variables; `tests/cloudflare-output-snapshot.test.ts` pins their output byte for byte |
 
 ## Commands
 
@@ -38,3 +39,15 @@ pnpm --filter @simple-agent-manager/cloud-init typecheck  # Type check only
 - Built with `tsup` (not plain `tsc`) — outputs ESM with `.d.ts` declarations.
 - **User-data is near the 32 KB Hetzner limit.** Do not repeat secrets inline (scripts read `/etc/sam/callback-token`), and render mode-specific blocks only for their mode.
 - Changes here require infrastructure verification on staging (provision a real VM) per rule 02.
+
+<!-- BEGIN GENERATED RULE INDEX (pnpm quality:agent-context-budget --write) -->
+
+## Rules for this directory
+
+Read the rules whose scope covers the files you will change before editing. Claude Code
+loads them by itself on file access; other harnesses must open them.
+
+- `.claude/rules/06-vm-agent-patterns.md`: VM Agent Technical Patterns
+- `.claude/rules/73-optional-struct-fields-must-not-overwrite-on-absence.md`: A Zero-Valued Optional Field Must Not Overwrite Existing State
+
+<!-- END GENERATED RULE INDEX -->

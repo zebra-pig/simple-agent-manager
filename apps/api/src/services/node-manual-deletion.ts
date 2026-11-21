@@ -8,12 +8,12 @@ import type { Env } from '../env';
 import { log, serializeError } from '../lib/logger';
 import { getCredentialEncryptionKey } from '../lib/secrets';
 import { errors } from '../middleware/error';
-import { releaseNodeTunnels } from './node-tunnel-cleanup';
+import { releaseTerminatedNodeIngress } from './node-provisioning-ingress';
 import {
   createProviderForUser,
   exactProviderCredentialBindingFromPlacementSnapshot,
 } from './provider-credentials';
-import { recordOwnerAttestedRuntimeTermination } from './strict-node-deletion';
+import { recordOwnerAttestedRuntimeTermination } from './strict-node-termination-proof';
 
 type NodeDb = ReturnType<typeof drizzle<typeof schema>>;
 type NodeRow = typeof schema.nodes.$inferSelect;
@@ -32,7 +32,12 @@ export interface ManualNodeDeletionProof {
  * (`services/instant-session.ts`), capacity placement sets
  * `placementCredentialSource`, older nodes set `credentialSource`.
  */
-function isOnSamCapacity(node: NodeRow): boolean {
+export function isOnSamCapacity(
+  node: Pick<
+    NodeRow,
+    'credentialSource' | 'placementCredentialSource' | 'credentialAttributionSource'
+  >
+): boolean {
   return (
     node.credentialSource === 'platform' ||
     node.placementCredentialSource === 'platform' ||
@@ -150,9 +155,7 @@ export async function recordManualNodeDeletion(
   const runtimeTerminationConfirmedAt = await recordOwnerAttestedRuntimeTermination(db, node);
   // The proof makes this incarnation non-live: release its Cloudflare tunnel now, as strict
   // deletion does, rather than waiting for the sweep's non-live scan. Never throws.
-  if (node.runtime === 'vm' && node.transport === 'cloudflare-tunnel') {
-    await releaseNodeTunnels(env, node.id, 'owner_attested_termination');
-  }
+  await releaseTerminatedNodeIngress(env, node, 'owner_attested_termination');
   log.info('node_manual_deletion.attested', {
     nodeId,
     userId,

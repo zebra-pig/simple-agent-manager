@@ -7,10 +7,8 @@ import { type WorkspaceAdmissionPolicy } from '@simple-agent-manager/scheduler-c
 import { resolveResourceReservation } from '@simple-agent-manager/shared';
 
 import { lifetimeAdmissionCutoffSql } from './node-lifetime-admission';
-import {
-  buildPlacementAuthoritySqlPredicate,
-  buildProvisionedNodeHoldSqlPredicate,
-} from './placement-authority';
+import { buildPlacementAuthoritySqlPredicate } from './placement-authority';
+import { buildProvisionedNodeHoldSqlPredicate } from './provisioned-node-ownership';
 import type { WorkspacePlacementInput } from './workspace-placement';
 import {
   ACTIVE_WORKSPACE_RESERVATION_STATUS_SQL,
@@ -52,6 +50,7 @@ export function buildWorkspaceAdmissionSql(
     nodeClass: input.authorityNodeClass ?? 'managed',
     capacityPlacementSnapshot: input.capacityPlacementSnapshot ?? null,
     requireProjectMembership: true,
+    authorityMode: 'existing-node',
   });
   const hold = buildProvisionedNodeHoldSqlPredicate('n', input.taskLifecycleGuard?.taskId);
   const requestedReservationJson = JSON.stringify(resolvedReservation);
@@ -109,8 +108,8 @@ export function buildWorkspaceAdmissionSql(
            AND n.user_id = ?
            AND n.status = 'running'
            AND n.node_role = 'workspace'
-           ${capacityPredicate.sql}
-           ${hold.sql}
+            ${capacityPredicate.sql}
+            ${hold.sql}
            ${lifetimeCutoff.sql}
        ),
        requested_reservation AS (

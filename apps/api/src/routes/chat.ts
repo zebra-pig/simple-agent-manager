@@ -42,6 +42,7 @@ import { registerChatSessionDetailRoute } from './chat-session-detail';
 import { registerChatSessionListRoute } from './chat-session-list';
 import { chatStateRoutes } from './chat-state';
 import { registerChatStopRoute } from './chat-stop';
+import { readChatToolChanges } from './chat-tool-changes';
 import { registerChatWorkloadIdentityRoute } from './chat-workload-identity';
 
 const chatRoutes = new Hono<{ Bindings: Env }>();
@@ -103,8 +104,10 @@ chatRoutes.post('/', async (c) => {
 
 /**
  * GET /api/projects/:projectId/sessions/ws
- * WebSocket upgrade — streams real-time events (new messages, session changes, activity)
- * from the project's Durable Object to the connected client.
+ * WebSocket upgrade, forwarded to the project's Durable Object. With `?sessionId=` the socket
+ * receives that session's transcript and lifecycle events; without it, lifecycle, attention,
+ * comment and access events for every session but no transcript frames
+ * (`project-data/src/do/session-sockets.ts`).
  *
  * NOTE: This route MUST be defined before /:sessionId to avoid 'ws' being
  * captured as a sessionId parameter.
@@ -121,7 +124,9 @@ chatRoutes.get('/ws', async (c) => {
     throw errors.badRequest('Expected WebSocket upgrade');
   }
 
-  return projectDataService.forwardWebSocket(c.env, projectId, c.req.raw);
+  // The socket is tagged with this user so revoking their access can close it
+  // (`closeBrowserSocketsForActor`).
+  return projectDataService.forwardWebSocket(c.env, projectId, c.req.raw, userId);
 });
 
 /**
@@ -160,6 +165,7 @@ chatRoutes.get('/:sessionId/messages', async (c) => {
 
   const compact = getCompactMode(c.req.query('compact'), getDefaultCompactMode(c.env));
 
+  const toolChanges = await readChatToolChanges(c, projectId, sessionId);
   const messagesResult = await projectDataService.getMessages(
     c.env,
     projectId,
@@ -172,7 +178,7 @@ chatRoutes.get('/:sessionId/messages', async (c) => {
     order
   );
 
-  return c.json(messagesResult);
+  return c.json({ ...messagesResult, ...(toolChanges ? { toolChanges } : {}) });
 });
 
 /**
@@ -202,6 +208,8 @@ chatRoutes.get('/:sessionId/messages/:messageId/tool-content', async (c) => {
     throw errors.notFound('Message tool content');
   }
 
+  // A canonical tool ID has mutable output; browser/proxy caches must revalidate it.
+  c.header('Cache-Control', 'no-store');
   return c.json(toolContent);
 });
 

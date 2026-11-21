@@ -30,7 +30,9 @@ import {
   createRateLimitKey,
   getCurrentWindowStart,
 } from '../middleware/rate-limit';
+import { proxyRunUsageRecorder } from '../services/agent-run-usage';
 import { resolveUpstreamAuth } from '../services/ai-billing';
+import { isAiProxyEnabled } from '../services/ai-proxy-availability';
 import {
   AIProxyAuthError,
   buildAIGatewayMetadata,
@@ -65,11 +67,6 @@ const aiProxyAnthropicRoutes = new Hono<{ Bindings: Env }>();
 // =============================================================================
 
 aiProxyAnthropicRoutes.post('/messages', async (c) => {
-  // Kill switch
-  if (c.env.AI_PROXY_ENABLED === 'false') {
-    return anthropicError('AI proxy is disabled', 'api_error', 503);
-  }
-
   // --- Auth: extract token from x-api-key or Authorization: Bearer ---
   const token = extractCallbackToken(c.req.header('Authorization'), c.req.header('x-api-key'));
   if (!token) {
@@ -91,6 +88,8 @@ aiProxyAnthropicRoutes.post('/messages', async (c) => {
     }
     return anthropicError('Invalid or expired API key', 'authentication_error', 401);
   }
+  if (!(await isAiProxyEnabled(c.env)))
+    return anthropicError('AI proxy is disabled', 'api_error', 503);
 
   const { userId, workspaceId, projectId, chatSessionId } = auth;
 
@@ -152,7 +151,10 @@ aiProxyAnthropicRoutes.post('/messages', async (c) => {
 
   const usageGate = await checkAiUsageGate(c.env.KV, userId, c.env);
   if (!usageGate.allowed) {
-    return anthropicUsageGateError(usageGate.reason);
+    return anthropicUsageGateError(
+      usageGate.reason,
+      usageGate.reason === 'monthly-cost-cap' ? usageGate.monthlyCap : undefined
+    );
   }
 
   // --- Resolve upstream auth (Unified Billing or platform key) ---
@@ -273,7 +275,13 @@ aiProxyAnthropicRoutes.post('/messages', async (c) => {
       env: c.env,
       userId,
       format: 'anthropic',
+      costModelId: modelId,
       fallbackInputTokens: estimateInputTokensFromMessages(body.messages),
+      onMeasuredUsage: proxyRunUsageRecorder(c.env, auth, {
+        model: modelId,
+        credentialReference: upstreamAuth.credentialReference,
+        credentialSource: upstreamAuth.credentialSource,
+      }),
       executionCtx: optionalExecutionContext(() => c.executionCtx),
       headers: responseHeaders,
     });
@@ -293,11 +301,6 @@ aiProxyAnthropicRoutes.post('/messages', async (c) => {
 // =============================================================================
 
 aiProxyAnthropicRoutes.post('/messages/count_tokens', async (c) => {
-  // Kill switch
-  if (c.env.AI_PROXY_ENABLED === 'false') {
-    return anthropicError('AI proxy is disabled', 'api_error', 503);
-  }
-
   // --- Auth ---
   const token = extractCallbackToken(c.req.header('Authorization'), c.req.header('x-api-key'));
   if (!token) {
@@ -319,6 +322,8 @@ aiProxyAnthropicRoutes.post('/messages/count_tokens', async (c) => {
     }
     return anthropicError('Invalid or expired API key', 'authentication_error', 401);
   }
+  if (!(await isAiProxyEnabled(c.env)))
+    return anthropicError('AI proxy is disabled', 'api_error', 503);
 
   const { userId, workspaceId, projectId, chatSessionId } = auth;
 
@@ -379,7 +384,10 @@ aiProxyAnthropicRoutes.post('/messages/count_tokens', async (c) => {
 
   const usageGate = await checkAiUsageGate(c.env.KV, userId, c.env);
   if (!usageGate.allowed) {
-    return anthropicUsageGateError(usageGate.reason);
+    return anthropicUsageGateError(
+      usageGate.reason,
+      usageGate.reason === 'monthly-cost-cap' ? usageGate.monthlyCap : undefined
+    );
   }
 
   // --- Resolve upstream auth (Unified Billing or platform key) ---

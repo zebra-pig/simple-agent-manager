@@ -5,6 +5,7 @@ import {
   DigitalOceanProvider,
   GcpProvider,
   HetznerProvider,
+  INFOMANIAK_BOOT_VOLUME_MAX_GB,
   InfomaniakProvider,
   ScalewayProvider,
   UpCloudProvider,
@@ -736,16 +737,19 @@ describe('provider native VM request contracts', () => {
             name: 'sam-native-node',
             status: 'ACTIVE',
             addresses: { ext: [{ version: 4, addr: '203.0.113.10' }] },
-            flavor: { id: 'flavor-1', original_name: 'native-exact-type', vcpus: 7, ram: 14_336, disk: 96 },
+            // Volume-booted: flavor.disk is the flavor's unused local disk, the root is the volume.
+            flavor: { id: 'flavor-1', original_name: 'native-exact-type', vcpus: 7, ram: 14_336, disk: 20 },
+            image: '',
             created: '2026-09-07T00:00:00Z',
-            metadata: {},
+            metadata: { 'sam-root-disk-gb': '96' },
           },
         });
       }
       throw new Error(`Unexpected request ${url}`);
     }) as typeof fetch;
 
-    const provider = new InfomaniakProvider('id', 'secret', { authUrl });
+    // The explicit 96 GB request must fit the configured boot volume size.
+    const provider = new InfomaniakProvider('id', 'secret', { authUrl, bootVolumeSizeGb: 96 });
     const first = await provider.createVM({
       ...nativeOnlyConfig(nativeConfig('small').native!),
       location: 'dc4-a',
@@ -755,6 +759,10 @@ describe('provider native VM request contracts', () => {
     expect(bodies).toHaveLength(2);
     expect(bodies[0]).toEqual(bodies[1]);
     expect((bodies[0] as { server: { flavorRef: string } }).server.flavorRef).toBe('flavor-1');
+    expect(
+      (bodies[0] as { server: { block_device_mapping_v2: Array<{ volume_size: number }> } }).server
+        .block_device_mapping_v2[0]?.volume_size
+    ).toBe(96);
     expect(first.observedHardware.resources).toEqual({
       value: { vcpuCount: 7, memoryMb: 14_336, diskGb: 96 },
       source: 'observed',
@@ -762,22 +770,25 @@ describe('provider native VM request contracts', () => {
     expect(second.serverType).toBe('native-exact-type');
   });
 
-  it('Infomaniak rejects a boot volume above the Cinder maximum before allocation', async () => {
-    // Infomaniak boots from a sized volume, so a large request is satisfiable; only an
-    // impossible size must fail, and before any API call.
+  it('Infomaniak rejects out-of-range boot volume requests before allocation', async () => {
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock as typeof fetch;
 
     const provider = new InfomaniakProvider('id', 'secret', { authUrl: 'https://auth.example/v3' });
-    await expect(
-      provider.createVM({
-        name: 'sam-node',
-        location: 'dc4-a',
-        userData: '#cloud-config',
-        labels: {},
-        native: { instanceType: 'a4-ram8-disk20-perf1', bootDiskSizeGb: 10_241 },
-      })
-    ).rejects.toThrow('Infomaniak root disk must be 1-10240 GB');
+    // Larger than the flavor's 20 GB local disk is valid (it is a volume); only the volume bounds
+    // apply.
+    for (const bootDiskSizeGb of [19, INFOMANIAK_BOOT_VOLUME_MAX_GB + 1, 40.5]) {
+      await expect(
+        provider.createVM({
+          ...nativeOnlyConfig({
+            instanceType: 'arbitrary-infomaniak-flavor',
+            bootDiskSizeGb,
+            resources: { vcpuCount: 2, memoryMb: 4096, diskGb: 20 },
+          }),
+          location: 'dc4-a',
+        })
+      ).rejects.toMatchObject({ category: 'invalid_config' });
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

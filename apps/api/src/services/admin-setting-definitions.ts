@@ -1,8 +1,25 @@
+import type { DeploymentPublishJobSettingName } from '@simple-agent-manager/app-deployment';
+import type {
+  InsightsAgentSettingName,
+  InsightsCloudflareCostSettingName,
+  InsightsInstallationSettingName,
+  InsightsPageSettingName,
+  InsightsReceiptSettingName,
+  ProjectBriefSettingName,
+} from '@simple-agent-manager/operations';
+
 import type { Env } from '../env';
 import { type GcpCatalogSettingName } from './admin-settings-gcp-catalog-definitions';
+import { type InfomaniakSettingName } from './admin-settings-infomaniak-definitions';
+import { type InstructionBudgetSettingName } from './admin-settings-instructions-definitions';
+import type { LibraryMultipartSettingName } from './admin-settings-library-definitions';
 import type { NodeTunnelSettingName } from './admin-settings-node-tunnel-definitions';
+import type { OrchestratorSettingName } from './admin-settings-orchestrator-definitions';
+import { type OutboundSettingName } from './admin-settings-outbound-definitions';
 import { type AgentEmailSettingName } from './agent-email/setting-definitions';
 import { type AgentModelSettingKey } from './agent-models/settings-definition';
+import type { AiProxySettingName } from './ai-proxy-settings';
+import type { RepositorySettingName } from './artifacts/settings';
 import { type ConnectorReadSettingName } from './connector-read-settings-definition';
 import {
   CONNECTOR_DEFAULTS,
@@ -10,7 +27,9 @@ import {
   validateConnectorSetting,
 } from './connector-settings-definition';
 import { type FleetOpsSettingName } from './fleet-ops/settings-definitions';
+import { type InboxSettingName } from './inbox-settings-definition';
 import { type LifecycleLatencySettingKey } from './lifecycle-latency/defaults';
+import type { LlmEndpointSettingName } from './llm-endpoint-settings';
 import { type OperationsTelemetrySettingName } from './operations-telemetry-defaults';
 import { type RuntimeSecretRequestSettingName } from './runtime-secret-request-settings-definition';
 import { type WORKFLOW_DEFAULTS } from './workflow-defaults';
@@ -20,21 +39,44 @@ export type AdminSettingValue = boolean | number | string | readonly string[] | 
 export type AdminSettingType = 'boolean' | 'integer' | 'string' | 'string-list' | 'enum';
 
 export type AdminSettingName =
-  | 'deployments.buildContextCollectionMode'
-  | 'deployments.buildContextStartTimeoutMs'
-  | `deployments.buildContext${'MaxBytes' | 'CollectTimeoutMs' | 'UploadTtlSeconds' | 'RetentionHours' | 'CleanupBudgetMs' | 'CleanupPageSize'}`
-  | `deployments.publishJob${'StallMs' | 'DeadlineMs' | 'SweepLimit' | 'CancelTimeoutMs'}`
+  | LibraryMultipartSettingName
+  | 'security.accountLinkProofTtlSeconds'
+  | LlmEndpointSettingName
+  | AiProxySettingName
+  | DeploymentPublishJobSettingName
+  | 'credentialSetup.cleanupRecoveryStepTimeoutMs'
+  | 'credentialSetup.cleanupRecoveryMaxAttempts'
+  | 'deployments.publishCallbackMaxBodyBytes'
+  | 'events.skipUnsubscribedGitHubCi'
+  | 'chat.messageMergingEnabled'
+  | 'chat.toolCallMergingEnabled'
+  | 'chat.messageMergeMaxRowBytes'
+  | 'chat.messageMergeRecentIds'
+  | 'chat.idleCleanupExtendIntervalMs'
+  | 'insights.runUsageMaxRowsPerSession'
   | `workflow.${keyof typeof WORKFLOW_DEFAULTS}`
   | `lifecycleLatency.${LifecycleLatencySettingKey}`
   | `aiModels.${AgentModelSettingKey}`
   | `connector.${ConnectorSettingKey}`
   | ConnectorReadSettingName
+  | InboxSettingName
+  | InsightsReceiptSettingName
+  | InsightsPageSettingName
+  | InsightsInstallationSettingName
+  | InsightsCloudflareCostSettingName
+  | ProjectBriefSettingName
+  | InsightsAgentSettingName
   | RuntimeSecretRequestSettingName
   | AgentEmailSettingName
   | FleetOpsSettingName
   | NodeTunnelSettingName
+  | OrchestratorSettingName
   | GcpCatalogSettingName
+  | InfomaniakSettingName
+  | InstructionBudgetSettingName
   | OperationsTelemetrySettingName
+  | RepositorySettingName
+  | OutboundSettingName
   | 'operations.projectDataRowUsageIntervalMs'
   | 'chat.profileUsageWindowDays'
   | 'nodes.usageWindowMinutes'
@@ -82,6 +124,12 @@ export type AdminSettingName =
   | 'operations.evictionRecoveryRetryWallMs'
   | 'operations.evictionRecoveryRetryDelayMs'
   | 'operations.capacityPoolPublishBudgetMs'
+  | 'operations.capacityPoolRefreshPassBudgetMs'
+  | 'operations.capacityPoolRefreshRetryBaseMs'
+  | 'operations.capacityPoolRefreshRetryMaxMs'
+  | 'operations.capacityPoolRefreshDeadlineMs'
+  | 'operations.capacityPoolRefreshLeaseMs'
+  | 'operations.capacityPoolRefreshFailureCooldownMs'
   | 'operations.deadWakeReconcileBatchSize'
   | 'operations.resourceLinkTouchIntervalMs'
   | 'operations.resourceLinkWeakPerTarget'
@@ -103,6 +151,7 @@ export type AdminSettingName =
   | 'operations.doAlarmsEnabled'
   | 'operations.stalledTaskClassifierEnabled'
   | 'operations.samOperatorDisabled'
+  | 'operations.operatorNodeDeletionAllowAgentSessions'
   | 'operations.debuggerTools'
   | 'operations.auditRetentionDays'
   | 'operations.samOperatorWatchLifetimeMs'
@@ -147,6 +196,8 @@ export interface AdminSettingDefinition {
   readonly credential?: { readonly provider: string; readonly kind: string };
   readonly range?: { readonly min: number; readonly max: number };
   readonly choices?: readonly string[];
+  /** Explicit fail-closed value for invalid overrides or unavailable storage; absent uses normal fallback. */
+  readonly unavailableValue?: AdminSettingValue;
   readonly validate: (value: unknown) => boolean;
 }
 
@@ -261,6 +312,10 @@ export function connectorDefinition(key: ConnectorSettingKey): AdminSettingDefin
     type,
     // Reuse the shipped defaults; integration will move their ownership here without duplication.
     defaultValue: Array.isArray(value) ? Object.freeze([...value]) : value,
+    // Invalid security controls must restrict access, not inherit permissive defaults.
+    ...(type === 'boolean' ? { unavailableValue: false } : {}),
+    ...(key === 'clientRegistration' ? { unavailableValue: 'allowlist' } : {}),
+    ...(key === 'allowedRedirectHosts' ? { unavailableValue: Object.freeze([]) } : {}),
     category: 'Connector',
     description: connectorDescriptions[key],
     secret: false,
@@ -299,7 +354,7 @@ export function switchDefinition(
   defaultValue: boolean,
   category: AdminSettingDefinition['category'],
   description: string,
-  legacy: Pick<AdminSettingDefinition, 'legacyEnvironment' | 'legacyKv'>
+  legacy: Pick<AdminSettingDefinition, 'legacyEnvironment' | 'legacyKv' | 'unavailableValue'>
 ): AdminSettingDefinition {
   return {
     name,

@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  classifyInfomaniakError,
-  InfomaniakProvider,
-  mapInfomaniakStatus,
-} from '../../src/infomaniak';
+import { InfomaniakProvider } from '../../src/infomaniak';
+import { classifyInfomaniakError, mapInfomaniakStatus } from '../../src/infomaniak-metadata';
 import { ProviderError } from '../../src/types';
 
 const AUTH_URL = 'https://identity.test/v3';
@@ -159,9 +156,16 @@ describe('InfomaniakProvider', () => {
             name: 'sam-node',
             status: 'ACTIVE',
             addresses: { 'ext-net1': [{ version: 4, addr: '203.0.113.10' }] },
-            flavor: { id: 'flavor-1', original_name: 'a2-ram4-disk20-perf1' },
+            flavor: {
+              id: 'flavor-1',
+              original_name: 'a2-ram4-disk20-perf1',
+              vcpus: 2,
+              ram: 4096,
+              disk: 20,
+            },
+            image: '',
             created: '2026-07-25T00:00:00Z',
-            metadata: { project: 'p1' },
+            metadata: { project: 'p1', 'sam-root-disk-gb': '80' },
           },
         });
       throw new Error(`Unexpected request ${init?.method ?? 'GET'} ${url}`);
@@ -180,12 +184,19 @@ describe('InfomaniakProvider', () => {
       },
     });
     expect(result).toMatchObject({ id: 'server-1', ip: '203.0.113.10', status: 'running' });
+    // The volume-booted server reports the boot volume, not the flavor's unused 20 GB local disk.
+    expect(result.observedHardware.resources).toEqual({
+      value: { vcpuCount: 2, memoryMb: 4096, diskGb: 80 },
+      source: 'observed',
+    });
     const createCall = fetchMock.mock.calls.find(
       ([input, init]) => String(input) === `${COMPUTE}/servers` && init?.method === 'POST'
     );
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       server: {
         name: 'sam-node',
+        flavorRef: 'flavor-1',
+        networks: [{ uuid: 'network-1' }],
         block_device_mapping_v2: [
           {
             boot_index: 0,
@@ -196,8 +207,6 @@ describe('InfomaniakProvider', () => {
             delete_on_termination: true,
           },
         ],
-        flavorRef: 'flavor-1',
-        networks: [{ uuid: 'network-1' }],
         user_data: 'I2Nsb3VkLWNvbmZpZwp1c2VyczogW10=',
         metadata: {
           managed: 'simple-agent-manager',
@@ -207,98 +216,10 @@ describe('InfomaniakProvider', () => {
         },
       },
     });
-  });
-
-  it('boots from a volume sized by the larger of the configured and requested disk', async () => {
-    // Infomaniak flavors carry a 20 GB local disk, which one devcontainer build filled to 98%
-    // in production. The root volume replaces it, and the workload can ask for more.
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input);
-      if (url.endsWith('/auth/tokens')) return auth();
-      if (url.startsWith(`${IMAGE}/v2/images`))
-        return json({ images: [{ id: 'image-1', name: 'Ubuntu 24.04 LTS Noble Numbat' }] });
-      if (url.startsWith(`${COMPUTE}/flavors/detail`))
-        return json({ flavors: [{ id: 'flavor-2', name: 'a4-ram8-disk20-perf1' }] });
-      if (url.startsWith(`${NETWORK}/v2.0/networks`))
-        return json({ networks: [{ id: 'network-1', name: 'ext-net1' }] });
-      if (url === `${COMPUTE}/servers` && init?.method === 'POST')
-        return json({ server: { id: 'server-2' } }, 202);
-      if (url === `${COMPUTE}/servers/server-2`) {
-        return json({
-          server: {
-            id: 'server-2',
-            name: 'sam-node',
-            status: 'ACTIVE',
-            addresses: { 'ext-net1': [{ version: 4, addr: '203.0.113.11' }] },
-            flavor: { original_name: 'a4-ram8-disk20-perf1', vcpus: 4, ram: 8192, disk: 20 },
-            created: '2026-11-13T00:00:00Z',
-            metadata: { 'sam-root-disk-gb': '120' },
-          },
-        });
-      }
-      throw new Error(`Unexpected request ${init?.method ?? 'GET'} ${url}`);
-    });
-    const provider = new InfomaniakProvider('id', 'secret', { authUrl: AUTH_URL, rootDiskGb: 60 });
-    const vm = await provider.createVM({
-      name: 'sam-node',
-      location: 'dc4-a',
-      userData: '#cloud-config',
-      labels: {},
-      native: { instanceType: 'a4-ram8-disk20-perf1', bootDiskSizeGb: 120 },
-    });
-    const create = fetchMock.mock.calls.find(
-      ([input, init]) => String(input) === `${COMPUTE}/servers` && init?.method === 'POST'
-    );
-    const server = JSON.parse(String(create?.[1]?.body)).server;
-    expect(server.imageRef).toBeUndefined();
-    // Nova rejects block_device_mapping_v2.volume_type below microversion 2.67 ("Additional
-    // properties are not allowed ('volume_type' was unexpected)"), and SAM pins 2.47.
-    expect(server.block_device_mapping_v2[0]).not.toHaveProperty('volume_type');
-    expect(server.block_device_mapping_v2[0]).toMatchObject({
-      volume_size: 120,
-      delete_on_termination: true,
-    });
-    expect(server.metadata['sam-root-disk-gb']).toBe('120');
-    // The node reports the volume it really boots from, not the flavor's 20 GB.
-    expect(vm.observedHardware).toMatchObject({
-      resources: { value: { vcpuCount: 4, memoryMb: 8192, diskGb: 120 } },
-    });
-  });
-
-  it('requests Nova microversion 2.47 so the server body carries flavor resources', async () => {
-    // Real Nova behaviour: below 2.47 a server's flavor is only { id, links }; from 2.47 it
-    // embeds original_name/vcpus/ram/disk. Without them SAM marks the node "no trusted observed
-    // hardware capacity" and placement refuses every workspace on it.
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input);
-      if (url.endsWith('/auth/tokens')) return auth();
-      if (url === `${COMPUTE}/servers/server-1`) {
-        const version = new Headers(init?.headers).get('OpenStack-API-Version') ?? '';
-        const microversion = Number(/^compute (\d+\.\d+)$/.exec(version)?.[1] ?? '2.1');
-        const flavor =
-          microversion >= 2.47
-            ? { original_name: 'a4-ram8-disk20-perf1', vcpus: 4, ram: 8192, disk: 20 }
-            : { id: '425c947f-114c-4ac2-9011-8d6640b9ccc8' };
-        return json({
-          server: {
-            id: 'server-1',
-            name: 'sam-node',
-            status: 'ACTIVE',
-            addresses: { 'ext-net1': [{ version: 4, addr: '203.0.113.10' }] },
-            flavor,
-            created: '2026-11-13T00:00:00Z',
-            metadata: {},
-          },
-        });
-      }
-      throw new Error(`Unexpected request ${init?.method ?? 'GET'} ${url}`);
-    });
-    const provider = new InfomaniakProvider('id', 'secret', { authUrl: AUTH_URL });
-    const vm = await provider.getVM('server-1');
-    expect(vm?.serverType).toBe('a4-ram8-disk20-perf1');
-    expect(vm?.observedHardware).toMatchObject({
-      resources: { value: { vcpuCount: 4, memoryMb: 8192, diskGb: 20 } },
-    });
+    // Base Nova API only: no microversion header, so `volume_type` (2.67+) must never be sent.
+    const headers = new Headers(createCall?.[1]?.headers);
+    expect(headers.has('OpenStack-API-Version')).toBe(false);
+    expect(headers.has('X-OpenStack-Nova-API-Version')).toBe(false);
   });
 
   it('uses config.instanceType as the concrete flavor name when provided', async () => {

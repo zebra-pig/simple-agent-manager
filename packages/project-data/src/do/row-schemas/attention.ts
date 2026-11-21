@@ -29,6 +29,7 @@ const AttentionMarkerRowSchema = v.object({
   escalation_count: v.number(),
   max_expires_at: v.nullable(v.number()),
   resolved_answer: v.nullable(v.string()),
+  inbox_archived_at: v.optional(v.nullable(v.number()), null),
 });
 
 export function parseAttentionMarkerRow(row: unknown): {
@@ -54,6 +55,8 @@ export function parseAttentionMarkerRow(row: unknown): {
   escalationCount: number;
   maxExpiresAt: number | null;
   resolvedAnswer: string | null;
+  /** Archived from the person's inbox while still pending in its chat (ACP interactions only). */
+  inboxArchivedAt: number | null;
 } {
   const r = parseRow(AttentionMarkerRowSchema, row, 'attention_marker');
   return {
@@ -79,6 +82,7 @@ export function parseAttentionMarkerRow(row: unknown): {
     escalationCount: r.escalation_count,
     maxExpiresAt: r.max_expires_at,
     resolvedAnswer: r.resolved_answer,
+    inboxArchivedAt: r.inbox_archived_at ?? null,
   };
 }
 
@@ -86,6 +90,7 @@ export function parseAttentionMarkerRow(row: unknown): {
 const AttentionSummaryRowSchema = v.object({
   id: v.string(),
   kind: v.string(),
+  source: v.optional(v.nullable(v.string()), null),
   created_at: v.number(),
   expires_at: v.nullable(v.number()),
   reason: v.nullable(v.string()),
@@ -95,6 +100,7 @@ const AttentionSummaryRowSchema = v.object({
 export function parseAttentionSummaryRow(row: unknown): {
   markerId: string;
   kind: string;
+  source: string | null;
   createdAt: number;
   expiresAt: number | null;
   reason: string | null;
@@ -104,6 +110,7 @@ export function parseAttentionSummaryRow(row: unknown): {
   return {
     markerId: r.id,
     kind: r.kind,
+    source: r.source,
     createdAt: r.created_at,
     expiresAt: r.expires_at,
     reason: r.reason,

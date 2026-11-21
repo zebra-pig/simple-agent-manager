@@ -40,6 +40,7 @@ export {
   resolutionStatusQueryOptions,
   sessionAgentCredentialQueryOptions,
 } from './accounts';
+export { adminHealthCostQueryKeys, adminHealthCostQueryOptions } from './admin-health-cost';
 export {
   adminProjectDataArchiveBreakersQueryOptions,
   adminProjectDataArchiveProblemMigrationsQueryOptions,
@@ -129,6 +130,13 @@ export {
   ideaUpdatesQueryOptions,
 } from './ideas';
 export {
+  inboxConversationQueryOptions,
+  inboxCountQueryOptions,
+  inboxItemQueryOptions,
+  inboxListQueryOptions,
+  inboxQueryKeys,
+} from './inbox';
+export {
   nodeListQueryOptions,
   nodeQueryKeys,
   nodeResourceUsageQueryOptions,
@@ -137,6 +145,13 @@ export {
   workspacePortsQueryOptions,
   workspaceQueryKeys,
 } from './infrastructure';
+export {
+  insightsQueryKeys,
+  projectAccountsQueryOptions,
+  projectFlowQueryOptions,
+  projectPeopleQueryOptions,
+  projectSetupsQueryOptions,
+} from './insights';
 export {
   libraryFileQueryOptions,
   type LibraryIndexQueryData,
@@ -155,9 +170,13 @@ export {
   notificationQueryKeys,
   type NotificationsListQueryData,
   notificationsListQueryOptions,
-  notificationUnreadCountQueryOptions,
   timelineProgressNotificationsQueryOptions,
 } from './notifications';
+export {
+  platformCapabilitiesQueryKeys,
+  platformCapabilitiesQueryOptions,
+} from './platform-capabilities';
+export { projectOverviewQueryKeys, projectOverviewQueryOptions } from './project-overview';
 export {
   instantRuntimeEnabledQueryOptions,
   projectArtifactsEnabledQueryOptions,
@@ -168,6 +187,7 @@ export {
   projectRuntimeConfigQueryOptions,
 } from './projects';
 export { reportIssueConfigQueryOptions, reportIssueQueryKeys } from './report-issue';
+export { runReceiptQueryKeys, runReceiptQueryOptions } from './run-receipt';
 export {
   activeTasksQueryOptions,
   taskDetailQueryOptions,

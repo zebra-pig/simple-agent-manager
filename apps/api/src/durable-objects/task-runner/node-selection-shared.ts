@@ -85,7 +85,8 @@ export function resolveReusableNodeSelection(
   state: TaskRunnerState,
   node: NodePlacementFields
 ): ReusableNodeSelection | null {
-  if (node.id === state.config.excludedNodeId) return null;
+  if (node.id === state.config.excludedNodeId || node.id === state.rejectedAutoProvisionedNodeId)
+    return null;
   const capacityPlacementSnapshot = resolveReusableNodeCapacitySnapshot({
     selection: state.config.capacityPoolSelection,
     node: node as CapacityAwareNodePlacementRow,

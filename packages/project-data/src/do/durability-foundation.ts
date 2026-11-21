@@ -13,6 +13,11 @@ import * as mailbox from './mailbox';
 import { projectDataPorts } from './ports';
 import * as delivery from './prompt-delivery';
 import { runPromptDeliveryClaim } from './prompt-delivery-runner';
+import {
+  applyProviderLimitDeliveryHold,
+  isProviderLimitHoldExpiry,
+} from './provider-limit-delivery-hold';
+import { releaseQuestionHold } from './reconciliation-candidate-state';
 import { resetReconciliationEpisode } from './reconciliation-episode';
 import { promptDeliveryToolMetadata } from './sam-notice-metadata';
 import * as sessionState from './session-state';
@@ -33,6 +38,12 @@ export interface DurabilityFoundationHooks {
   armIdleCleanup(chatSessionId: string): void;
   /** Release durable messages queued behind the (now ended) turn. */
   nudgeDeliveries(chatSessionId: string): number;
+  /** A person's message answers the chat's open questions in D1 `asks` (`question-asks.ts`). */
+  closeQuestionAsks?(
+    sessionId: string,
+    messageId: string,
+    messageCreatedAt: number
+  ): Promise<unknown>;
 }
 
 export async function acceptPromptDelivery(
@@ -44,8 +55,41 @@ export async function acceptPromptDelivery(
   const accepted = hooks.transactionSync(() =>
     delivery.acceptPromptDeliveryInTransaction(sql, env, input)
   );
+  const projectId = hooks.getProjectId();
+  if (input.senderType === 'human' && projectId) {
+    // Only a lane's head is claimed, so a message queued behind a delivery already parked for a
+    // provider-limit hold would never learn of the hold and would expire on its ordinary TTL.
+    // Apply the hold now. Registered before the fallible finalizer, and for an idempotent retry of
+    // the same delivery too, so a failed first attempt cannot skip it. Off the send path; a
+    // sleeping chat costs one D1 read, an awake one none.
+    hooks.waitUntil(holdAcceptedPromptDelivery(sql, env, hooks, projectId, input.targetSessionId));
+  }
   await finalizeAcceptedPromptDelivery(sql, env, hooks, input, accepted);
   return accepted;
+}
+
+async function holdAcceptedPromptDelivery(
+  sql: SqlStorage,
+  env: Env,
+  hooks: DurabilityFoundationHooks,
+  projectId: string,
+  sessionId: string
+): Promise<void> {
+  try {
+    const held = await applyProviderLimitDeliveryHold(sql, env.DATABASE, {
+      projectId,
+      sessionId,
+      ttlMs: resolveDurableExecutionConfig(env).ttlMs,
+    });
+    if (!held) return;
+    if (held.closedWakeAsks > 0) hooks.scheduleSummarySync();
+    if (held.rowsChanged > 0) await hooks.recalculateAlarm();
+  } catch (error) {
+    log.error('prompt_delivery.accept_provider_limit_hold_failed', {
+      sessionId,
+      ...serializeError(error),
+    });
+  }
 }
 
 export async function finalizeAcceptedPromptDelivery(
@@ -75,6 +119,19 @@ export async function finalizeAcceptedPromptDelivery(
     throw hookError;
   }
   if (alarmError) throw alarmError;
+  // A person's prompt answers the chat's open questions in D1 `asks`, after the broadcast and the
+  // alarm so the D1 round trip delays neither (`question-asks.ts`, never throws).
+  if (
+    accepted.transcriptInserted &&
+    input.senderType === 'human' &&
+    input.sourceKind !== 'inbox_reply'
+  ) {
+    await hooks.closeQuestionAsks?.(
+      input.targetSessionId,
+      accepted.transcriptMessageId,
+      accepted.transcriptCreatedAt
+    );
+  }
 }
 
 function runAcceptedPromptDeliveryHooks(
@@ -84,10 +141,28 @@ function runAcceptedPromptDeliveryHooks(
   input: delivery.AcceptPromptDeliveryInput,
   accepted: delivery.AcceptedPromptDelivery
 ): void {
+  // The answer or archive of a question held in D1 `asks` reaches the agent here (`inbox_ask`,
+  // `apps/api/src/services/inbox/ask-notice.ts`); the chat list clears its question live, as it
+  // did when a question marker resolved.
+  const questionAskId = input.sourceKind === 'inbox_ask' ? input.metadata?.questionAskId : null;
+  if (typeof questionAskId === 'string' && questionAskId) {
+    releaseQuestionHold(sql, input.targetSessionId);
+    hooks.broadcastEvent(
+      'attention.resolved',
+      {
+        sessionId: input.targetSessionId,
+        markerId: questionAskId,
+        reason: typeof input.metadata?.outcome === 'string' ? input.metadata.outcome : null,
+      },
+      input.targetSessionId
+    );
+  }
   if (accepted.transcriptInserted) {
     idleCleanup.resetIdleCleanup(sql, env, input.targetSessionId);
     if (input.senderType === 'human') {
       resetReconciliationEpisode(sql, input.targetSessionId);
+    }
+    if (input.senderType === 'human' && input.sourceKind !== 'inbox_reply') {
       attention.resolveAttentionMarkers(
         sql,
         input.targetSessionId,
@@ -106,7 +181,8 @@ function runAcceptedPromptDeliveryHooks(
         sessionId: input.targetSessionId,
         messageId: accepted.transcriptMessageId,
         role: 'user',
-        content: input.displayContent.trim(),
+        content:
+          input.sourceKind === 'inbox_reply' ? input.displayContent : input.displayContent.trim(),
         // The same builder as the persisted row, so a live client sees the steer state and
         // the notice exactly as a reload would.
         toolMetadata: promptDeliveryToolMetadata(
@@ -206,12 +282,12 @@ export function createCheckpointEpisode(
   const result = hooks.transactionSync(() => checkpoints.createCheckpointEpisode(sql, input));
   if (!result.created) return result;
   projectDataPorts().observability.recordDurableExecutionMetric(env, {
-      metric: 'checkpoint_episode_transition',
-      projectId: hooks.getProjectId(),
-      sessionId: input.sessionId,
-      checkpointEpisodeId: result.episode.id,
-      attemptCount: result.episode.attemptCount,
-      reason: 'planned',
+    metric: 'checkpoint_episode_transition',
+    projectId: hooks.getProjectId(),
+    sessionId: input.sessionId,
+    checkpointEpisodeId: result.episode.id,
+    attemptCount: result.episode.attemptCount,
+    reason: 'planned',
   });
   activityEvents.recordActivityEventInternal(
     sql,
@@ -253,12 +329,12 @@ export function transitionCheckpointEpisode(
   );
   if (!episode || !before || episode.state === before.state) return episode;
   projectDataPorts().observability.recordDurableExecutionMetric(env, {
-      metric: 'checkpoint_episode_transition',
-      projectId: hooks.getProjectId(),
-      sessionId: episode.sessionId,
-      checkpointEpisodeId: episode.id,
-      attemptCount: episode.attemptCount,
-      reason: `${before.state}->${episode.state}`,
+    metric: 'checkpoint_episode_transition',
+    projectId: hooks.getProjectId(),
+    sessionId: episode.sessionId,
+    checkpointEpisodeId: episode.id,
+    attemptCount: episode.attemptCount,
+    reason: `${before.state}->${episode.state}`,
   });
   activityEvents.recordActivityEventInternal(
     sql,
@@ -321,22 +397,67 @@ export function processPromptDeliveryAlarm(
     if (!config.deliveryEnabled) return;
     const expired = hooks.transactionSync(() => delivery.expireDuePromptDeliveries(sql, config));
     if (expired.expiredWakeFailures.length > 0) {
-      for (const wakeFailure of expired.expiredWakeFailures) {
-        raiseSessionWakeFailure(
-          sql,
-          {
-            sessionId: wakeFailure.targetSessionId,
-            taskId: wakeFailure.sourceTaskId,
-            deliveryId: wakeFailure.deliveryId,
-            reason: wakeFailure.terminalReason,
-            detail:
-              wakeFailure.lastError ??
-              'SAM retried the wake until the delivery expired, but the session did not wake.',
-          },
-          hooks.broadcastEvent
-        );
-      }
-      hooks.scheduleSummarySync();
+      // Filing the inbox item is a D1 write, so it runs after this synchronous alarm step.
+      hooks.waitUntil(
+        (async () => {
+          // One raise per chat: several deliveries expiring together are one visible failure,
+          // and each costs several D1 round trips. Each chat is isolated, so one throw cannot
+          // cost the others their signal (these deliveries are already expired; nothing retries).
+          const seen = new Set<string>();
+          for (const wakeFailure of expired.expiredWakeFailures) {
+            if (seen.has(wakeFailure.targetSessionId)) continue;
+            try {
+              // A chat held by a provider usage limit cannot wake until the hold ends. A delivery
+              // that is not a person's message expires there on its own deadline (an event batch,
+              // a schedule, a parent wake): that is the hold, which the chat already shows, not a
+              // failed wake. A person's message is kept for the hold
+              // (`provider-limit-delivery-hold.ts`), so one that expires anyway is really lost
+              // (its hold lookup failed, or the hold outlived the saved snapshot) and is always
+              // reported. A failed lookup reports too.
+              if (
+                wakeFailure.senderType !== 'human' &&
+                (await isProviderLimitHoldExpiry(
+                  env.DATABASE,
+                  hooks.getProjectId(),
+                  wakeFailure.targetSessionId
+                ))
+              ) {
+                log.info('alarm.wake_failure_suppressed_provider_limit_hold', {
+                  sessionId: wakeFailure.targetSessionId,
+                  deliveryId: wakeFailure.deliveryId,
+                  reason: wakeFailure.terminalReason,
+                });
+                continue;
+              }
+              seen.add(wakeFailure.targetSessionId);
+              await raiseSessionWakeFailure(
+                sql,
+                env,
+                hooks.getProjectId(),
+                {
+                  sessionId: wakeFailure.targetSessionId,
+                  taskId: wakeFailure.sourceTaskId,
+                  deliveryId: wakeFailure.deliveryId,
+                  reason: wakeFailure.terminalReason,
+                  detail:
+                    wakeFailure.lastError ??
+                    'SAM retried the wake until the delivery expired, but the session did not wake.',
+                },
+                hooks.broadcastEvent
+              );
+            } catch (error) {
+              log.error('alarm.wake_failure_failed', {
+                sessionId: wakeFailure.targetSessionId,
+                deliveryId: wakeFailure.deliveryId,
+                ...serializeError(error),
+              });
+            }
+          }
+          hooks.scheduleSummarySync();
+        })().catch((error) => {
+          log.error('alarm.wake_failure_failed', serializeError(error));
+        })
+      );
     }
     const claims = hooks.transactionSync(() => delivery.claimDuePromptDeliveries(sql, config));
     const adapter = projectDataPorts().runtime.createPromptDeliveryAdapter(env);

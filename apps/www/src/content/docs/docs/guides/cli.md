@@ -20,9 +20,8 @@ curl -fsSL "https://api.example.com/api/cli/download?os=darwin&arch=arm64" -o sa
 ```
 
 The one-liner picks Apple Silicon on any Mac; on an Intel Mac, use **Other platforms → macOS
-Intel**, or change `arch=arm64` to `arch=amd64`. Ignore the quick-start steps further down that
-page: they're out of date, and their sign-in step points the CLI at the maintainer's own instance instead of
-yours. Sign in as described below instead.
+Intel**, or change `arch=arm64` to `arch=amd64`. The page's quick start shows the commands below
+with your installation's API address filled in.
 
 ## Sign in
 
@@ -87,6 +86,10 @@ app would start an Instant chat; to start on Instant, name an
 [Instant](/docs/guides/instant-sessions/) profile. Without `--mode task`, `sam tasks submit` follows
 the profile's **Task Mode**. `sam tasks wait` stops waiting at the timeout but doesn't cancel the
 task. Add `--json` to any command for output a script can read.
+Human-readable output shows unsafe terminal controls from SAM data as visible `\uXXXX` text;
+JSON and transcript exports to stdout escape controls within JSON strings while preserving
+the original decoded values for scripts. Local-forward diagnostics follow the same terminal
+policy; forwarded HTTP response bodies and downloaded files retain their original bytes.
 
 ## More commands
 

@@ -3,7 +3,7 @@
  * implementation once at module load (`apps/api/src/repo-hosting-wiring.ts`, which the entry
  * imports). Methods take the narrow env; the worker widens it at that one boundary.
  */
-import type { Env } from './env';
+import type { ArtifactsBinding, Env } from './env';
 import type { UserAccessTokenResult } from './user-access-token';
 
 export interface GitHubAppConfig {
@@ -29,6 +29,7 @@ export interface PlatformConfigPort {
   githubApp(env: Env): Promise<GitHubAppConfig | null>;
   githubOAuth(env: Env): Promise<GitHubOAuthConfig | null>;
   gitlabOAuth(env: Env): Promise<GitLabOAuthConfig | null>;
+  outboundMaxRedirects(env: Env): Promise<number>;
 }
 
 /** Better Auth owns OAuth token encryption and refresh; the worker constructs it. */
@@ -42,9 +43,19 @@ export interface AuthPort {
   ): Promise<(UserAccessTokenResult & { tokenType?: string | null }) | null>;
 }
 
+/**
+ * The SAM-native repository backend (`ARTIFACTS`). On Cloudflare it is the Artifacts binding; a
+ * self-hosted install may register its own (the worker's `services/artifacts/backend.ts`).
+ */
+export interface ArtifactsBackendPort {
+  /** The backend this install uses for SAM-native repositories, or null when it has none. */
+  resolve(env: Env): ArtifactsBinding | null;
+}
+
 export interface RepoHostingPorts {
   platformConfig: PlatformConfigPort;
   auth: AuthPort;
+  artifacts: ArtifactsBackendPort;
 }
 
 /**
@@ -72,6 +83,9 @@ function createRegistry(installed: Partial<RepoHostingPorts>): Registry {
       },
       get auth() {
         return requirePort(installed, 'auth');
+      },
+      get artifacts() {
+        return requirePort(installed, 'artifacts');
       },
     },
   };

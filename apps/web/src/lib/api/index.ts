@@ -34,9 +34,6 @@ export type {
   AnalyticsEventsResponse,
   AnalyticsFeatureAdoptionResponse,
   AnalyticsForwardStatusResponse,
-  AnalyticsFunnelResponse,
-  AnalyticsGeoResponse,
-  AnalyticsRetentionResponse,
   AnalyticsWebsiteTrafficResponse,
   WebsiteTrafficHost,
   WebsiteTrafficSection,
@@ -78,9 +75,6 @@ export {
   fetchAnalyticsEvents,
   fetchAnalyticsFeatureAdoption,
   fetchAnalyticsForwardStatus,
-  fetchAnalyticsFunnel,
-  fetchAnalyticsGeo,
-  fetchAnalyticsRetention,
   fetchAnalyticsWebsiteTraffic,
   fetchSignupApprovalConfig,
   getAdminLogStreamUrl,
@@ -100,6 +94,7 @@ export {
   updatePlatformCredential,
   updateSignupApprovalConfig,
 } from './admin';
+export { getInstallationHealth, refreshCloudflareCost } from './admin-health-cost';
 export {
   decideOperationsApproval,
   fetchOperationsApproval,
@@ -112,6 +107,7 @@ export {
   fetchAdminProjectDataArchiveProblemMigrations,
   fetchAdminProjectDataStorageTelemetry,
 } from './admin-project-data-storage';
+export { attestOperatorNodeDeletion, fetchAdminStrandedNodes } from './admin-stranded-nodes';
 export type {
   AdminAgentEmailStatus,
   AgentEmailLoopbackReceived,
@@ -381,6 +377,18 @@ export {
   setProjectIdeaStatus,
 } from './ideas';
 export {
+  answerInboxItem,
+  archiveInboxItem,
+  getInboxCount,
+  getInboxItem,
+  type InboxConversationCursor,
+  listInbox,
+  reassignInboxTask,
+  replyToInboxItem,
+} from './inbox';
+export { getProjectAccounts, getProjectFlow, getProjectPeople, getProjectSetups } from './insights';
+export { getRunReceipt } from './insights-receipt';
+export {
   addObservation,
   createKnowledgeEntity,
   deleteKnowledgeEntity,
@@ -451,12 +459,10 @@ export {
 export {
   dismissNotification,
   getNotificationPreferences,
-  getNotificationUnreadCount,
   getNotificationWsUrl,
   getVapidPublicKey,
   listNotifications,
   listWebPushSubscriptions,
-  markAllNotificationsRead,
   markNotificationRead,
   subscribeWebPush,
   unsubscribeWebPush,
@@ -464,6 +470,7 @@ export {
 } from './notifications';
 export type { ListPoliciesResponse, ProjectPolicy } from './policies';
 export { deletePolicy, getPolicy, listPolicies, updatePolicy } from './policies';
+export { getProjectOverview } from './project-overview';
 export type {
   AccountMapResponse,
   DevcontainerConfigEntry,

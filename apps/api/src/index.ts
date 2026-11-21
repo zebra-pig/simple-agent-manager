@@ -3,6 +3,9 @@ import './repo-hosting-wiring';
 
 export { McpRateCounter } from './durable-objects/mcp-rate-counter';
 export { WorkspaceBootLog } from './durable-objects/workspace-boot-log';
+// SDK 0.3.7 requires this helper when reconstructing a running Container.
+// Builders register no outbound interceptors, so their network traffic stays direct.
+export { ContainerProxy } from '@cloudflare/containers';
 import { adminAgentEmailRoutes } from './routes/admin-agent-email';
 import { cliOperationReceiptRoutes } from './routes/cli-operation-receipts';
 import { cliProjectMetadataRoutes } from './routes/cli-project-metadata';
@@ -57,6 +60,7 @@ import { adminCcBackfillRoutes } from './routes/admin-cc-backfill';
 import { adminCostRoutes } from './routes/admin-costs';
 import { adminGithubInstallationLeakSweepRoutes } from './routes/admin-github-installation-leak-sweep';
 import { adminGithubRepoIdBackfillRoutes } from './routes/admin-github-repo-id-backfill';
+import { adminHealthCostRoutes } from './routes/admin-health-cost';
 import { adminOperationsApprovalRoutes } from './routes/admin-operations-approvals';
 import { adminPlatformConfigRoutes } from './routes/admin-platform-config';
 import { adminPlatformCredentialRoutes } from './routes/admin-platform-credentials';
@@ -65,6 +69,7 @@ import { adminQuotaRoutes } from './routes/admin-quotas';
 import { adminRuntimeControlRoutes } from './routes/admin-runtime-controls';
 import { adminSandboxRoutes } from './routes/admin-sandbox';
 import { adminSettingsRoutes } from './routes/admin-settings';
+import { adminStrandedNodeRoutes } from './routes/admin-stranded-nodes';
 import { adminUsageRoutes } from './routes/admin-usage';
 import { agentRoutes } from './routes/agent';
 import { agentCredentialSetupSessionsRoutes } from './routes/agent-credential-setup-sessions';
@@ -78,6 +83,7 @@ import { aiProxyAnthropicRoutes } from './routes/ai-proxy-anthropic';
 import { aiProxyPassthroughRoutes } from './routes/ai-proxy-passthrough';
 import { analyticsIngestRoutes } from './routes/analytics-ingest';
 import { apiTokenRoutes } from './routes/api-tokens';
+import { artifactsConfigRoutes } from './routes/artifacts-config';
 import { authRoutes } from './routes/auth';
 import { bootstrapRoutes } from './routes/bootstrap';
 import { cachedCommandRoutes } from './routes/cached-commands';
@@ -111,6 +117,8 @@ import { gitlabRoutes } from './routes/gitlab';
 import { googleAuthRoutes } from './routes/google-auth';
 import { ideaUpdateRoutes } from './routes/idea-updates';
 import { ideaRoutes } from './routes/ideas';
+import { inboxRoutes, projectInboxRoutes } from './routes/inbox';
+import { projectInboxTaskRoutes } from './routes/inbox-tasks';
 import {
   handleInteractivePreviewRequest,
   isInteractivePreviewRequest,
@@ -129,6 +137,8 @@ import { nodesRoutes } from './routes/nodes';
 import { notificationRoutes } from './routes/notifications';
 import { observabilityIngestRoutes } from './routes/observability-ingest';
 import { orchestratorRoutes } from './routes/orchestrator';
+import { ownerSessionSnapshotRoutes } from './routes/owner-session-snapshots';
+import { platformCapabilitiesRoutes } from './routes/platform-capabilities';
 import { policyRoutes } from './routes/policies';
 import { profileRuntimeRoutes } from './routes/profile-runtime';
 import { projectAgentRoutes } from './routes/project-agent';
@@ -140,6 +150,8 @@ import {
 } from './routes/project-deployment';
 import { projectEventChannelRoutes } from './routes/project-event-channels';
 import { projectEventSubscriptionRoutes } from './routes/project-event-subscriptions';
+import { projectInsightsRoutes } from './routes/project-insights';
+import { projectOverviewRoutes } from './routes/project-overview';
 import { projectsRoutes } from './routes/projects';
 import { acpInteractionCallbackRoute } from './routes/projects/acp-interaction-callback';
 import { agentActivityCallbackRoute } from './routes/projects/agent-activity-callback';
@@ -180,7 +192,7 @@ import { agentEmailConfig } from './services/agent-email/setup-state';
 import { isAgentSignInEnabled } from './services/agent-sign-in/config';
 import { isInstantRuntimeAvailable } from './services/vm-agent-container';
 
-const app = new Hono<{ Bindings: Env }>();
+export const app = new Hono<{ Bindings: Env }>();
 
 // Global error handler — catches errors from all routes including subrouters.
 // Must use app.onError() instead of middleware try/catch because Hono's
@@ -196,7 +208,8 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// Proxy non-API subdomains to their respective Cloudflare Pages deployments.
+// Proxy non-API subdomains to their respective Cloudflare Pages deployments (or, on a
+// self-hosted deployment with an ASSETS binding, serve app.* from the Worker's assets).
 // The Worker wildcard route *.{domain}/* intercepts ALL subdomains, so we must
 // proxy app.* and www.* requests to Pages before any other middleware runs.
 // The apex domain is redirected to www.* for the marketing site.
@@ -212,7 +225,15 @@ app.use('*', async (c, next) => {
     baseDomain,
     appPagesProjectName: c.env.PAGES_PROJECT_NAME,
     wwwPagesProjectName: c.env.WWW_PAGES_PROJECT_NAME,
+    hasWebAssets: Boolean(c.env.ASSETS),
   });
+
+  // Self-hosted deployments bind the apps/web build as ASSETS and serve app.* from it.
+  // Cloudflare deployments have no ASSETS binding and keep proxying to Pages. (`c.env.ASSETS` is
+  // re-checked only so TypeScript narrows the optional binding.)
+  if (pagesTarget.type === 'assets' && c.env.ASSETS) {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
 
   if (pagesTarget.type === 'missing-config') {
     return c.text(pagesTarget.message, 503);
@@ -264,10 +285,9 @@ app.get('/health', (c) => {
 });
 
 // Public config — exposes feature flags the UI needs before auth
-app.get('/api/config/artifacts-enabled', (c) => {
-  applyCacheHeaders(c, 'public-config');
-  return c.json({ enabled: c.env.ARTIFACTS_ENABLED === 'true' && !!c.env.ARTIFACTS });
-});
+app.route('/api/config', artifactsConfigRoutes);
+
+app.route('/api/config', platformCapabilitiesRoutes);
 
 // Public config — whether agents can run on Instant (Cloudflare Containers) with no cloud account.
 app.get('/api/config/instant-runtime', (c) => {
@@ -416,10 +436,17 @@ app.route('/api/projects', workspaceEvictionCallbackRoute); // Must be before pr
 app.route('/api/projects', workspaceResourceHistoryCallbackRoute); // Must be before projectsRoutes — uses callback JWT, not session auth
 app.route('/api/projects', projectsRoutes);
 app.route('/api/projects/:projectId/ideas', ideaRoutes);
+app.route('/api/projects/:projectId/overview', projectOverviewRoutes);
+app.route('/api/projects/:projectId/insights', projectInsightsRoutes);
+app.route('/api/projects/:projectId/inbox', projectInboxRoutes);
+// Human tasks (inbox slice H1): steps, comments, claim, reassign, done, reopen.
+app.route('/api/projects/:projectId/inbox', projectInboxTaskRoutes);
 app.route('/api/projects/:projectId/tasks', tasksRoutes);
 app.route('/api/projects/:projectId/operation-receipts', cliOperationReceiptRoutes);
 app.route('/api/projects/:projectId/cli', cliProjectMetadataRoutes);
 app.route('/api/projects/:projectId/sessions', chatStartRoutes);
+// Human-owner retained exports are independent of workspace callback JWT routes.
+app.route('/api/projects/:projectId/sessions', ownerSessionSnapshotRoutes);
 app.route('/api/projects/:projectId/sessions', chatRoutes);
 app.route('/api/projects/:projectId/ideas', ideaUpdateRoutes);
 app.route('/api/projects/:projectId/comments', projectCommentRoutes);
@@ -467,9 +494,11 @@ app.route('/api/admin/quotas', adminQuotaRoutes);
 app.route('/api/admin/agent-email', adminAgentEmailRoutes);
 app.route('/api/admin/runtime-controls', adminRuntimeControlRoutes);
 app.route('/api/admin/operations/approvals', adminOperationsApprovalRoutes);
+app.route('/api/admin/nodes', adminStrandedNodeRoutes);
 app.route('/api/admin/settings', adminSettingsRoutes);
 app.route('/api/admin/usage', adminUsageRoutes);
 app.route('/api/admin/costs', adminCostRoutes);
+app.route('/api/admin/health-cost', adminHealthCostRoutes);
 app.route('/api/admin/cc-backfill', adminCcBackfillRoutes);
 app.route('/api/admin/github-repo-id-backfill', adminGithubRepoIdBackfillRoutes);
 app.route('/api/admin/github-installation-leak-sweep', adminGithubInstallationLeakSweepRoutes);
@@ -482,6 +511,7 @@ app.route('/api/account-map', accountMapRoutes);
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/sam', samRoutes);
 app.route('/api/notifications', notificationRoutes);
+app.route('/api/inbox', inboxRoutes);
 app.route('/api', trialRoutes);
 app.route('/api/gcp', gcpRoutes);
 app.route('/ai/v1', aiProxyRoutes);
@@ -544,3 +574,5 @@ export default {
     await handleInboundAgentEmail(message, env);
   },
 };
+
+export { ComposeBuilderContainer } from './durable-objects/compose-builder-container';

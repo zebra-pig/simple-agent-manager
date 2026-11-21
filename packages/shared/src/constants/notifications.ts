@@ -33,6 +33,14 @@ export const NOTIFICATION_TYPE_URGENCY: Record<NotificationType, NotificationUrg
 };
 
 /**
+ * Types SAM no longer emits. They stay in `NOTIFICATION_TYPES` so notifications stored before
+ * they were retired still render, but settings no longer offer a toggle for them.
+ * `session_ended` ("Agent finished — your turn") carried no content; agents now file what the
+ * person needs in the inbox instead (inbox Result items).
+ */
+export const RETIRED_NOTIFICATION_TYPES: readonly NotificationType[] = ['session_ended'];
+
+/**
  * Window in which repeated comment activity on one session produces at most one `comment`
  * notification per recipient. Mentions are never batched. Default: 10 minutes.
  */
@@ -87,9 +95,6 @@ export const MAX_WEB_PUSH_ENDPOINT_LENGTH = 2_048;
 
 /** Maximum accepted encoded browser subscription key length. */
 export const MAX_WEB_PUSH_SUBSCRIPTION_KEY_LENGTH = 256;
-
-/** Initial human-input response window. Default: 2 hours. */
-export const DEFAULT_HUMAN_INPUT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 /** Fractions of the initial response window at which push is re-notified. */
 export const DEFAULT_HUMAN_INPUT_ESCALATION_FRACTIONS = '0.25,0.75';

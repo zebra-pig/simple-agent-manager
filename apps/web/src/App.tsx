@@ -14,6 +14,7 @@ import { AppShell } from './components/AppShell';
 import { AuthProvider, useAuth } from './components/AuthProvider';
 import { BackgroundFetchIndicator } from './components/BackgroundFetchIndicator';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LibraryPreviewProvider } from './components/library/LibraryPreviewProvider';
 import { PageViewTracker } from './components/PageViewTracker';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { RouteFallback } from './components/RouteFallback';
@@ -24,7 +25,8 @@ import { ToastProvider } from './hooks/useToast';
 import { lazyNamed, memoizeRouteImport } from './lib/lazy-with-retry';
 import { prefetchProjectRoute } from './lib/project-route-prefetch';
 import { queryClient } from './lib/query-client';
-import { isProjectChatRoute } from './lib/shell-routes';
+import { platformCapabilitiesQueryOptions } from './lib/query-options';
+import { isProjectChatRoute, isProjectOverviewRoute } from './lib/shell-routes';
 // Initial landing set — statically imported per .claude/rules/60-request-io-and-bundle-budgets.md.
 // Every other page below is code-split via lazyNamed(). Do NOT add static page imports here.
 import { Dashboard } from './pages/Dashboard';
@@ -42,6 +44,7 @@ const AdminComputeQuotas = lazyNamed(
 );
 const AdminComputeUsage = lazyNamed(() => import('./pages/AdminComputeUsage'), 'AdminComputeUsage');
 const AdminCosts = lazyNamed(() => import('./pages/AdminCosts'), 'AdminCosts');
+const AdminHealthCost = lazyNamed(() => import('./pages/AdminHealthCost'), 'AdminHealthCost');
 const AdminDiagnoses = lazyNamed(() => import('./pages/AdminDiagnoses'), 'AdminDiagnoses');
 const AdminApprovals = lazyNamed(() => import('./pages/AdminApprovals'), 'AdminApprovals');
 const AdminDiagnosis = lazyNamed(() => import('./pages/AdminDiagnosis'), 'AdminDiagnosis');
@@ -79,7 +82,15 @@ const Nodes = lazyNamed(() => import('./pages/Nodes'), 'Nodes');
 const loadProjectShell = memoizeRouteImport(() => import('./pages/Project'));
 const loadProjectChat = memoizeRouteImport(() => import('./pages/project-chat'));
 const loadProjectSettings = memoizeRouteImport(() => import('./pages/ProjectSettings'));
+const loadProjectOverview = memoizeRouteImport(() => import('./pages/project-overview'));
 const ProjectShell = lazyNamed(loadProjectShell, 'Project');
+
+/** Start a route chunk's download when the browser is idle (memoized imports make repeats free). */
+function preloadWhenIdle(load: () => Promise<unknown>) {
+  const run = () => void load().catch(() => undefined);
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run);
+  else setTimeout(run, 1);
+}
 /**
  * The project shell's chunk fallback. On a chat route it is the chat's own loading
  * layout, so the spinner is already where the project and transcript spinners that
@@ -111,11 +122,24 @@ function Project() {
     void loadProjectSettings().catch(() => undefined);
   } else if (isProjectChatRoute(pathname)) {
     void loadProjectChat().catch(() => undefined);
+  } else if (isProjectOverviewRoute(pathname)) {
+    void loadProjectOverview().catch(() => undefined);
+    // Chat is one tap from the landing page: fetch its chunk once the Overview's is under way.
+    preloadWhenIdle(loadProjectChat);
   }
   return <ProjectShell />;
 }
 const ProjectChat = lazyNamed(loadProjectChat, 'ProjectChat');
 const ProjectActivity = lazyNamed(() => import('./pages/ProjectActivity'), 'ProjectActivity');
+const ProjectOverview = lazyNamed(loadProjectOverview, 'ProjectOverview');
+const ProjectInsights = lazyNamed(() => import('./pages/insights'), 'ProjectInsights');
+const InsightsFlowTab = lazyNamed(() => import('./pages/insights/FlowTab'), 'FlowTab');
+const InsightsAgentSetupsTab = lazyNamed(
+  () => import('./pages/insights/AgentSetupsTab'),
+  'AgentSetupsTab'
+);
+const InsightsAccountsTab = lazyNamed(() => import('./pages/insights/AccountsTab'), 'AccountsTab');
+const InsightsPeopleTab = lazyNamed(() => import('./pages/insights/PeopleTab'), 'PeopleTab');
 const ProjectAgentChat = lazyNamed(() => import('./pages/ProjectAgentChat'), 'ProjectAgentChat');
 const ProjectCreate = lazyNamed(() => import('./pages/ProjectCreate'), 'ProjectCreate');
 const ProjectDeploymentEnvironmentDetail = lazyNamed(
@@ -134,10 +158,8 @@ const ProjectCommentReader = lazyNamed(
 const ProjectFiles = lazyNamed(() => import('./pages/ProjectFiles'), 'ProjectFiles');
 const ProjectInvite = lazyNamed(() => import('./pages/ProjectInvite'), 'ProjectInvite');
 const ProjectLibrary = lazyNamed(() => import('./pages/ProjectLibrary'), 'ProjectLibrary');
-const ProjectNotifications = lazyNamed(
-  () => import('./pages/ProjectNotifications'),
-  'ProjectNotifications'
-);
+const Inbox = lazyNamed(() => import('./pages/inbox'), 'Inbox');
+const ProjectInbox = lazyNamed(() => import('./pages/inbox'), 'ProjectInbox');
 const ProjectProfiles = lazyNamed(() => import('./pages/ProjectProfiles'), 'ProjectProfiles');
 const Projects = lazyNamed(() => import('./pages/Projects'), 'Projects');
 const ProjectSettings = lazyNamed(loadProjectSettings, 'ProjectSettings');
@@ -243,9 +265,12 @@ function page(element: ReactNode, fallback: ReactNode = <RouteFallback />) {
 function ProtectedLayout() {
   return (
     <ProtectedRoute>
-      <AppShell>
-        <Outlet />
-      </AppShell>
+      {/* Library references open over the page that made them, not on the Library. */}
+      <LibraryPreviewProvider>
+        <AppShell>
+          <Outlet />
+        </AppShell>
+      </LibraryPreviewProvider>
     </ProtectedRoute>
   );
 }
@@ -260,10 +285,7 @@ function SuperadminRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export const DEV_ONLY_ROUTE_PATHS = [
-  '/__test/error-boundary',
-  '/ui-standards',
-] as const;
+export const DEV_ONLY_ROUTE_PATHS = ['/__test/error-boundary', '/ui-standards'] as const;
 
 /** TEMP audit-only harness — forces ErrorBoundary crash screen for Playwright review. Reverted after use. */
 function ErrorBoundaryAuditHarness(): never {
@@ -276,6 +298,12 @@ export function devOnlyRoutesEnabled() {
 
 export default function App() {
   const showDevOnlyRoutes = devOnlyRoutesEnabled();
+  // Which platform services this installation has (public, cached for minutes). Fetched once at
+  // start so composers and model settings rarely wait on it; until it answers every service is
+  // assumed present (hooks/usePlatformCapabilities.ts).
+  useEffect(() => {
+    void queryClient.prefetchQuery(platformCapabilitiesQueryOptions());
+  }, []);
 
   return (
     <ErrorBoundary>
@@ -307,6 +335,7 @@ export default function App() {
                     <Route element={<ProtectedLayout />}>
                       <Route path="/dashboard" element={<Dashboard />} />
                       <Route path="/sam" element={page(<Sam />)} />
+                      <Route path="/inbox" element={page(<Inbox />)} />
                       <Route path="/chats" element={page(<Chats />)} />
                       <Route path="/projects" element={page(<Projects />)} />
                       <Route path="/projects/new" element={page(<ProjectCreate />)} />
@@ -317,7 +346,16 @@ export default function App() {
                         path="/projects/:id"
                         element={page(<Project />, <ProjectRouteFallback />)}
                       >
-                        <Route index element={<Navigate to="chat" replace />} />
+                        {/* Opening a project lands on its Overview (inbox slice F2); chat is one tap away. */}
+                        <Route index element={<Navigate to="overview" replace />} />
+                        <Route path="overview" element={page(<ProjectOverview />)} />
+                        <Route path="insights" element={page(<ProjectInsights />)}>
+                          <Route index element={<Navigate to="flow" replace />} />
+                          <Route path="flow" element={page(<InsightsFlowTab />)} />
+                          <Route path="agent-setups" element={page(<InsightsAgentSetupsTab />)} />
+                          <Route path="accounts" element={page(<InsightsAccountsTab />)} />
+                          <Route path="people" element={page(<InsightsPeopleTab />)} />
+                        </Route>
                         <Route
                           path="chat"
                           element={page(
@@ -372,7 +410,12 @@ export default function App() {
                           <Route path="deploy" element={page(<ProjectSettingsDeploy />)} />
                         </Route>
                         <Route path="activity" element={page(<ProjectActivity />)} />
-                        <Route path="notifications" element={page(<ProjectNotifications />)} />
+                        <Route path="inbox" element={page(<ProjectInbox />)} />
+                        {/* The project Notifications page became the inbox's Updates chip. */}
+                        <Route
+                          path="notifications"
+                          element={<Navigate to="../inbox?filter=updates" replace />}
+                        />
                         <Route path="automation" element={page(<AutomationOverview />)} />
                         <Route path="automation/new" element={page(<AutomationEditor />)} />
                         <Route path="automation/history" element={page(<AutomationHistory />)} />
@@ -451,6 +494,7 @@ export default function App() {
                         <Route path="infrastructure" element={page(<AdminInfrastructure />)} />
                         <Route path="storage" element={page(<AdminStorage />)} />
                         <Route path="ai-proxy" element={page(<AdminAIProxy />)} />
+                        <Route path="health-cost" element={page(<AdminHealthCost />)} />
                         <Route path="costs" element={page(<AdminCosts />)} />
                         <Route path="usage" element={page(<AdminComputeUsage />)} />
                         <Route path="quotas" element={page(<AdminComputeQuotas />)} />
