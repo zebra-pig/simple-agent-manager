@@ -1,5 +1,6 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, posix, relative } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join, posix } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -10,22 +11,17 @@ function read(path: string): string {
 }
 
 function walk(dir: string, predicate: (path: string) => boolean): string[] {
-  const absoluteDir = join(root, dir);
-  if (!existsSync(absoluteDir)) return [];
-
-  const paths: string[] = [];
-  for (const entry of readdirSync(absoluteDir)) {
-    if (entry === 'node_modules' || entry === '.git') continue;
-    const absolutePath = join(absoluteDir, entry);
-    const repoPath = posix.normalize(relative(root, absolutePath).replaceAll('\\', '/'));
-    const stats = statSync(absolutePath);
-    if (stats.isDirectory()) {
-      paths.push(...walk(repoPath, predicate));
-    } else if (predicate(repoPath)) {
-      paths.push(repoPath);
-    }
-  }
-  return paths.sort();
+  // Inventory repository inputs, including new files under review, without
+  // traversing ignored caches, node_modules or private agent runtime state.
+  const files = execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+    { cwd: root, encoding: 'utf8' }
+  )
+    .split('\0')
+    .filter(Boolean);
+  const prefix = dir === '.' ? '' : `${dir}/`;
+  return files.filter((path) => path.startsWith(prefix) && predicate(path)).sort();
 }
 
 function extractDependabotDirectories(ecosystem: string): Set<string> {
@@ -48,7 +44,7 @@ function npmGlobalInstallSpecs(files: string[], packageName: string): string[] {
   const specs: string[] = [];
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const installPattern = new RegExp(
-    `npm\\s+install(?:\\s+-{1,2}[^\\s"\']+)*\\s+["\']?(${escapedPackageName}(?:@[^\\s"\']+)?)`,
+    `npm\\s+install(?:\\s+-{1,2}[^\\s"']+)*\\s+["']?(${escapedPackageName}(?:@[^\\s"']+)?)`,
     'g'
   );
 
@@ -62,24 +58,16 @@ function npmGlobalInstallSpecs(files: string[], packageName: string): string[] {
   return specs;
 }
 
-function dockerFromRefs(files: string[]): string[] {
-  return files.flatMap((file) =>
-    read(file)
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith('FROM '))
-      .map((line) => line.split(/\s+/)[1]!)
-  );
+function dockerRefs(contents: string): string[] {
+  return contents
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^FROM\s+\S+/i.test(line))
+    .map((line) => line.split(/\s+/)[1]!);
 }
 
-function dockerRefsInTextFiles(files: string[]): string[] {
-  return files.flatMap((file) =>
-    read(file)
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => /^FROM\s+\S+/.test(line))
-      .map((line) => line.replace(/^FROM\s+/, '').split(/\s+/)[0]!)
-  );
+function dockerFromRefs(files: string[]): string[] {
+  return files.flatMap((file) => dockerRefs(read(file)));
 }
 
 describe('dependency governance', () => {
@@ -125,23 +113,41 @@ describe('dependency governance', () => {
     );
   });
 
+  it('includes mixed-case FROM instructions in the digest inventory', () => {
+    expect(
+      dockerRefs('FROM image-one\nfrom image-two\n  FrOm\timage-three AS build\n# FROM ignored')
+    ).toEqual(['image-one', 'image-two', 'image-three']);
+  });
+
   it('prevents Docker base-image drift with digest pins and updater coverage', () => {
     const dockerfiles = walk('.', (path) => /(^|\/)Dockerfile(\.|$)/.test(path));
     const workflowFiles = walk(
       '.github/workflows',
       (path) => path.endsWith('.yml') || path.endsWith('.yaml')
     );
-    const refs = [...dockerFromRefs(dockerfiles), ...dockerRefsInTextFiles(workflowFiles)];
+    const refs = [...dockerFromRefs(dockerfiles), ...dockerFromRefs(workflowFiles)];
 
     expect(dockerfiles).toEqual([
+      'apps/api/Dockerfile.compose-builder',
       'apps/api/Dockerfile.sandbox',
       'apps/api/Dockerfile.vm-agent-container',
+      'deploy/selfhost/caddy/Dockerfile',
+      'deploy/selfhost/egress-fence/Dockerfile',
+      'deploy/selfhost/egress-fence/Dockerfile.lab',
+      'deploy/selfhost/key-agent/Dockerfile',
+      'deploy/selfhost/metadata-proxy/Dockerfile',
+      'deploy/selfhost/sam-mx/Dockerfile',
       'scripts/e2e/workspace-mock/Dockerfile',
     ]);
     expect(refs.length).toBeGreaterThanOrEqual(dockerfiles.length);
     expect(refs.every((ref) => /@sha256:[a-f0-9]{64}$/.test(ref))).toBe(true);
     expect([...extractDependabotDirectories('docker')].sort()).toEqual([
       '/apps/api',
+      '/deploy/selfhost/caddy',
+      '/deploy/selfhost/egress-fence',
+      '/deploy/selfhost/key-agent',
+      '/deploy/selfhost/metadata-proxy',
+      '/deploy/selfhost/sam-mx',
       '/scripts/e2e/workspace-mock',
     ]);
   });

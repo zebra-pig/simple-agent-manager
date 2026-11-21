@@ -259,6 +259,7 @@ export async function sendNativePush(
 ): Promise<NativePushResult> {
   const resolved: Required<SendOptions> = {
     // A wrapper, so `fetch` is never invoked with another `this` (Workers: Illegal invocation).
+    // eslint-disable-next-line sam/no-unguarded-outbound-fetch -- fixed APNs/FCM hosts chosen by this code
     fetcher: options.fetcher ?? ((input, init) => fetch(input, init)),
     now: options.now ?? Date.now,
     ...options,

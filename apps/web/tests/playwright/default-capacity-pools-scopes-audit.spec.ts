@@ -2,6 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 
 import {
   applyMockCapacityDefaultsUpdate,
+  assertNoClippedOverflow,
   assertNoOverflow,
   getProjectSuffix,
   jsonResponse,
@@ -378,6 +379,13 @@ async function setupCommonMocks(page: Page, authUser: unknown, catalogScope: Poo
     if (path === '/api/agents') return respond(200, { agents: [] });
     if (path === '/api/credentials/agent') return respond(200, { credentials: [] });
     if (path === '/api/credentials') return respond(200, []);
+    if (path === '/api/cc/credentials') return respond(200, { credentials: [] });
+    if (path === '/api/cc/configurations') return respond(200, { configurations: [] });
+    if (path === '/api/cc/attachments' || path === '/api/cc/profile-attachments') {
+      return respond(200, { attachments: [] });
+    }
+    if (path === '/api/credentials/resolution-status') return respond(200, { consumers: [] });
+    if (path === '/api/credentials/limits') return respond(200, { credentials: [] });
     if (path.startsWith('/api/github')) return respond(200, []);
     if (path === '/api/dashboard/active-tasks') return respond(200, { tasks: [] });
     if (path === '/api/providers/catalog') {
@@ -631,6 +639,81 @@ test.describe('Default capacity pool scope surfaces', () => {
   // screenshots; the shared single-screen timeout is too short for this flow.
   test.setTimeout(120_000);
 
+  for (const scope of ['project', 'user', 'installation'] as const) {
+    for (const theme of ['dark', 'light'] as const) {
+      test(`${scope} failed refresh keeps the stressed ready pool usable in ${theme} theme`, async ({
+        page,
+      }) => {
+        await page.addInitScript((value) => localStorage.setItem('sam-theme', value), theme);
+        if (scope === 'project') await setupProjectPoolMocks(page);
+        else if (scope === 'user') await setupUserPoolMocks(page);
+        else await setupInstallationPoolMocks(page);
+        let refreshCalls = 0;
+        const responseBody = defaultsResponse(scope);
+        const selected = responseBody.effective as typeof responseBody.effective & {
+          diagnostics: string[];
+        };
+        selected.diagnostics = [
+          'catalog-refresh-failed',
+          '<script>unsafe provider diagnostic</script>',
+        ];
+        const endpoint =
+          scope === 'project'
+            ? `/api/projects/${MOCK_PROJECT.id}/capacity-pools/defaults`
+            : scope === 'installation'
+              ? '/api/admin/capacity-pools/defaults'
+              : '/api/capacity-pools/defaults';
+        await page.route(`**${endpoint}**`, (route) => {
+          if (route.request().method() === 'POST') {
+            refreshCalls++;
+            selected.diagnostics = [];
+          }
+          return jsonResponse(route, 200, responseBody);
+        });
+        const path =
+          scope === 'project'
+            ? `/projects/${MOCK_PROJECT.id}/settings/infrastructure`
+            : scope === 'installation'
+              ? '/admin/infrastructure'
+              : '/settings/infrastructure';
+        await page.goto(path);
+        await expectStressedDefaultPool(page, scope);
+        await expect(page.locator('html')).toHaveAttribute(
+          'data-ui-theme',
+          theme === 'dark' ? 'sam' : 'sam-light'
+        );
+        const panel = page.getByRole('region', { name: POOL_HEADINGS[scope], exact: true });
+        const notice = panel.getByRole('alert');
+        await expect(notice).toHaveText(
+          'Machine list refresh failed. Check the connected cloud accounts, then select Refresh to retry.'
+        );
+        await expect(page.getByText(/unsafe provider diagnostic/)).toHaveCount(0);
+        const refresh = panel.getByRole('button', { name: 'Refresh machine list' });
+        await expect(refresh).toHaveCount(1);
+        await expect(refresh).toBeEnabled();
+        const account = panel.getByRole('switch', { name: /^Use .+ in this pool$/ }).first();
+        await expect(account).toBeEnabled();
+        await assertNoClippedOverflow(page);
+        // Align the actual changed panel at the top of its scroll pane. Leaving an already
+        // visible heading near the viewport bottom can crop the retained-ready status.
+        await panel
+          .getByRole('heading', { name: POOL_HEADINGS[scope], exact: true })
+          .evaluate((heading) => heading.scrollIntoView({ block: 'start' }));
+        await screenshotNearHeading(
+          page,
+          POOL_HEADINGS[scope],
+          `catalog-refresh-failed-${scope}-${theme}`
+        );
+        await refresh.click();
+        await expect(notice).toHaveCount(0);
+        expect(refreshCalls).toBe(1);
+        await expect(account).toBeEnabled();
+        await expect(panel.getByText(`Ready · ${pickedRowCount(scope)} in pool`)).toBeVisible();
+        await assertNoOverflow(page);
+      });
+    }
+  }
+
   test('project settings surface renders stressed project default pool without overflow', async ({
     page,
   }, testInfo) => {
@@ -663,6 +746,181 @@ test.describe('Default capacity pool scope surfaces', () => {
       suffix
     );
     await editStressedPool(page, 'user', `default-capacity-pools-user-edit-${suffix}`);
+  });
+
+  for (const scenario of [
+    {
+      name: 'installation default exceeds every machine',
+      minVcpu: 8,
+      minMemoryGb: 16,
+      unavailable: false,
+      disabledSource: false,
+    },
+    {
+      name: 'unavailable fitting machine',
+      minVcpu: 2,
+      minMemoryGb: 4,
+      unavailable: true,
+      disabledSource: false,
+    },
+    {
+      name: 'disabled fitting source',
+      minVcpu: 2,
+      minMemoryGb: 4,
+      unavailable: false,
+      disabledSource: true,
+    },
+  ]) {
+    test(`personal shared pool warns: ${scenario.name}`, async ({ page }, testInfo) => {
+      await setupCommonMocks(page, user, 'installation');
+      // A live undersized candidate plus a fitting active candidate absent from the latest catalog.
+      const body = {
+        ...defaultsResponse('installation'),
+        placementSettings: {
+          version: 1,
+          sourceGeneration: 7,
+          legacyWorkloadAdapterVersion: 1,
+          selectionWeights: { priority: 1, price: 1, fit: 1, capacity: 1, candidateOrder: 1 },
+          rolloutCohortPercent: 100,
+          source: {
+            legacyWorkloadMapping: 'default',
+            platformDefaults: 'persisted',
+            selection: 'default',
+          },
+          resourceDefaults: {
+            legacyWorkloadMapping: {},
+            platformDefaults: {
+              minVcpu: scenario.minVcpu,
+              minMemoryGb: scenario.minMemoryGb,
+              minDiskGb: 40,
+              exclusiveNode: false,
+            },
+          },
+          hostMemoryReserveMb: 1024,
+        },
+      };
+      if (scenario.unavailable || scenario.disabledSource) {
+        body.effective.candidates = body.effective.candidates
+          .slice(0, 2)
+          .map((candidate, index) => ({
+            ...candidate,
+            status: 'active',
+            providerInstanceType: index === 0 ? 'cx23' : 'cx33',
+            providerInstanceVcpuCount: index === 0 ? 2 : 4,
+            providerInstanceMemoryMb: index === 0 ? 4096 : 8192,
+            providerInstanceDiskGb: 80,
+            catalogAvailability:
+              scenario.unavailable && index === 1 ? 'last-known-unavailable' : 'available',
+            capacitySourceId:
+              scenario.disabledSource && index === 1
+                ? 'disabled-fitting-source'
+                : candidate.capacitySourceId,
+            providerInstanceCatalogSource: 'api',
+          }));
+      }
+      if (scenario.disabledSource) {
+        body.effective.sources.push({
+          ...body.effective.sources[0]!,
+          id: 'disabled-fitting-source',
+          status: 'disabled',
+        });
+      }
+      await page.route('**/api/capacity-pools/defaults*', (route) =>
+        jsonResponse(route, 200, body)
+      );
+      await page.goto('/settings/infrastructure');
+
+      const warning = page.getByText(/No allowed machine can run a default workspace/);
+      await expect(warning).toBeVisible();
+      await expect(warning).toContainText(
+        `It needs ${scenario.minVcpu} vCPU, ${scenario.minMemoryGb} GB of memory and 40 GB of disk`
+      );
+      await expect(warning).toContainText(
+        `at least ${scenario.minVcpu} vCPU, ${scenario.minMemoryGb + 1} GB of memory and 40 GB of disk`
+      );
+      await expect(page.getByText(/Your work uses the shared compute pool/)).toBeVisible();
+      await assertNoOverflow(page);
+      await screenshotNearHeading(
+        page,
+        POOL_HEADINGS.user,
+        `default-capacity-pools-${scenario.name.replaceAll(' ', '-')}-fit-warning-${getProjectSuffix(testInfo.project.name)}`,
+        { outputDir: '../../.tmp/l15/unavailable-fit-screenshots' }
+      );
+      await warning.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath('unavailable-fit-warning.png') });
+    });
+  }
+
+  test('ordinary user on the shared pool sees the fit warning from its safe summary', async ({
+    page,
+  }, testInfo) => {
+    await setupCommonMocks(page, user, 'user');
+    // An ordinary user gets no installation metadata: only the safe summary's machine sizes.
+    const body = {
+      ...defaultsResponse('user'),
+      effective: null,
+      effectiveScope: null,
+      defaults: defaultsResponse('user').defaults.map((item) => ({ ...item, summary: null })),
+      effectiveSummary: {
+        scope: 'installation',
+        state: 'configured-ready',
+        strategy: 'balanced',
+        exhaustionPolicy: 'queue',
+        availableCandidateCount: 2,
+        nativeOfferings: [
+          {
+            provider: 'hetzner',
+            location: 'fsn1',
+            providerInstanceType: 'cx23',
+            displayName: 'cx23',
+            vcpu: 2,
+            memoryMb: 4096,
+            diskGb: 40,
+            price: '€3.99/mo',
+          },
+          {
+            provider: 'hetzner',
+            location: `region-${LONG_MARKER}`,
+            providerInstanceType: EXPENSIVE_HETZNER_GPU_SKU,
+            displayName: 'gpu',
+            vcpu: 4,
+            memoryMb: 4096,
+            diskGb: 40,
+            price: null,
+          },
+        ],
+      },
+      placementSettings: {
+        version: 1,
+        sourceGeneration: 7,
+        legacyWorkloadAdapterVersion: 1,
+        selectionWeights: { priority: 1, price: 1, fit: 1, capacity: 1, candidateOrder: 1 },
+        rolloutCohortPercent: 100,
+        source: {
+          legacyWorkloadMapping: 'default',
+          platformDefaults: 'default',
+          selection: 'default',
+        },
+        resourceDefaults: {
+          legacyWorkloadMapping: {},
+          platformDefaults: { minVcpu: 2, minMemoryGb: 4, minDiskGb: 15, exclusiveNode: false },
+        },
+        hostMemoryReserveMb: 1024,
+      },
+    };
+    await page.route('**/api/capacity-pools/defaults*', (route) => jsonResponse(route, 200, body));
+    await page.goto('/settings/infrastructure');
+
+    await expect(page.getByText("You're using shared machines")).toBeVisible();
+    await expect(page.getByText(/No allowed machine can run a default workspace/)).toContainText(
+      'at least 2 vCPU, 5 GB of memory and 15 GB of disk'
+    );
+    await assertNoOverflow(page);
+    await page.getByText(/No allowed machine can run a default workspace/).scrollIntoViewIfNeeded();
+    await screenshot(
+      page,
+      `default-capacity-pools-user-shared-fit-warning-${getProjectSuffix(testInfo.project.name)}`
+    );
   });
 
   test('admin surface renders stressed installation default pool without overflow', async ({

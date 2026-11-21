@@ -36,6 +36,8 @@ export interface PlacementAuthoritySqlInput {
   projectCapability?: ProjectCapability;
   capacityPlacementSnapshot?: CapacityPlacementSnapshot | null;
   requireProjectMembership?: boolean;
+  /** Existing runtimes revalidate current authority; new allocation plans remain revision-fenced. */
+  authorityMode?: 'allocation-plan' | 'existing-node';
 }
 
 export const PROVIDER_ALLOCATION_ACTIVE_STATUS_SQL = "'creating', 'running'";
@@ -112,6 +114,15 @@ export function buildPlacementAuthoritySqlPredicate(
 
   const concrete = normalizeConcreteSnapshot(snapshot);
   if (!concrete) return impossiblePredicate();
+  const existingNode = input.authorityMode === 'existing-node';
+  if (existingNode) {
+    // Existing VM revisions are provenance; current authority is checked below.
+    // Never use this mode to create a VM.
+    clauses.push(
+      `AND ${nodeAlias}.status = 'running'`,
+      `AND ${nodeAlias}.provider_instance_id IS NOT NULL`
+    );
+  }
   if (concrete.workloadRole !== input.workloadRole) return impossiblePredicate();
   if (
     concrete.capacityPoolScope === 'project' &&
@@ -127,12 +138,8 @@ export function buildPlacementAuthoritySqlPredicate(
   const sourceScope = poolScopeSql('s', concrete.capacityPoolScope, nodeAlias, nodeUserIdSql);
   if (!poolScope || !sourceScope) return impossiblePredicate();
 
-  // The claimed pool must still BE the effective pool for this run: the current
-  // default of its own scope, with nothing authoritative outranking it. Without
-  // this, a plan resolved against a user/installation pool stays admissible after
-  // a project default pool is configured (even a configured-empty one), which is
-  // exactly the cross-pool fallback v1 forbids. Mirrors
-  // `resolveEffectiveDefaultCapacityPoolSummary` through one shared ordering.
+  // The claimed pool must remain the effective default, with no higher-precedence
+  // default (including configured-empty pools). Shares the resolver's ordering.
   const higherPrecedenceExclusion = buildHigherPrecedenceDefaultCapacityPoolExclusionSql(
     concrete.capacityPoolScope,
     { userId: input.userId, projectId: input.projectId ?? null },
@@ -142,7 +149,7 @@ export function buildPlacementAuthoritySqlPredicate(
   clauses.push(
     `AND ${nodeAlias}.capacity_pool_id = ?`,
     `AND ${nodeAlias}.capacity_pool_scope = ?`,
-    `AND ${nodeAlias}.capacity_pool_revision = ?`,
+    ...(existingNode ? [] : [`AND ${nodeAlias}.capacity_pool_revision = ?`]),
     `AND ${nodeAlias}.capacity_source_id = ?`,
     `AND ${nodeAlias}.capacity_source_generation = ?`,
     `AND ${nodeAlias}.capacity_source_external_ref IS ?`,
@@ -159,7 +166,7 @@ export function buildPlacementAuthoritySqlPredicate(
   binds.push(
     concrete.capacityPoolId,
     concrete.capacityPoolScope,
-    concrete.capacityPoolRevision,
+    ...(existingNode ? [] : [concrete.capacityPoolRevision]),
     concrete.capacitySourceId,
     concrete.capacitySourceGeneration,
     concrete.capacitySourceExternalRef,
@@ -179,9 +186,9 @@ export function buildPlacementAuthoritySqlPredicate(
     binds.push(...higherPrecedenceExclusion.binds);
   }
 
-  // Every identity below is already pinned to a bound value through the node
-  // columns asserted above, so the joins compare against those columns instead of
-  // re-binding the same snapshot values.
+  // Identity is already pinned through node columns above; joins reuse those columns instead of
+  // binding the snapshot values again. SQLite nests an AND chain one level per term and D1 caps
+  // expression depth at 100, so the pool/source/candidate/credential groups stay parenthesized.
   clauses.push(
     `AND EXISTS (
       SELECT 1
@@ -192,14 +199,14 @@ export function buildPlacementAuthoritySqlPredicate(
         ON c.id = ${nodeAlias}.capacity_pool_candidate_id
        AND c.pool_id = p.id
        AND c.capacity_source_id = s.id
-      WHERE p.id = ${nodeAlias}.capacity_pool_id
+      WHERE (p.id = ${nodeAlias}.capacity_pool_id
         AND p.scope = ${nodeAlias}.capacity_pool_scope
-        AND p.revision = ${nodeAlias}.capacity_pool_revision
+        ${existingNode ? '' : `AND p.revision = ${nodeAlias}.capacity_pool_revision`}
         AND p.status = 'active'
         AND p.configuration_state = 'configured-ready'
         AND p.is_default = 1
-        ${poolScope.sql}
-        AND s.scope = p.scope
+        ${poolScope.sql})
+        AND (s.scope = p.scope
         AND s.source_kind = 'cloud-provider-credential'
         AND s.status = 'active'
         -- A switched-off account keeps its picks but is never placed (new VMs or reuse).
@@ -214,8 +221,8 @@ export function buildPlacementAuthoritySqlPredicate(
         AND (CASE WHEN s.authority_generation > 0 THEN s.authority_generation
              ELSE ${sqliteTimestampVersion('s.updated_at')} END) = ${nodeAlias}.capacity_source_generation
         AND s.external_source_ref IS ${nodeAlias}.capacity_source_external_ref
-        ${sourceScope.sql}
-        AND c.status = 'active'
+        ${sourceScope.sql})
+        AND (c.status = 'active'
         AND c.catalog_availability = 'available'
         AND c.provider = ${nodeAlias}.cloud_provider
         AND c.location = ${nodeAlias}.vm_location
@@ -226,8 +233,8 @@ export function buildPlacementAuthoritySqlPredicate(
         AND c.provider_instance_disk_gb IS ?
         AND c.provider_instance_boot_disk_size_gb IS ${nodeAlias}.provider_instance_boot_disk_size_gb
         AND c.provider_instance_image IS ${nodeAlias}.provider_instance_image
-        AND c.provider_instance_architecture IS ${nodeAlias}.provider_instance_architecture
-        ${credential.sql}
+        AND c.provider_instance_architecture IS ${nodeAlias}.provider_instance_architecture)
+        AND (1 = 1 ${credential.sql})
     )`
   );
   binds.push(
@@ -240,29 +247,6 @@ export function buildPlacementAuthoritySqlPredicate(
   );
 
   return { sql: clauses.join('\n'), binds };
-}
-
-/**
- * Reserve a task's provisioned node until placement or a terminal lifecycle state.
- * Exclude the whole host to preserve exclusive and legacy reservations too.
- * Applies at workspace admission, not node allocation validation during boot.
- * The existing partial auto_provisioned_node_id index bounds each host lookup.
- */
-export function buildProvisionedNodeHoldSqlPredicate(
-  nodeAlias: string,
-  requestingTaskId?: string | null
-): PlacementAuthoritySqlPredicate {
-  const alias = safeSqlAlias(nodeAlias);
-  return {
-    sql: `AND NOT EXISTS (
-      SELECT 1 FROM tasks provisioned_node_owner
-      WHERE provisioned_node_owner.auto_provisioned_node_id = ${alias}.id
-        AND provisioned_node_owner.workspace_id IS NULL
-        AND provisioned_node_owner.status IN ('queued', 'delegated', 'in_progress')
-        AND provisioned_node_owner.id IS NOT ?
-    )`,
-    binds: [requestingTaskId ?? null],
-  };
 }
 
 export function capacityCandidateWorkloadRoleSql(
@@ -369,7 +353,9 @@ function buildCredentialAuthoritySql(
   }
 
   if (reference.kind === 'ccCredential') {
-    const attachment = parseComposableAttachmentReference(snapshot.capacitySourceExternalRef);
+    const externalRef = snapshot.capacitySourceExternalRef;
+    if (!externalRef) return null;
+    const attachment = parseComposableAttachmentReference(externalRef);
     if (!attachment) return null;
     if (snapshot.placementCredentialSource === 'project' && !input.projectId) return null;
     const attachmentScope =
@@ -380,14 +366,10 @@ function buildCredentialAuthoritySql(
               AND current_cc_attachment.project_id IS NULL`,
             binds: [],
           };
-    // A composable source carries a secret-free anchor credential_id (migration 0125's CHECK
-    // requires one; see ensureCapacitySourceCredentialAnchor). Requiring NULL here rejected
-    // every VM placed through a composable credential as "Node allocation plan is no longer
-    // current". Accept exactly this attachment+version's anchor, or NULL for older rows.
-    const anchorId = externalCapacitySourceCredentialId(
-      snapshot.capacitySourceExternalRef ?? '',
-      snapshot.placementCredentialVersion
-    );
+    // Reconciliation must satisfy migration 0125's non-null FK with a secret-free anchor.
+    // It is not credential authority: accept only this attachment/version's exact anchor
+    // (or the older null shape), then validate the real cc_* binding below.
+    const anchorId = externalCapacitySourceCredentialId(externalRef, snapshot.placementCredentialVersion);
     return {
       sql: `AND (s.credential_id IS NULL OR s.credential_id = ?)
         AND s.platform_credential_id IS NULL

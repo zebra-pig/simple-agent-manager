@@ -58,12 +58,19 @@ export type NodeClass = 'managed' | 'user-owned';
  *   ingress and vm-agent serves plain HTTP on loopback. Tunnel presence ⇒ skip A-record backfill.
  * Null for nodes (e.g. cf-container) where transport is implicit.
  */
-export type NodeTransport = 'vm-public-dns' | 'cloudflare-tunnel';
+export type NodeTransport = 'vm-public-dns' | 'cloudflare-tunnel' | 'reverse-tunnel';
 
 /** Runtime type guard for {@link NodeClass}. Unknown/legacy values are treated as not user-owned. */
 export function isNodeClass(value: unknown): value is NodeClass {
   return value === 'managed' || value === 'user-owned';
 }
+
+/**
+ * Node statuses after which a node no longer accrues compute time. For these the node's end time
+ * is its `updated_at` (`getNodeEndedAt`, apps/api `node-usage-calculation.ts`). One list for
+ * metering, quotas and Admin Health & cost.
+ */
+export const NODE_BILLING_ENDED_STATUSES = ['destroyed', 'destroying', 'deleted', 'error'] as const;
 
 /** True only for enrolled BYO machines. Any unknown/absent value is treated as managed (safe default). */
 export function isUserOwnedNodeClass(value: unknown): boolean {
@@ -193,6 +200,12 @@ export interface NodeResponse {
 
 /** Full system info from on-demand VM Agent endpoint */
 export interface NodeSystemInfo {
+  /** Uncached process-local publish command attempts; absent on older agents. */
+  publishExecution?: {
+    processIncarnation: string;
+    composeBuildAttempts: number;
+    dockerSaveAttempts: number;
+  };
   cpu: {
     loadAvg1: number;
     loadAvg5: number;

@@ -215,7 +215,7 @@ export type {
   WorkspaceStatus,
 } from './workspace';
 // Node class runtime guards (value exports, not types)
-export { isNodeClass, isUserOwnedNodeClass } from './workspace';
+export { isNodeClass, isUserOwnedNodeClass, NODE_BILLING_ENDED_STATUSES } from './workspace';
 // Provider Catalog
 export type {
   LocationInfo,
@@ -389,6 +389,7 @@ export type {
   ProjectCommentSessionRef,
   ReplyToLibraryFileCommentThreadRequest,
   ReplyToMessageCommentThreadRequest,
+  StoredCommentAnchorKind,
   UpdateLibraryFileCommentThreadStatusRequest,
   UpdateMessageCommentThreadStatusRequest,
 } from './comments';
@@ -398,6 +399,7 @@ export {
   COMMENT_STATUSES,
   MESSAGE_COMMENT_AUTHOR_KINDS,
   MESSAGE_COMMENT_THREAD_STATUSES,
+  STORED_COMMENT_ANCHOR_KINDS,
 } from './comments';
 
 // ProjectData event subscription core
@@ -461,8 +463,6 @@ export type {
   PersistMessageItem,
   PersistMessageRequest,
   PlanEntry,
-  ProjectWebSocketEvent,
-  ProjectWebSocketEventType,
   RecentChatsResponse,
   RemoveWorktreeResponse,
   SessionActivitySource,
@@ -489,6 +489,19 @@ export {
 export type { ActivityActorType, ActivityEvent, ActivityEventType } from './activity';
 
 // Notification
+export type {
+  AdminStrandedNode,
+  ListAdminStrandedNodesResponse,
+  OperatorNodeDeletionRequest,
+} from './admin-stranded-nodes';
+export {
+  DEFAULT_ADMIN_STRANDED_NODES_LIMIT,
+  isOperatorRemovableBlockReason,
+  MAX_ADMIN_STRANDED_NODES_LIMIT,
+  OPERATOR_NODE_DELETION_NOTE_MAX_CHARS,
+  OPERATOR_REMOVABLE_BLOCK_REASONS,
+  primaryCleanupBlockReason,
+} from './admin-stranded-nodes';
 export type {
   CreateNotificationRequest,
   ListNotificationsResponse,
@@ -813,6 +826,131 @@ export {
   isIdeaHumanTransition,
 } from './ideas';
 
+// Project Overview (Inbox slice F1)
+export type {
+  OverviewBrief,
+  OverviewBriefPart,
+  OverviewBriefRef,
+  OverviewBriefRefKind,
+  OverviewBriefSentence,
+  OverviewMergedPullRequest,
+  OverviewRunningChat,
+  OverviewRunningState,
+  ProjectOverviewResponse,
+  ProjectOverviewSection,
+} from './project-overview';
+export {
+  DEFAULT_PROJECT_OVERVIEW_RECENT_LIMIT,
+  DEFAULT_PROJECT_OVERVIEW_RUNNING_LIMIT,
+  MAX_PROJECT_OVERVIEW_LIMIT,
+  OVERVIEW_BRIEF_REF_KINDS,
+} from './project-overview';
+
+// Run receipt (Insights slice R)
+export type {
+  RunReceipt,
+  RunReceiptAccount,
+  RunReceiptCiFirstTry,
+  RunReceiptFacts,
+  RunReceiptFactsInput,
+  RunReceiptOutcome,
+  RunReceiptPhase,
+  RunReceiptPhaseKey,
+  RunReceiptPullRequest,
+  RunReceiptResources,
+  RunReceiptSection,
+  RunReceiptSlowItem,
+  RunReceiptSlowKind,
+  RunReceiptToolCalls,
+  RunReceiptToolKindCount,
+  RunReceiptWaitingInterval,
+} from './insights-receipt';
+export { RUN_RECEIPT_PHASE_KEYS } from './insights-receipt';
+// Run usage (Insights slice U)
+export type {
+  RunModelUsage,
+  RunReceiptTokens,
+  RunTokenCounts,
+  RunUsageSource,
+  RunUsageSpend,
+} from './insights-run-usage';
+// Insights · Flow (Insights slice F)
+export type {
+  FlowFlakyCheck,
+  FlowMedian,
+  FlowRate,
+  FlowRuns,
+  FlowRunsBucket,
+  FlowSection,
+  FlowStopReason,
+  FlowStopReasonCount,
+  FlowTopBlocker,
+  FlowWaitingIdea,
+  InsightsRange,
+  ProjectFlowResponse,
+} from './insights-flow';
+export {
+  DEFAULT_INSIGHTS_RANGE,
+  FLOW_DELIBERATE_STOP_REASONS,
+  FLOW_STOP_REASON_LABELS,
+  FLOW_STOP_REASONS,
+  INSIGHTS_RANGE_DAYS,
+  INSIGHTS_RANGES,
+  isInsightsRange,
+} from './insights-flow';
+
+// Lifecycle phase timings (Insights slice T): the operations a stored phase can name
+export type { LifecyclePhaseOperation } from './lifecycle-phase-operations';
+export {
+  LIFECYCLE_PHASE_OPERATIONS,
+  PROJECT_LIFECYCLE_PHASE_OPERATIONS,
+} from './lifecycle-phase-operations';
+
+// Insights · Accounts (Insights slice A)
+export type {
+  InsightsAccount,
+  InsightsAccountKind,
+  InsightsAccountOwner,
+  InsightsAccountSpend,
+  InsightsAccountsSection,
+  InsightsAccountStalls,
+  InsightsAccountTokens,
+  InsightsStallEpisode,
+  InsightsStallOutcome,
+  ProjectAccountsResponse,
+} from './insights-accounts';
+export type {
+  InsightsFirstPerson,
+  InsightsPeopleAskKind,
+  InsightsPeopleSection,
+  InsightsReviewPickup,
+  InsightsWaiting,
+  InsightsWaitingGroup,
+  InsightsWaitingItem,
+  ProjectPeopleResponse,
+} from './insights-people';
+export { INSIGHTS_PEOPLE_ASK_KINDS } from './insights-people';
+
+// Insights · Agent setups (Insights slice S)
+export type {
+  InsightsSetupGroup,
+  InsightsSetupGrouping,
+  InsightsSetupMemory,
+  InsightsSetupNudges,
+  InsightsSetupOwner,
+  InsightsSetupsSection,
+  InsightsSetupSuggestion,
+  InsightsSetupTokens,
+  ProjectSetupsResponse,
+  RunNudgeCounts,
+  RunNudgeWindow,
+} from './insights-setups';
+export {
+  DEFAULT_INSIGHTS_SETUP_GROUPING,
+  INSIGHTS_SETUP_GROUPINGS,
+  isInsightsSetupGrouping,
+} from './insights-setups';
+
 // Knowledge Graph
 export type {
   AddObservationRequest,
@@ -959,17 +1097,21 @@ export type {
   CreatePolicyRequest,
   ListPoliciesResponse,
   PolicyCategory,
+  PolicyInjectMode,
   PolicyScope,
   PolicySource,
   ProjectPolicy,
   UpdatePolicyRequest,
 } from './policy';
 export {
+  DEFAULT_POLICY_INJECT_MODE,
   isPolicyCategory,
+  isPolicyInjectMode,
   isPolicyScope,
   isPolicySource,
   POLICY_CATEGORIES,
   POLICY_DEFAULTS,
+  POLICY_INJECT_MODES,
   POLICY_SCOPES,
   POLICY_SOURCES,
 } from './policy';
@@ -1117,3 +1259,109 @@ export {
   RUNTIME_SECRET_REQUEST_REASON_MAX_LENGTH,
   RUNTIME_SECRET_REQUEST_STATUSES,
 } from './runtime-secret-requests';
+
+// Inbox (idea 01M7G03ZCQ6TM6CMEYDRKQ8ST9)
+export type {
+  AskAssigneeKind,
+  AskKind,
+  AskStatus,
+  InboxActionResponse,
+  InboxAgentItem,
+  InboxAgentLinkKind,
+  InboxAgentReplyItem,
+  InboxAgentState,
+  InboxAnswerRequest,
+  InboxAnswerSpec,
+  InboxAskAnswerShape,
+  InboxContextMessage,
+  InboxConversation,
+  InboxCountResponse,
+  InboxErrorAction,
+  InboxErrorActionOption,
+  InboxFilter,
+  InboxItem,
+  InboxItemContext,
+  InboxItemKind,
+  InboxItemResponse,
+  InboxLink,
+  InboxListResponse,
+  InboxReplyAttribution,
+  InboxReplyMessage,
+  InboxReplyRequest,
+  InboxReplyResponse,
+  InboxSimilarItem,
+  InboxStore,
+  ParsedInboxRef,
+} from './inbox';
+export {
+  ASK_ASSIGNEE_KINDS,
+  ASK_KINDS,
+  ASK_STATUSES,
+  formatInboxRef,
+  INBOX_AGENT_LINK_KINDS,
+  INBOX_AGENT_STATES,
+  INBOX_AGENT_URL_LINK_KINDS,
+  INBOX_ASK_ANSWER_SHAPES,
+  INBOX_CONFIRM_OPTIONS,
+  INBOX_ERROR_ACTIONS,
+  INBOX_FILTERS,
+  INBOX_ITEM_KINDS,
+  INBOX_STORES,
+  INBOX_WRITE_TOOL,
+  parseInboxRef,
+} from './inbox';
+export type {
+  AskActivityKind,
+  AskActorKind,
+  InboxItemCommentThread,
+  InboxTaskActionResponse,
+  InboxTaskActivity,
+  InboxTaskAssignee,
+  InboxTaskCommentRequest,
+  InboxTaskCommentResponse,
+  InboxTaskDetail,
+  InboxTaskDoneRequest,
+  InboxTaskEventType,
+  InboxTaskReassignRequest,
+  InboxTaskStep,
+  InboxTaskStepRequest,
+} from './inbox-tasks';
+export {
+  ASK_ACTIVITY_KINDS,
+  ASK_ACTOR_KINDS,
+  INBOX_EVENT_SOURCE,
+  INBOX_EVENT_SUBJECT_TYPE,
+  INBOX_TASK_DEFAULT_WAKE_EVENT_TYPES,
+  INBOX_TASK_EVENT_TYPES,
+  INBOX_TASK_STEP_EVENT_TYPES,
+} from './inbox-tasks';
+
+// Admin Health & cost (Insights slices H and CF)
+export type {
+  InstallationCloudflareCost,
+  InstallationCloudflareCostStatus,
+  InstallationCloudflareProductLine,
+  InstallationCloudflareRefreshResponse,
+  InstallationComputeCurrencySpend,
+  InstallationComputeProviderSpend,
+  InstallationComputeSpend,
+  InstallationComputeWeek,
+  InstallationHealthRange,
+  InstallationHealthResponse,
+  InstallationHealthSection,
+  InstallationHealthWindow,
+  InstallationLatencyIncident,
+  InstallationLatencyIncidentState,
+  InstallationLatencyState,
+  InstallationLifecycleLatency,
+  InstallationMachineDensity,
+  InstallationMachineReuse,
+  InstallationNewMachineReason,
+  InstallationNewMachineReasonKind,
+  InstallationNewMachineReasons,
+} from './insights-installation';
+export {
+  DEFAULT_INSTALLATION_HEALTH_RANGE,
+  INSTALLATION_HEALTH_RANGES,
+  isInstallationHealthRange,
+} from './insights-installation';

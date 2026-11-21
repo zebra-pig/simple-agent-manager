@@ -211,6 +211,20 @@ describe('sync wrangler config', () => {
     }
   );
 
+  it('omits the default SAM model binding and forwards a logged explicit override', () => {
+    vi.stubEnv('RESOURCE_PREFIX', 'sam-test');
+    vi.stubEnv('SAM_MODEL', 'claude-sonnet-5');
+    const info = vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(getApiWorkerVars({}, outputs, 'prod', 'analytics-dataset', true).SAM_MODEL).toBe(
+      'claude-sonnet-5'
+    );
+    expect(info.mock.calls.flat().join(' ')).toContain('SAM_MODEL');
+    vi.stubEnv('SAM_MODEL', '');
+    expect(getApiWorkerVars({}, outputs, 'prod', 'analytics-dataset', true)).not.toHaveProperty(
+      'SAM_MODEL'
+    );
+  });
+
   it('forwards optional VM boot recovery overrides without requiring defaults as bindings', () => {
     vi.stubEnv('RESOURCE_PREFIX', 's123abc');
     const overrides = {
@@ -1322,16 +1336,22 @@ describe('Worker vars omitted because they equal the code default', () => {
   // The busy-build placement wait it bounded was removed (2026-11-08): a busy node is now ranked by
   // its startup backlog instead of waited on, so nothing reads the timeout.
   const RETIRED_WITH_BUSY_BUILD_WAIT = ['VM_ADMISSION_BUSY_BUILD_WAIT_TIMEOUT_MS'] as const;
+  // A question's window moved to the admin setting `inbox.questionTimeoutMinutes` with inbox
+  // slice G (2026-11-16): questions are D1 `asks` rows, and nothing reads the variable.
+  const RETIRED_WITH_QUESTION_ASKS = ['HUMAN_INPUT_TIMEOUT_MS'] as const;
   const RETIRED_VARS: readonly string[] = [
     ...RETIRED_WITH_ANONYMOUS_TRIALS,
     ...RETIRED_WITH_BUSY_BUILD_WAIT,
+    ...RETIRED_WITH_QUESTION_ASKS,
   ];
 
   it('pins original bindings to retained values, deliberate retunes or proven runtime defaults', () => {
     const current = readCheckedInWrangler().vars ?? {};
     // Approved 2026-11-14 archive throughput tuning. Preserve the dated audit snapshot;
-    // only these two retained bindings intentionally differ from that historical baseline.
+    // These retained bindings intentionally differ from that historical baseline.
     const retuned: Record<string, string> = {
+      // Replace the assistant model before Cloudflare retires GLM 5.3 Flash (2026-11-20).
+      SAM_MODEL: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
       PROJECT_DATA_ARCHIVE_DAILY_WRITE_BUDGET: '6000000',
       PROJECT_DATA_ARCHIVE_GLOBAL_SWEEP_INTERVAL_MS: '540000',
     };
@@ -1346,7 +1366,7 @@ describe('Worker vars omitted because they equal the code default', () => {
       } else if (dead.has(name)) {
         expect(OMITTED_WORKER_VAR_DEFAULTS, name).not.toHaveProperty(name);
       } else {
-        expect(OMITTED_WORKER_VAR_DEFAULTS[name], name).toBe(value);
+        expect(OMITTED_WORKER_VAR_DEFAULTS[name], name).toBe(retuned[name] ?? value);
       }
     }
     expect(bindingAudit.removedDead).toEqual([
@@ -1373,6 +1393,8 @@ describe('Worker vars omitted because they equal the code default', () => {
             )
           ),
           ...checkedIn.vars,
+          // Deliberate retirement migration, independently pinned above.
+          SAM_MODEL: OMITTED_WORKER_VAR_DEFAULTS.SAM_MODEL,
         },
       });
       const after = varsFor(environment, checkedIn);
@@ -1470,5 +1492,54 @@ describe('Worker vars omitted because they equal the code default', () => {
       log.mockRestore();
     }
     expect(lines).toEqual(['  Environment override: OMITTED="5" replaces code default "9"']);
+  });
+});
+
+describe('dedicated Compose builder deployment settings', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it('mirrors actual class capacity into admission and supports instance sizing overrides', () => {
+    vi.stubEnv('RESOURCE_PREFIX', 's123abc');
+    vi.stubEnv('DEPLOY_BUILDER_MAX_INSTANCES', '4');
+    vi.stubEnv('DEPLOY_BUILDER_INSTANCE_TYPE', 'standard-3');
+    const generated = generateApiWorkerEnv(
+      {
+        containers: [
+          {
+            class_name: 'ComposeBuilderContainer',
+            image: './Dockerfile.compose-builder',
+            instance_type: 'standard-4',
+            max_instances: 6,
+          },
+        ],
+      },
+      outputs,
+      'staging',
+      false,
+      false,
+      null
+    );
+    expect(generated.containers).toEqual([
+      {
+        class_name: 'ComposeBuilderContainer',
+        image: './Dockerfile.compose-builder',
+        instance_type: 'standard-3',
+        max_instances: 4,
+      },
+    ]);
+    expect(generated.vars?.DEPLOY_BUILDER_CLASS_MAX_INSTANCES).toBe('4');
+  });
+  it('fails closed on an invalid builder instance type', () => {
+    vi.stubEnv('RESOURCE_PREFIX', 's123abc');
+    vi.stubEnv('DEPLOY_BUILDER_INSTANCE_TYPE', 'typo');
+    expect(() =>
+      generateApiWorkerEnv(
+        { containers: [{ class_name: 'ComposeBuilderContainer', image: 'image' }] },
+        outputs,
+        'staging',
+        false,
+        false,
+        null
+      )
+    ).toThrow('DEPLOY_BUILDER_INSTANCE_TYPE');
   });
 });

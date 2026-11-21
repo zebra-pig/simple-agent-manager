@@ -5,7 +5,9 @@ import { log } from '../lib/logger';
 import { readResponseJson } from '../lib/runtime-validation';
 import { errors } from '../middleware/error';
 import { resolveAdminSetting } from '../services/admin-settings-resolution';
+import { activeLocalAnalyticsSink } from '../services/analytics-sink';
 import { fetchWithTimeout } from '../services/fetch-timeout';
+import { hasCloudflareAccountApi } from '../services/platform-capabilities';
 
 export const DEFAULT_ANALYTICS_SQL_API_URL = 'https://api.cloudflare.com/client/v4/accounts';
 
@@ -13,14 +15,7 @@ export const DEFAULT_PERIOD_DAYS = 30;
 
 export const DEFAULT_TOP_EVENTS_LIMIT = 50;
 
-export const DEFAULT_GEO_LIMIT = 50;
-
-export const DEFAULT_RETENTION_WEEKS = 12;
-
 export const DEFAULT_WEBSITE_TRAFFIC_TOP_PAGES_LIMIT = 20;
-
-/** Analytics Engine hard cap on result rows; queries without explicit LIMIT silently truncate here. */
-export const MAX_RETENTION_QUERY_ROWS = 10_000;
 
 export const analyticsSqlResponseSchema = v.object({
   data: v.optional(v.array(v.unknown())),
@@ -75,15 +70,23 @@ export const FEATURE_EVENTS = [
 ];
 
 /**
- * Execute an Analytics Engine SQL query via the Cloudflare API.
+ * Execute an Analytics Engine SQL query via the Cloudflare API, or, when the self-host build
+ * installed a local sink that is active here, the same query against that store.
  */
 export async function queryAnalyticsEngine(env: Env, sql: string): Promise<unknown> {
+  const local = activeLocalAnalyticsSink(env);
+  if (local) return local.query(env, sql);
+
+  // The SQL API is Cloudflare's. Without an account to query there is no analytics to show;
+  // that is a property of the installation, not a server fault.
+  if (!hasCloudflareAccountApi(env)) {
+    throw errors.featureUnavailable(
+      'analyticsQuery',
+      'Analytics is not available on this installation'
+    );
+  }
   const baseUrl = env.ANALYTICS_SQL_API_URL || DEFAULT_ANALYTICS_SQL_API_URL;
   const accountId = env.CF_ACCOUNT_ID;
-
-  if (!accountId) {
-    throw errors.internal('CF_ACCOUNT_ID is not configured');
-  }
 
   const url = `${baseUrl}/${accountId}/analytics_engine/sql`;
 

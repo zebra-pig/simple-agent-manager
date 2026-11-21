@@ -92,7 +92,7 @@ function FallbackNotice({
   return (
     <div className="grid gap-1 rounded-md border border-border-default bg-inset px-3 py-2 text-sm">
       <p className="m-0 text-fg-primary">
-        This project uses{' '}
+        {projectId ? 'This project uses' : 'Your work uses'}{' '}
         {fallbackScope === 'installation'
           ? 'the shared compute pool'
           : 'your personal compute pool'}
@@ -237,6 +237,13 @@ export function DefaultCapacityPoolsPanel(props: DefaultCapacityPoolsPanelProps)
         </div>
       </div>
 
+      {shown?.diagnostics?.includes('catalog-refresh-failed') && (
+        <Alert variant="warning">
+          Machine list refresh failed. Check the connected cloud accounts, then select Refresh to
+          retry.
+        </Alert>
+      )}
+
       {query.isLoading && !query.data ? (
         <p className="m-0 text-sm text-fg-muted" role="status">
           Loading compute pool…
@@ -262,6 +269,7 @@ export function DefaultCapacityPoolsPanel(props: DefaultCapacityPoolsPanelProps)
                 groups={groups}
                 sources={sources}
                 projectId={projectId}
+                placementSettings={query.data.placementSettings}
                 notice={
                   fallbackScope && fallbackScope !== scope ? (
                     <FallbackNotice fallbackScope={fallbackScope} projectId={projectId} />
@@ -273,6 +281,7 @@ export function DefaultCapacityPoolsPanel(props: DefaultCapacityPoolsPanelProps)
                 scope={scope}
                 projectId={projectId}
                 shared={query.data.effectiveSummary}
+                placementSettings={query.data.placementSettings}
               />
             ))}
         </>

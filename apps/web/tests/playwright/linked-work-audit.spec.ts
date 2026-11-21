@@ -503,7 +503,7 @@ async function openChat(page: Page, options: MockOptions = {}) {
   // vacuously without this.
   await expect(page.getByText('Something went wrong')).toHaveCount(0);
   await expect(page.getByTestId('session-tool-related')).toBeVisible({ timeout: 15_000 });
-  // Fixed wait mandated by `apps/web/.claude/rules/17-ui-visual-testing.md`: CSS transitions
+  // Fixed wait mandated by `.claude/rules/17-ui-visual-testing.md`: CSS transitions
   // have no completion event to await.
   await page.waitForTimeout(600);
 }
@@ -570,8 +570,11 @@ test.describe('Linked work — chat Related panel', () => {
       'href',
       `/projects/${PROJECT_ID}/ideas/idea-1`
     );
-    // A file opens in place; see "a file opens in the chat's preview" below.
-    await expect(drawer.getByTestId('linked-work-file').first()).not.toHaveAttribute('href');
+    // A plain click opens the file in place (see "a file opens in the chat's preview" below);
+    // the row stays a real link to the Library for a modified click or a new tab.
+    const file = drawer.getByTestId('linked-work-file').first();
+    await expect(file).toHaveAttribute('href', /\/library\?preview=/);
+    await expect(file).toHaveAttribute('aria-haspopup', 'dialog');
     const pr = drawer.getByTestId('linked-work-pr').first();
     await expect(pr).toHaveAttribute('href', prUrl(2425));
     await expect(pr).toHaveAttribute('target', '_blank');
@@ -636,7 +639,7 @@ test.describe('Linked work — chat Related panel', () => {
    * is not "disjoint boxes", which would contradict the design; it is "the panel's right edge
    * meets the rail's right edge, which is the viewport edge, and the panel starts at or before
    * the rail does". Asserted as measured coordinates, because the tool-rail incident behind
-   * `apps/web/.claude/rules/17-ui-visual-testing.md` passed 36 assertions and a screenshot
+   * `.claude/rules/17-ui-visual-testing.md` passed 36 assertions and a screenshot
    * review and was only caught by comparing two numbers.
    */
   test('the open panel is flush with the viewport edge and covers the rail column', async ({

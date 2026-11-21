@@ -235,7 +235,7 @@ shared with them, the agent is told it is a teammate's input rather than the cha
 instruction. In the chat it's labelled with who sent it, for example
 **Grace Lee sent Rae Patel's comment to the agent**. Everyone else can comment, but not send: ask the chat's
 owner, or someone it's shared with, to send it, and @mention them so they get a **Mention**
-notification (a plain comment notification doesn't add to the bell's count).
+notification (comments and mentions are listed under the Inbox's **Updates** chip).
 
 ### Share a chat
 
@@ -286,8 +286,8 @@ Before you share, know what it means:
 
 ### What your teammate sees
 
-Your teammate gets a **Shared Session** notification that opens the chat. It's in the **Updates**
-tab of their notifications, which doesn't add to the bell's count, so tell them you've shared it.
+Your teammate gets a **Shared Session** notification that opens the chat. It's under the **Updates**
+chip of their [Inbox](/docs/guides/inbox/), which doesn't add to the inbox count, so tell them you've shared it.
 The chat is also in their **All** list, though not under **Mine**, because they
 didn't start it. Above the
 message box they see _You're chatting in Prakash Rao's session. It runs on Prakash Rao's accounts.
@@ -326,10 +326,11 @@ While their access lasts, a teammate can also:
 The terminal, port previews and the workspace page stay with the owner: they reach the whole
 workspace, and SAM can't cut off a live terminal or port connection when access ends.
 
-Notifications about the chat itself still go to the owner: the agent finishing its work, and
-questions it asks with its `request_human_input` tool. The cards the agent puts in the chat
-(permission requests, questions, and links) notify no one, and a teammate with shared access can
-answer them, so a teammate driving the chat should keep it open.
+Notifications about the chat itself still go to the owner: the agent finishing its work,
+questions it asks with its `request_human_input` tool, and the cards it puts in the chat
+(permission requests, forms and links), which reach the owner's Inbox. A teammate with shared
+access can answer those cards in the chat but is not notified of them, so a teammate driving the
+chat should keep it open.
 
 ### If it isn't your chat
 
@@ -412,6 +413,8 @@ The key thing to understand: **personal credentials leave with their owner.** A 
 - **Defer** — postpone a resource instead of resolving it now. Deferring does not clear a block, so any resource that blocks removal (see below) still has to be disabled, reattached, or deleted before you can finish.
 
 Some resources **block removal** until they are resolved, so you can't accidentally remove a member out from under running work, and each type clears the block differently: a **trigger** clears it when you disable it or reattach it to a project credential; a **task** clears it only by stopping its future work (tasks can't be reattached); a **node or deployment** clears it only by reattaching to a project credential. If no compatible project credential is available for a node or deployment, stop or delete it separately before finishing the removal.
+
+Once the removal is final, SAM closes the live connection of any tab the member still has open on the project, so it stops receiving updates. If that close fails (the project's data service is unreachable), the tab can stay connected until it is closed; SAM logs the failure, and a sweep that closes such connections later is planned.
 
 A departing member's own account choices on the project's profiles are removed with them (see [Using another account for one profile](/docs/guides/agents/#using-another-account-for-one-profile)); other members' choices are untouched.
 

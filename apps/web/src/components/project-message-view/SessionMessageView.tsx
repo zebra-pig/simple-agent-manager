@@ -4,6 +4,7 @@ import type { VirtuosoHandle } from 'react-virtuoso';
 
 import { useAcpPermissionInteractions } from '../../hooks/useAcpPermissionInteractions';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { usePlatformCapabilities } from '../../hooks/usePlatformCapabilities';
 import { useAuth } from '../AuthProvider';
 import { ChatFilePanel } from '../chat/ChatFilePanel';
 import { LoadingPane } from '../LoadingPane';
@@ -16,6 +17,7 @@ import { FloatingHeader } from './FloatingHeader';
 import { loadToolCallContent } from './load-tool-content';
 import type { ChatListContext } from './MessageListScaffold';
 import { ProjectMessageViewDrawers } from './ProjectMessageViewDrawers';
+import { RetainedSnapshotExport } from './RetainedSnapshotExport';
 import { useSessionFocusHandoff } from './session-focus-handoff';
 import { resolveSessionViewerCapabilities, sessionOwnerLabel } from './session-viewer-access';
 import { SessionFooter } from './SessionFooter';
@@ -72,6 +74,7 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
    * they feed `useSessionTools`' memoized action array, and an inline arrow would rebuild it
    * on every render (rule 64). See `useSessionOverlays`.
    */
+  const overlays = useSessionOverlays();
   const {
     showTimeline,
     openTimeline,
@@ -82,16 +85,11 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
     showResources,
     openResources,
     closeResources,
-    showAutomation,
     openAutomation,
-    closeAutomation,
-    showRelated,
     openRelated,
-    closeRelated,
-    showShare,
     openShare,
-    closeShare,
-  } = useSessionOverlays();
+    openReceipt,
+  } = overlays;
 
   const messageComments = useMessageComments(projectId, sessionId, Boolean(projectId && sessionId));
   const { user } = useAuth();
@@ -252,6 +250,7 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
     onOpenTimeline: openTimeline,
     onOpenResources: openResources,
     onOpenAutomation: openAutomation,
+    onOpenReceipt: openReceipt,
     onOpenRelated: openRelated,
     onOpenComments: openComments,
     onRetry,
@@ -277,38 +276,39 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
     />
   ) : null;
 
+  // One capabilities read for the whole list; rows get the primitive (AcpConversationItemView).
+  const { textToSpeech } = usePlatformCapabilities();
   // Virtuoso supplies an offset index, so compare it after subtracting `firstItemIndex`.
   const renderConversationItem = useCallback(
-    (index: number, item: DisplayItem) => {
-      return (
-        <CommentableConversationItem
-          index={index}
-          firstItemIndex={lc.firstItemIndex}
-          item={item}
-          projectId={projectId}
-          highlighted={highlightedRowId === item.id}
-          onFileClick={fileClickHandler}
-          onLoadToolContent={handleLoadToolContent}
-          animateAgentText
-          animateUserMessage={item.kind === 'user_message' && animatedUserMsgIds.has(item.id)}
-          canComment={viewer.canComment}
-          canSendToAgent={viewer.canSendToAgent}
-          agentActivity={lc.agentActivity}
-          animationTargetIdx={animationTargetIdx}
-          commentState={commentUi.rowState}
-          groupExpanded={
-            item.kind === 'tool_call_group' ? groupRowState.groupExpandedFor(item.id) : undefined
-          }
-          onToggleGroup={groupRowState.onToggleGroup}
-          groupLive={groupRowState.groupLiveFor(item.id)}
-          afterContent={
-            permissionPlacement.anchored.has(item.id)
-              ? permissionPlacement.render(permissionPlacement.anchored.get(item.id) ?? [])
-              : null
-          }
-        />
-      );
-    },
+    (index: number, item: DisplayItem) => (
+      <CommentableConversationItem
+        index={index}
+        firstItemIndex={lc.firstItemIndex}
+        item={item}
+        projectId={projectId}
+        highlighted={highlightedRowId === item.id}
+        onFileClick={fileClickHandler}
+        onLoadToolContent={handleLoadToolContent}
+        animateAgentText
+        animateUserMessage={item.kind === 'user_message' && animatedUserMsgIds.has(item.id)}
+        canComment={viewer.canComment}
+        canSendToAgent={viewer.canSendToAgent}
+        agentActivity={lc.agentActivity}
+        animationTargetIdx={animationTargetIdx}
+        commentState={commentUi.rowState}
+        groupExpanded={
+          item.kind === 'tool_call_group' ? groupRowState.groupExpandedFor(item.id) : undefined
+        }
+        onToggleGroup={groupRowState.onToggleGroup}
+        groupLive={groupRowState.groupLiveFor(item.id)}
+        afterContent={
+          permissionPlacement.anchored.has(item.id)
+            ? permissionPlacement.render(permissionPlacement.anchored.get(item.id) ?? [])
+            : null
+        }
+        serverTextToSpeech={textToSpeech}
+      />
+    ),
     [
       highlightedRowId,
       projectId,
@@ -323,6 +323,7 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
       commentUi.rowState,
       groupRowState,
       permissionPlacement,
+      textToSpeech,
     ]
   );
 
@@ -405,6 +406,16 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
           and message box keep the full width. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2.5 md:gap-[var(--sam-space-gutter)]">
         <SessionStatusBanners lc={lc} projectId={projectId} />
+        {/* Retained work only matters once the live runtime is gone; active and sleeping
+            sessions keep their workspace path, so the control stays out of their way. */}
+        {(lc.session?.status === 'stopped' || lc.session?.status === 'failed') && (
+          <RetainedSnapshotExport
+            key={sessionId}
+            projectId={projectId}
+            sessionId={sessionId}
+            isMine={lc.session?.isMine === true}
+          />
+        )}
 
         {floatingHeader}
 
@@ -490,13 +501,9 @@ export const SessionMessageView: FC<ProjectMessageViewProps> = ({
         nodeId={lc.workspace?.nodeId ?? null}
         viewerId={viewerId}
         sessionTools={sessionTools}
-        showAutomation={showAutomation}
-        onCloseAutomation={closeAutomation}
-        showRelated={showRelated}
-        onCloseRelated={closeRelated}
+        overlays={overlays}
+        taskId={lc.taskEmbed?.id ?? lc.session?.task?.id ?? lc.session?.taskId ?? null}
         linkedWork={linkedWork}
-        showShare={showShare}
-        onCloseShare={closeShare}
         onAccessChanged={lc.applySessionAccess}
       />
     </div>

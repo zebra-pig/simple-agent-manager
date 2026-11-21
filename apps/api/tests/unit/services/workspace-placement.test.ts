@@ -8,9 +8,11 @@ import type {
   ResolvedResourceReservation,
 } from '@simple-agent-manager/shared';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '../../../src/db/schema';
+import type { TaskRunnerContext, TaskRunnerState } from '../../../src/durable-objects/task-runner/types';
+import { tryClaimWarmNode } from '../../../src/durable-objects/task-runner/warm-node-claim';
 import { isNodePastLifetimeAdmissionCutoff } from '../../../src/services/node-lifetime-admission';
 import { filterReusableNodesByCurrentAuthority } from '../../../src/services/reusable-node-authority';
 import {
@@ -459,7 +461,7 @@ describe('reserveWorkspacePlacement', () => {
       'removed membership',
       `UPDATE project_members SET status = 'removed', removed_at = '${new Date().toISOString()}'`,
     ],
-    ['pool revision changed', `UPDATE capacity_pools SET revision = 99`],
+    ['allocation identity missing', `UPDATE nodes SET provider_instance_id = NULL`],
     ['pool disabled', `UPDATE capacity_pools SET status = 'disabled'`],
     ['pool owned by another project', `UPDATE capacity_pools SET owner_project_id = 'project-2'`],
     ['source disabled', `UPDATE capacity_sources SET status = 'disabled'`],
@@ -1881,6 +1883,54 @@ describe('auto-provisioned node owner hold', () => {
     });
   }
 
+  it.each(['owner', 'contender'])('revalidates warm discovery at the claim boundary (%s)', async (requester) => {
+    const database = createDb();
+    seedNode({ capacity_pool_id: null, capacity_pool_scope: null, capacity_pool_revision: null,
+      capacity_source_id: null, capacity_pool_candidate_id: null, capacity_pool_project_id: null,
+      warm_since: new Date().toISOString() });
+    sqlite?.exec('DELETE FROM capacity_pools');
+    sqlite?.prepare('INSERT INTO tasks(id, user_id, project_id, status) VALUES (?, ?, ?, ?)')
+      .run(requester, 'user-1', 'project-1', 'queued');
+    let authorityReads = 0;
+    const prepare = database.prepare.bind(database);
+    vi.spyOn(database, 'prepare').mockImplementation((query) => {
+      const statement = prepare(query);
+      if (!query.includes('SELECT n.id FROM nodes n')) return statement;
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...values) => {
+        const bound = bind(...values);
+        const all = bound.all.bind(bound);
+        Object.defineProperty(bound, 'all', { value: async () => {
+          const result = await all();
+          if (++authorityReads === 1) {
+            if (requester === 'owner') sqlite?.exec("DELETE FROM tasks WHERE id = 'owner'");
+            seedOwner(); // Owner claim arrives AFTER discovery, BEFORE the final warm claim.
+          }
+          return result;
+        }});
+        return bound;
+      };
+      return statement;
+    });
+    const tryClaim = vi.fn(async () => {
+      await database.prepare('UPDATE tasks SET claimed_warm_node_id = ? WHERE id = ?').bind('node-1', requester).run();
+      return { claimed: true };
+    });
+    const state = { taskId: requester, userId: 'user-1', projectId: 'project-1', stepResults: {},
+      config: { vmSize: 'large', vmLocation: 'fsn1', resolvedReservation: reservation(), projectScaling: {} }
+    } as unknown as TaskRunnerState;
+    const rc = { env: { DATABASE: database, NODE_LIFECYCLE: { idFromName: (id: string) => id, get: () => ({ tryClaim }) } },
+      ctx: { storage: { put: async () => undefined } }, assertRecoveryAuthority: async () => undefined
+    } as unknown as TaskRunnerContext;
+    const result = await tryClaimWarmNode(state, rc);
+    expect(authorityReads).toBe(2);
+    expect(tryClaim).toHaveBeenCalledTimes(requester === 'owner' ? 1 : 0);
+    if (requester === 'owner') expect(result?.nodeId).toBe('node-1');
+    else expect(result).toBeNull();
+    expect(sqlite?.prepare('SELECT claimed_warm_node_id AS nodeId FROM tasks WHERE id = ?').get(requester))
+      .toEqual({ nodeId: requester === 'owner' ? 'node-1' : null });
+  });
+
   it.each(['queued', 'delegated', 'in_progress'])(
     'holds an unplaced %s owner node in selection and atomic admission',
     async (status) => {
@@ -1942,30 +1992,51 @@ describe('auto-provisioned node owner hold', () => {
     }
   );
 
-  it.each(['insert', 'attach'] as const)(
+  it.each(['insert', 'attach', 'restart'] as const)(
     'rechecks a hold acquired after %s selection at the final atomic mutation',
     async (path) => {
       const database = createDb();
       seedNode();
       expect(await select(database)).toEqual(new Set(['node-1']));
       if (path === 'attach') seedPlaceholderWorkspace('workspace-1');
+      if (path === 'restart') {
+        seedActiveWorkspace('workspace-1', JSON.stringify(reservation()));
+        sqlite?.exec("UPDATE workspaces SET status = 'stopped' WHERE id = 'workspace-1'");
+      }
       seedOwner();
-      const admitted =
+      const admit = () =>
         path === 'insert'
-          ? await reserveWorkspacePlacement(
+          ? reserveWorkspacePlacement(
               database,
               reserveInput(capacitySnapshot()),
               admissionPolicy()
             )
-          : await attachPrecreatedWorkspacePlacement(
-              database,
-              reserveInput(capacitySnapshot()),
-              admissionPolicy()
-            );
-      expect(admitted).toBe(false);
-      expect(sqlite?.prepare("SELECT id FROM workspaces WHERE node_id = 'node-1'").all()).toEqual(
-        []
-      );
+          : path === 'attach'
+            ? attachPrecreatedWorkspacePlacement(
+                database,
+                reserveInput(capacitySnapshot()),
+                admissionPolicy()
+              )
+            : reserveWorkspaceRestart(
+                database,
+                {
+                  ...reserveInput(capacitySnapshot()),
+                  resolvedReservation: reservation(),
+                  chatSessionId: null,
+                  evictionGeneration: 'new-generation',
+                  expectedEvictionGeneration: null,
+                  expectedStatus: 'stopped',
+                },
+                admissionPolicy()
+              );
+      expect(await admit()).toBe(false);
+      expect(
+        sqlite
+          ?.prepare("SELECT id FROM workspaces WHERE node_id = 'node-1' AND status = 'creating'")
+          .all()
+      ).toEqual([]);
+      sqlite?.exec("UPDATE tasks SET status = 'failed' WHERE id = 'owner'");
+      expect(await admit()).toBe(true);
     }
   );
 

@@ -1,4 +1,5 @@
-import type { OperationsPort } from '../durable-objects/project-data/ports';
+import type { OperationsPort } from '@simple-agent-manager/project-data';
+
 import { alertProjectDataArchiveBreakerOpened } from '../scheduled/project-data-archive-breaker-alerts';
 import {
   classifyReconciliationLoop,
@@ -10,6 +11,25 @@ import { workerEnv } from './worker-env';
 
 /** Operational brakes, the stalled-task loop classifier and operator alerts. */
 export const operationsPort: OperationsPort = {
+  skipUnsubscribedGitHubCi: async (env) =>
+    (await resolveAdminSetting(workerEnv(env), 'events.skipUnsubscribedGitHubCi')) === true,
+  messageMergeConfig: async (env) => {
+    const [enabled, maxRowBytes, recentIds, toolUpdatesEnabled, idleExtendIntervalMs] =
+      await Promise.all([
+        resolveAdminSetting(workerEnv(env), 'chat.messageMergingEnabled'),
+        resolveAdminSetting(workerEnv(env), 'chat.messageMergeMaxRowBytes'),
+        resolveAdminSetting(workerEnv(env), 'chat.messageMergeRecentIds'),
+        resolveAdminSetting(workerEnv(env), 'chat.toolCallMergingEnabled'),
+        resolveAdminSetting(workerEnv(env), 'chat.idleCleanupExtendIntervalMs'),
+      ]);
+    return {
+      enabled: enabled === true,
+      toolUpdatesEnabled: toolUpdatesEnabled === true,
+      maxRowBytes: Number(maxRowBytes),
+      recentIds: Number(recentIds),
+      idleExtendIntervalMs: Number(idleExtendIntervalMs),
+    };
+  },
   rowUsageIntervalMs: async (env) =>
     Number(await resolveAdminSetting(workerEnv(env), 'operations.projectDataRowUsageIntervalMs')),
   alertArchiveBreakerOpened: (env, opening) =>

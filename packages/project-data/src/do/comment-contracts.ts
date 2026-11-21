@@ -3,6 +3,7 @@ import type {
   CommentMention,
   CommentReply,
   CommentStatus,
+  InboxItemCommentThread,
   LibraryFileCommentThread,
   MessageCommentReply,
   MessageCommentThread,
@@ -132,6 +133,11 @@ export type ListFileCommentThreadsResult = {
 export type ListProjectCommentThreadsInput = {
   status?: CommentStatus | null;
   limit?: number | null;
+  /**
+   * Inbox-item ids the caller has already authorized for this viewer in D1. Omission fails
+   * closed for inbox-item threads; message and library-file threads remain project-readable.
+   */
+  readableInboxItemIds?: string[];
 };
 
 /** One cheap, `updated_at DESC`-ranked candidate row from a project-wide read. */
@@ -145,8 +151,6 @@ export type ProjectCommentThreadCandidate = {
 /** One capped window of the `updated_at DESC, id ASC` ranking across every anchor kind. */
 export type ListProjectCommentThreadCandidatesPage = {
   candidates: ProjectCommentThreadCandidate[];
-  /** Total rows matching the filter, ignoring the cap. Counted on the first window only. */
-  totalCount: number;
   /** More rows exist after this window. */
   windowFull: boolean;
 };
@@ -159,6 +163,11 @@ export type ProjectCommentSessionTopic = {
 export type ProjectCommentInboxResult = {
   messageThreads: MessageCommentThread[];
   fileThreads: LibraryFileCommentThread[];
+  /**
+   * Discussion on inbox items (human tasks, slice H1). The API filters these to the items the
+   * viewer may read before returning them; the DO cannot read D1 `asks`.
+   */
+  inboxItemThreads: InboxItemCommentThread[];
   /** Topics for the sessions referenced by `messageThreads`, joined in-DO. */
   sessions: ProjectCommentSessionTopic[];
   hasMore: boolean;

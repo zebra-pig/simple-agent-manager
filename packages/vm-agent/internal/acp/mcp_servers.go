@@ -177,9 +177,7 @@ func buildAcpMcpServers(entries []McpServerEntry, agentType string) []acpsdk.Mcp
 			servers = append(servers, buildAmpMcpServer(name, e))
 			continue
 		}
-		// Always a list, never nil: ACP requires `headers`, and a nil slice marshals as JSON
-		// null. Mistral Vibe rejects null ("headers: Input should be a valid list") and fails
-		// the whole session for an MCP server that has no token and no custom headers.
+		// ACP requires an array, including when the server has no headers.
 		headers := make([]acpsdk.HttpHeader, 0, len(e.Headers)+1)
 		for _, header := range e.httpHeaders() {
 			headers = append(headers, acpsdk.HttpHeader{Name: header.Name, Value: header.Value})
@@ -203,7 +201,8 @@ func buildAcpMcpServers(entries []McpServerEntry, agentType string) []acpsdk.Mcp
 // below are already kept out of argv for exactly this reason; the URL should get the same
 // treatment once it is verified how mcp-remote accepts a URL from the environment.
 func buildAmpMcpServer(name string, entry McpServerEntry) acpsdk.McpServer {
-	env := []acpsdk.EnvVariable{} // a list even when empty; see buildAcpMcpServers
+	// ACP requires an array, including when the bridge needs no environment.
+	env := make([]acpsdk.EnvVariable, 0, len(entry.Headers)+1)
 	args := []string{"-y", ampMcpRemotePackage, entry.URL}
 	if entry.Token != "" {
 		env = append(env, acpsdk.EnvVariable{

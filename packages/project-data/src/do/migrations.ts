@@ -2723,6 +2723,88 @@ export const MIGRATIONS: Migration[] = [
         ON project_event_matches(event_id)`);
     },
   },
+  {
+    name: '078-message-stream-ingest-state',
+    run(sql) {
+      // NULL is the grandfathered representation: every old row remains readable,
+      // commentable and archivable. Only newly created canonical rows may grow.
+      sql.exec('ALTER TABLE chat_sessions ADD COLUMN stream_ingest_state TEXT');
+    },
+  },
+  {
+    name: '079-chat-session-sequence-watermark',
+    run(sql) {
+      // NULL means the pre-migration transcript has not been measured yet.
+      // Lazy initialization avoids scanning every historical session on deploy.
+      sql.exec('ALTER TABLE chat_sessions ADD COLUMN last_message_sequence INTEGER');
+      // Detect writes from an older build after a rollback/rolling upgrade.
+      sql.exec('ALTER TABLE chat_sessions ADD COLUMN last_message_sequence_count INTEGER');
+    },
+  },
+  {
+    name: '080-policy-inject-mode',
+    run(sql) {
+      // Per-policy inject mode for get_instructions (idea 01M6SPMDHY2F2BPVD933B9FYJZ).
+      //
+      // STRICTLY ADDITIVE (rules 31 / 63): one ADD COLUMN, no table recreation, no DROP.
+      //
+      // The default is the value every existing row must have: pinned, meaning injected in
+      // full into every session, which is what every policy does today. Deploying this
+      // migration therefore changes no policy text that any session receives. This is not an override
+      // layer over another value (the stored-override case in rule 73), so NOT NULL with the
+      // real default is correct here; the row parser also reads a missing or unknown value
+      // as pinned, so a bad value fails toward full injection rather than toward hiding.
+      sql.exec(
+        "ALTER TABLE project_policies ADD COLUMN inject_mode TEXT NOT NULL DEFAULT 'pinned'"
+      );
+    },
+  },
+  {
+    name: '081-anchored-comment-inbox-item',
+    run(sql) {
+      // Inbox slice H1: discussion on an inbox item (a human task) is a third anchor kind in the
+      // shared comment tables, scoped to the asks id (anchored-comment-scope.ts).
+      //
+      // STRICTLY ADDITIVE (rules 31 / 63): one nullable ADD COLUMN, no table recreation, no
+      // DROP, and no existing predicate changes. Its CHECK ties an inbox-item row to its column
+      // (non-null, equal to scope_key, no file id) and keeps the column NULL on every other
+      // kind, so every existing row passes unchanged. The existing table CHECKs already forbid
+      // session and message columns on any non-message row.
+      const existing = new Set(
+        sql
+          .exec('PRAGMA table_info(anchored_comment_threads)')
+          .toArray()
+          .map((row) => String(row.name))
+      );
+      if (existing.has('inbox_item_id')) return;
+      sql.exec(
+        "ALTER TABLE anchored_comment_threads ADD COLUMN inbox_item_id TEXT CHECK ((anchor_kind = 'inbox_item' AND inbox_item_id IS NOT NULL AND scope_key = inbox_item_id AND file_id IS NULL) OR (anchor_kind <> 'inbox_item' AND inbox_item_id IS NULL))"
+      );
+    },
+  },
+  {
+    name: '082-attention-marker-inbox-archived',
+    run(sql) {
+      // Every inbox archive is silent (Raphaël, 2026-11-17). A pending ACP interaction archived
+      // from the inbox must leave the inbox without resolving its marker: the marker is what keeps
+      // SAM's silent-agent reconciliation from cancelling a prompt that is waiting on that
+      // interaction. STRICTLY ADDITIVE (rules 31 / 63): one nullable ADD COLUMN; no existing
+      // predicate changes, and every existing row reads NULL (not archived from the inbox).
+      const existing = new Set(
+        sql
+          .exec('PRAGMA table_info(session_attention_markers)')
+          .toArray()
+          .map((row) => String(row.name))
+      );
+      if (!existing.has('inbox_archived_at'))
+        sql.exec('ALTER TABLE session_attention_markers ADD COLUMN inbox_archived_at INTEGER');
+      // The summary delta re-reads chats whose markers were archived since the last sync; this
+      // keeps that lookup on an index like its created_at / resolved_at siblings.
+      sql.exec(
+        'CREATE INDEX IF NOT EXISTS idx_attention_inbox_archived_at ON session_attention_markers(inbox_archived_at)'
+      );
+    },
+  },
   // Retired before release: `072-anchored-comment-threads` ran on staging only (renumbered to
   // 073 after another 072 merged first). That name may not be reused.
   // Retired before release: `059-message-upload-parts` ran on staging only. Objects

@@ -3,11 +3,16 @@ import type {
   ToolCallContentItem,
   ToolCallItem,
 } from '@simple-agent-manager/acp-client';
+import { toolMessageRevision } from '@simple-agent-manager/shared';
 import { isExpiredTask, type SessionUndeliveredPrompt } from '@simple-agent-manager/shared';
 
 import type { ChatMessageResponse, ChatSessionResponse, SessionStateSnapshot } from '../../lib/api';
 import { maybeJsonRecord } from '../../lib/runtime-validation';
-import { userMessageAttribution, userMessageDelivery } from './message-attribution';
+import {
+  userMessageAttribution,
+  userMessageDelivery,
+  userMessageInboxReply,
+} from './message-attribution';
 import {
   samNoticeForMessage,
   systemRowNoticeForMessage,
@@ -82,6 +87,7 @@ interface ToolContentPointer {
   messageId: string;
   contentSize?: number;
   hasStoredContent: boolean;
+  revision: number;
 }
 
 function buildToolContentPointer(
@@ -98,6 +104,7 @@ function buildToolContentPointer(
       : undefined;
   return {
     messageId: msg.id,
+    revision: toolMessageRevision(msg.toolMetadata),
     contentSize: contentSize ?? estimatedSize,
     hasStoredContent:
       hasStructuredContent || fallbackHasContent || (contentSize !== undefined && contentSize > 0),
@@ -114,6 +121,7 @@ function applyToolContentPointer(
   }
 
   toolItem.messageId = pointer.messageId;
+  toolItem.revision = pointer.revision;
   toolItem.contentLoaded = false;
   toolItem.content = [];
   if (pointer.contentSize !== undefined) {
@@ -231,6 +239,7 @@ export function chatMessagesToConversationItems(
     if (msg.role === 'user') {
       const attribution = userMessageAttribution(msg, undelivered.get(msg.id));
       const delivery = userMessageDelivery(msg);
+      const inboxReply = userMessageInboxReply(msg);
       const item: ConversationItem = {
         kind: 'user_message',
         id: msg.id,
@@ -239,6 +248,7 @@ export function chatMessagesToConversationItems(
         origin: msg.origin === 'system' ? 'system' : 'user',
         ...(attribution ? { attribution } : {}),
         ...(delivery ? { delivery } : {}),
+        ...(inboxReply ? { inboxReply } : {}),
       };
       // A message SAM delivered renders as a notice row, not as the owner's bubble.
       const notice = samNoticeForMessage(msg);
@@ -313,7 +323,13 @@ export function chatMessagesToConversationItems(
       }
     } else if (msg.role === 'tool') {
       const meta = maybeJsonRecord(msg.toolMetadata);
-      const toolCallId = meta && typeof meta.toolCallId === 'string' ? meta.toolCallId : '';
+      const toolCallId =
+        typeof meta?._samToolCanonicalId === 'string'
+          ? meta._samToolCanonicalId
+          : meta && typeof meta.toolCallId === 'string'
+            ? meta.toolCallId
+            : '';
+      const providerCallId = typeof meta?.toolCallId === 'string' ? meta.toolCallId : '';
       const kind = meta && typeof meta.kind === 'string' ? meta.kind : 'tool';
       // Build a meaningful title: prefer the explicit title from metadata,
       // then humanize the kind (e.g. "read" → "Read"), and only fall back
@@ -346,6 +362,19 @@ export function chatMessagesToConversationItems(
       const contentPointer = buildToolContentPointer(msg, structuredContent, contentSize);
       const contentItems: ToolCallContentItem[] = [];
 
+      // Enabling midway through a call may follow an ordinary legacy start row.
+      // Adopt only a raw provider key, never another incarnation's canonical key.
+      const priorIndex = providerCallId ? toolCallMap.get(providerCallId) : undefined;
+      const priorItem = priorIndex === undefined ? undefined : acc[priorIndex];
+      if (
+        toolCallId !== providerCallId &&
+        priorItem?.kind === 'tool_call' &&
+        priorItem.toolCallId === providerCallId &&
+        priorIndex !== undefined
+      ) {
+        toolCallMap.set(toolCallId, priorIndex);
+        priorItem.toolCallId = toolCallId;
+      }
       // Deduplicate tool calls by toolCallId: merge updates into existing tool call
       if (toolCallId && toolCallMap.has(toolCallId)) {
         const existingIdx = toolCallMap.get(toolCallId);
@@ -392,6 +421,7 @@ export function chatMessagesToConversationItems(
         acc.push(toolItem);
         if (toolCallId) {
           toolCallMap.set(toolCallId, idx);
+          if (providerCallId) toolCallMap.set(providerCallId, idx);
         }
       }
     } else if (msg.role === 'system') {

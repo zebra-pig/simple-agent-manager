@@ -19,6 +19,16 @@ import { parseWorkspaceSubdomain } from '../lib/workspace-subdomain';
 import { isPastHardExpiry } from '../services/agent-sign-in/session-cap';
 import { signTerminalToken, verifyTerminalToken } from '../services/jwt';
 import { getNodeBackendBaseUrl } from '../services/node-agent-readiness';
+import {
+  type NodeAgentRoute,
+  NodeAgentRouteError,
+  resolveNodeAgentRoute,
+} from '../services/node-agent-route';
+import {
+  gatewayDecisionResponse,
+  gatewayUnsupportedRuntimeResponse,
+  isGatewayAuthorizationRequest,
+} from '../services/node-websocket-gateway';
 import { assertSessionUserApproved } from '../services/signup-approval';
 import { recordNodeRoutingMetric } from '../services/telemetry';
 import { assertTerminalTokenSessionLive } from '../services/terminal-token-liveness';
@@ -132,15 +142,16 @@ export async function workspaceSubdomainProxy(
   }
 
   const workspaceStatus = workspace.status as WorkspaceStatus;
-  const nodeRuntime = workspace.nodeId
-    ? ((
-        await db
-          .select({ runtime: schema.nodes.runtime })
-          .from(schema.nodes)
-          .where(eq(schema.nodes.id, workspace.nodeId))
-          .get()
-      )?.runtime ?? 'vm')
-    : 'vm';
+  // One node read, as before; `transport` routes a build-extension node (self-host tunnel).
+  const nodeRow = workspace.nodeId
+    ? await db
+        .select({ runtime: schema.nodes.runtime, transport: schema.nodes.transport })
+        .from(schema.nodes)
+        .where(eq(schema.nodes.id, workspace.nodeId))
+        .get()
+    : undefined;
+  const nodeRuntime = nodeRow?.runtime ?? 'vm';
+  const gatewayRequest = isGatewayAuthorizationRequest(c.req.raw);
 
   if (workspaceStatus !== 'running' && workspaceStatus !== 'recovery') {
     // Allow boot-log WebSocket during creation for real-time streaming
@@ -168,6 +179,7 @@ export async function workspaceSubdomainProxy(
   }
 
   if (nodeRuntime === 'cf-container') {
+    if (gatewayRequest) return gatewayUnsupportedRuntimeResponse();
     const containerConfig = getVmAgentContainerConfig(c.env);
     if (!containerConfig.enabled) {
       return c.json(
@@ -252,7 +264,7 @@ export async function workspaceSubdomainProxy(
     );
 
     const containerRequest = new Request(containerUrl.toString(), {
-      redirect: targetPort !== null ? 'manual' : c.req.raw.redirect,
+      redirect: 'manual',
       method: c.req.raw.method,
       headers,
       body: c.req.raw.body,
@@ -291,6 +303,9 @@ export async function workspaceSubdomainProxy(
       );
     }
 
+    const redirectFailure = refuseNodeRedirect(response, targetPort, containerUrl);
+    if (redirectFailure) return redirectFailure;
+
     if (targetPort !== null) {
       const responseHeaders = new Headers(response.headers);
       responseHeaders.delete('set-cookie');
@@ -307,7 +322,8 @@ export async function workspaceSubdomainProxy(
 
   // Proxy to the VM agent via its proxied (orange-clouded) backend hostname.
   // The explicit scriptless *.vm route prevents recursion through this Worker.
-  // Its DNS record selects legacy public-IP or Cloudflare Tunnel transport.
+  // Its DNS record selects legacy public-IP or Cloudflare Tunnel transport; a node on a
+  // build-extension transport (self-host reverse tunnel) is routed by `resolveNodeAgentRoute`.
   const routedNodeId = (workspace.nodeId || workspaceId).toLowerCase();
   const backendHostname = `${routedNodeId}.vm.${baseDomain}`;
   log.info('ws_proxy_route', {
@@ -327,7 +343,22 @@ export async function workspaceSubdomainProxy(
     },
     c.env
   );
-  const vmUrl = new URL(getNodeBackendBaseUrl(routedNodeId, c.env));
+  let nodeRoute: NodeAgentRoute;
+  try {
+    nodeRoute = await resolveNodeAgentRoute(c.env, workspace.nodeId || workspaceId, nodeRow);
+  } catch (err) {
+    // A tunnel-only node without a current lease: unreachable, never the public hostname.
+    if (!(err instanceof NodeAgentRouteError)) throw err;
+    log.warn('ws_proxy_node_unroutable', {
+      workspaceId,
+      nodeId: workspace.nodeId,
+      action: 'rejected',
+    });
+    return c.json({ error: 'NODE_UNREACHABLE', message: 'Node is not reachable' }, 503);
+  }
+  const vmUrl = new URL(
+    nodeRoute.kind === 'container' ? getNodeBackendBaseUrl(routedNodeId, c.env) : nodeRoute.origin
+  );
   vmUrl.pathname = url.pathname;
   vmUrl.search = url.search;
 
@@ -362,6 +393,8 @@ export async function workspaceSubdomainProxy(
   headers.delete('x-sam-node-id');
   headers.delete('x-sam-workspace-id');
   headers.delete('x-forwarded-host');
+  // The self-host gateway secret authenticates Caddy/frps to the API; it never goes to a node.
+  headers.delete('x-sam-gateway-secret');
   headers.set('X-SAM-Node-Id', workspace.nodeId || workspaceId);
   headers.set('X-SAM-Workspace-Id', workspaceId);
 
@@ -372,10 +405,14 @@ export async function workspaceSubdomainProxy(
   headers.set('X-Forwarded-Host', hostname);
   headers.set('X-Forwarded-Proto', 'https');
 
+  // Self-hosted WebSocket gateway: same auth and headers above; the box's Caddy carries it.
+  if (gatewayRequest) return gatewayDecisionResponse(c.req.raw, nodeRoute, { url: vmUrl, headers });
+
   let response: Response;
   try {
+    // eslint-disable-next-line sam/no-unguarded-outbound-fetch -- SAM builds the node URL from its routing metadata; node redirects are never followed
     response = await fetch(vmUrl.toString(), {
-      redirect: targetPort !== null ? 'manual' : c.req.raw.redirect,
+      redirect: 'manual',
       method: c.req.raw.method,
       headers,
       body: c.req.raw.body,
@@ -411,6 +448,9 @@ export async function workspaceSubdomainProxy(
     );
   }
 
+  const redirectFailure = refuseNodeRedirect(response, targetPort, vmUrl);
+  if (redirectFailure) return redirectFailure;
+
   // 5e: Strip Set-Cookie headers from container responses on port-proxy path.
   // Prevents a malicious container app from overwriting the sam_port_access cookie.
   if (targetPort !== null) {
@@ -426,4 +466,24 @@ export async function workspaceSubdomainProxy(
   }
 
   return response;
+}
+
+/** Node control redirects fail; application redirects may pass without the injected SAM JWT.
+ * This Worker check also protects requests to older, still-running VM/Instant agents.
+ */
+function refuseNodeRedirect(
+  response: Response,
+  targetPort: number | null,
+  upstream: URL
+): Response | null {
+  // Cache revalidation cannot trigger a follow and must preserve its response headers.
+  if (response.status === 304 || response.status < 300 || response.status >= 400) return null;
+  const location = response.headers.get('location') ?? '';
+  const token = upstream.searchParams.get('token');
+  if (targetPort !== null && !(token && location.includes(token))) return null;
+  void response.body?.cancel().catch(() => undefined);
+  return Response.json(
+    { error: 'NODE_REDIRECT_REFUSED', message: 'Node returned a redirect' },
+    { status: 502 }
+  );
 }

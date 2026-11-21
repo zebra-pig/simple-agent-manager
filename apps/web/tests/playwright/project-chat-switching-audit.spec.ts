@@ -1,4 +1,5 @@
 import { expect, type Page, type Route, test } from '@playwright/test';
+import { compareMessagePositions, parseMessageCursor } from '@simple-agent-manager/shared';
 
 import { assertNoOverflow, screenshot } from './audit-helpers';
 
@@ -165,8 +166,12 @@ interface DetailRequest {
   after: string | null;
 }
 
-function cursorIndex(rows: Row[], cursor: string): number {
-  return rows.findIndex((row) => cursor.endsWith(`"${row.id}"]`));
+function cursorComparison(row: Row, cursor: string): number {
+  const position = parseMessageCursor(cursor);
+  if (position === null) throw new Error('Invalid mock transcript cursor');
+  return typeof position === 'number'
+    ? row.createdAt - position
+    : compareMessagePositions(row, position);
 }
 
 /** Serves one session-detail request the way the API pages a transcript. */
@@ -179,11 +184,13 @@ function detailPage(sessionId: string, params: URLSearchParams) {
   let messages: Row[];
   let hasMore: boolean;
   if (after) {
-    const start = cursorIndex(rows, after) + 1;
-    messages = rows.slice(start, start + 5_000);
-    hasMore = start + 5_000 < rows.length;
+    const newer = rows.filter((row) => cursorComparison(row, after) > 0);
+    messages = newer.slice(0, 5_000);
+    hasMore = messages.length < newer.length;
   } else {
-    const end = before ? cursorIndex(rows, before) : rows.length;
+    const end = before
+      ? rows.filter((row) => cursorComparison(row, before) < 0).length
+      : rows.length;
     const start = Math.max(0, end - limit);
     messages = rows.slice(start, end);
     hasMore = start > 0;
@@ -363,9 +370,29 @@ test.describe('project chat — instant switching audit', () => {
     // once. Give its debounced callback ample time: nothing older may load until
     // the reader asks for it.
     await page.waitForTimeout(1_500);
-    expect(requests.filter((r) => r.sessionId === TOOLS.id)).toEqual([
+    const opened = requests.filter((r) => r.sessionId === TOOLS.id);
+    expect(opened.filter((r) => r.before !== null)).toHaveLength(0);
+    expect(opened.filter((r) => r.after === null)).toEqual([
       { sessionId: TOOLS.id, limit: '500', before: null, after: null },
     ]);
+    // Revisiting a cached chat triggers catch-up deterministically, including
+    // the cached tail so streamed content can grow without moving its cursor.
+    await selectChat(page, EMPTY.topic);
+    await expect(page.getByText('Waiting for messages...')).toBeVisible();
+    await selectChat(page, TOOLS.topic);
+    await expect
+      .poll(() => requests.filter((r) => r.sessionId === TOOLS.id && r.after).length)
+      .toBeGreaterThan(0);
+    const newest = TRANSCRIPTS[TOOLS.id]!.at(-1)!;
+    const newestCursor = JSON.stringify([newest.createdAt, newest.sequence - 1, newest.id]);
+    for (const refresh of requests.filter((r) => r.sessionId === TOOLS.id && r.after !== null)) {
+      expect(refresh).toEqual({
+        sessionId: TOOLS.id,
+        limit: null,
+        before: null,
+        after: newestCursor,
+      });
+    }
 
     await page.getByRole('button', { name: 'Load earlier messages' }).click();
     await expect(conversation(page).getByText('Tool run checkpoint 500:')).toBeVisible();
@@ -386,7 +413,9 @@ test.describe('project chat — instant switching audit', () => {
       timeout: 15_000,
     });
     await page
-      .getByRole('button', { name: /1 unresolved comment/i })
+      .getByRole('button', {
+        name: isMobile(page) ? /1 unresolved comment/i : 'Open comment threads — 1 unresolved',
+      })
       .first()
       .click();
     await expect(

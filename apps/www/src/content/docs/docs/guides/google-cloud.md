@@ -26,6 +26,8 @@ Being a Google Workspace administrator does not make a disabled API available. C
 2. Select the GCP project and a **Default Zone**, then click **Connect with WIF**.
 3. SAM enables the target project's APIs, creates or reuses its WIF pool/provider and service account, grants the required bindings, saves the connection, and attempts to verify token exchange. Newly created Google resources can take time to propagate; a saved connection can therefore report that verification is not yet complete.
 
+The provider and the service-account binding accept only tokens SAM signs for you, so other users of the same SAM installation cannot use your service account. If another SAM user, or the installation's own platform credential, already uses the pool in that project, setup stops before changing anything and reports that the pool belongs to a different owner. Use a different Google Cloud project, or ask your administrator.
+
 The setup identity needs permission to enable services, manage WIF pools/providers and service accounts, and update the project's IAM policy. Google documents the WIF administration prerequisites in its [Workload Identity Federation guide](https://cloud.google.com/iam/docs/workload-identity-federation-with-other-providers). Organization policies can still restrict setup; investigate the specific Google error before adding broad IAM roles.
 
 SAM's VM setup requests these APIs in the **selected VM project**: Cloud Resource Manager, IAM, IAM Service Account Credentials (`iamcredentials.googleapis.com`), Security Token Service (`sts.googleapis.com`), Compute Engine (`compute.googleapis.com`), Vertex AI (`aiplatform.googleapis.com`), and Cloud Billing (`cloudbilling.googleapis.com`, read-only, for list prices). It calls Service Usage (`serviceusage.googleapis.com`) to enable them. This target-project setup does not replace the OAuth-client project prerequisites above.
@@ -39,7 +41,7 @@ SAM tells you when this happens (`listGcpApiIssues()` in `apps/api/src/services/
 - **Settings → Infrastructure** shows a warning naming your Google Cloud project and the API.
   **Review** opens the Google Cloud connection.
 - The connection card lists each API with the reason and an **Enable in Google Cloud** link that opens that API's enable page for your project.
-- **Re-run Google setup** (Workload Identity) signs in to Google again and re-runs setup for the same project and zone. Setup reuses the existing pool, provider and service account, and enables the full current API list.
+- **Re-run Google setup** (Workload Identity) signs in to Google again and re-runs setup for the same project and zone. Setup reuses the existing pool and service account, creates or updates this installation's provider with a condition scoped to your user, enables the full current API list, and removes a pool-wide binding created by an older SAM version. With the default provider ID, a provider left over from an older SAM version (`sam-oidc`) stays in Google with its old condition; the service account now admits only identities mapped to your user, and you can delete that provider in Google. The button appears only when the connection reports an API issue. To re-run setup on a healthy connection, disconnect and choose **Connect with Google** again with the same project. Disconnecting deletes the connection, so new Google Cloud work cannot start until you reconnect, and the reconnected account is a new connection: check your [compute pool](/docs/guides/compute-pools/) settings afterwards. Running VMs stay deletable.
 - A service-account key connection shows the `gcloud services enable` command to run instead.
 - **Check again** re-tests the connection and asks Google whether the API is usable now. The warning clears as soon as a call succeeds.
 
@@ -144,6 +146,22 @@ In your production API Worker's **Cloudflare Workers Logs**, search for `gcp_api
 For `SERVICE_DISABLED`, open Google's activation link, confirm the selected project and API, and enable it. A project **number** in this response is distinct from the readable project **ID**; verify the mapping in Google Cloud Console. Only share the minimal diagnostic reason and affected service/project with your administrator. Do not publish raw logs, access tokens, or credential values.
 
 SAM currently maps Google 403 responses to generic permission advice, including disabled-API responses. The two messages above therefore do not, by themselves, prove that your account needs more permissions.
+
+### A task skipped a region, or failed with “Quota … exceeded”
+
+Google enforces quotas per metric and region, for example
+`Quota 'T2D_CPUS' exceeded. Limit: 24.0 in region europe-west1.` With the pool's exhaustion policy set
+to **Fallback chain**, SAM treats a refusal like this as ruling out only that bucket: it skips the
+offerings the quota also rules out and keeps trying smaller machines, other families and other
+regions in your pool (up to the attempt limit) before moving to another provider. With **Queue** or
+**Fail**, SAM tries one offering per cloud account, so a quota refusal moves straight to the next
+account in your provider order, if any, then waits or fails as the policy says. See
+[how SAM handles a Google Cloud quota](/docs/guides/compute-pools/#provider-order) for the details.
+
+To stop hitting it, raise the quota in the Google Cloud Console (**IAM & Admin → Quotas**) for that
+metric and region, allow more regions or machine families in your pool, or switch the pool to
+**Fallback chain** so SAM tries them. An `SSD_TOTAL_GB` refusal
+is about boot disks: see the boot disk notes under [Machine types, zones and prices](#machine-types-zones-and-prices).
 
 ### Google Cloud appears twice in the node pool
 

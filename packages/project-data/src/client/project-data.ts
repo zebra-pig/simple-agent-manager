@@ -28,6 +28,7 @@ import type {
   GetProjectEventInput,
   GetProjectEventRecentStatusInput,
   GetProjectEventSubscriptionInput,
+  InboxItemCommentThread,
   LibraryFileCommentMutationResponse,
   ListProjectEventChannelsInput,
   ListProjectEventChannelSubscribersInput,
@@ -83,10 +84,7 @@ import type {
   UpdateCommentStatusInput,
   UpdateFileCommentStatusInput,
 } from '../do/comment-contracts';
-import {
-  CommentNotFoundError,
-  CommentValidationError,
-} from '../do/comment-contracts';
+import { CommentNotFoundError, CommentValidationError } from '../do/comment-contracts';
 import type { ProjectDataGroupedFtsCleanupResult } from '../do/grouped-fts-cleanup';
 import type {
   GroupedFtsWallRecoveryRequest,
@@ -94,17 +92,13 @@ import type {
 } from '../do/grouped-fts-wall-recovery';
 import type { IdeaWorkLinkCaps, IdeaWorkSnapshot } from '../do/idea-work';
 import type {
-  LogicalMessageRequest,
-  LogicalMessageResult,
-} from '../do/logical-message';
-import type {
-  LogicalTranscriptRequest,
-  LogicalTranscriptResult,
-} from '../do/logical-transcript';
-import type {
-  MessageContextRequest,
-  MessageContextResult,
-} from '../do/message-context';
+  CreateInboxItemCommentInput,
+  InboxItemCommentMutationResult,
+  ListInboxItemCommentThreadsInput,
+} from '../do/inbox-item-comments';
+import type { LogicalMessageRequest, LogicalMessageResult } from '../do/logical-message';
+import type { LogicalTranscriptRequest, LogicalTranscriptResult } from '../do/logical-transcript';
+import type { MessageContextRequest, MessageContextResult } from '../do/message-context';
 import type { SearchResult } from '../do/message-search';
 import {
   AgentMessageRecipientUnavailableError,
@@ -160,7 +154,10 @@ export {
   ProjectEventValidationError,
 } from '../do/project-events-contracts';
 import { log } from '@simple-agent-manager/worker-core';
-import { type NormalizedSearchQuery, normalizeSearchQuery } from '@simple-agent-manager/worker-core';
+import {
+  type NormalizedSearchQuery,
+  normalizeSearchQuery,
+} from '@simple-agent-manager/worker-core';
 import { isDurableObjectStorageFullError } from '@simple-agent-manager/worker-core';
 
 import {
@@ -174,10 +171,9 @@ import {
 } from '../archive/contract';
 import { projectDataPorts } from '../do/ports';
 import type { ValidateProjectEventWakeRecoveryAuthorityInput } from '../do/project-events-wake-delivery';
-import type {
-  AcceptedPromptDelivery,
-  AcceptPromptDeliveryInput,
-} from '../do/prompt-delivery';
+import type { AcceptedPromptDelivery, AcceptPromptDeliveryInput } from '../do/prompt-delivery';
+import type { CancelUnissuedSessionPromptsResult } from '../do/prompt-delivery-cancellation';
+import { BROWSER_SOCKET_ACTOR_HEADER } from '../do/session-sockets';
 import type { ActivityReportOutcome } from '../do/session-work-clock';
 import type {
   CreateReservedTaskSessionWithInitialMessageInput,
@@ -202,7 +198,7 @@ import type { ProjectDataRootSearchCoverage } from './project-data-search-covera
 import { recordReservedTaskSessionRevocation } from './project-data-session-revocations';
 import { toProjectDataStorageFullError } from './project-data-storage-errors';
 
-export type { ProjectDataSessionIdentityGuard };
+export type { CancelUnissuedSessionPromptsResult, ProjectDataSessionIdentityGuard };
 
 function rootExactReadOwner(projectId: string, sessionId: string): ProjectDataArchiveLocation {
   return {
@@ -645,24 +641,70 @@ export async function linkSessionToWorkspace(
   );
 }
 
+/** Cancel pending prompts without discarding saved work or inventing access revocation. */
+export async function cancelUnissuedSessionPrompts(
+  env: Env,
+  projectId: string,
+  sessionId: string,
+  taskId: string,
+  options?: { acceptedBefore: number }
+): Promise<CancelUnissuedSessionPromptsResult> {
+  await assertExactWriteAllowedIfArchiveEnabled(
+    env,
+    projectId,
+    sessionId,
+    'cancelUnissuedSessionPrompts'
+  );
+  const stub = await getStub(env, projectId);
+  return options
+    ? stub.cancelUnissuedSessionPrompts(sessionId, taskId, options)
+    : stub.cancelUnissuedSessionPrompts(sessionId, taskId);
+}
+
 export async function stopSession(
   env: Env,
   projectId: string,
   sessionId: string,
-  options?: { lifecycleSource: 'workspace_eviction_finalization' }
+  options?: {
+    lifecycleSource?: 'workspace_eviction_finalization';
+    guard?: ProjectDataSessionIdentityGuard;
+  }
 ): Promise<boolean> {
   await assertExactWriteAllowedIfArchiveEnabled(env, projectId, sessionId, 'stopSession');
   const source = options?.lifecycleSource ?? 'project_data.stop_session';
   await recordReservedTaskSessionRevocation(env, {
     projectId,
     chatSessionId: sessionId,
+    taskId: options?.guard?.taskId,
     reason: 'session_stopped',
     source,
   });
   const stub = await getStub(env, projectId);
-  const stopped = options?.lifecycleSource
-    ? await stub.stopSession(sessionId, { source: options.lifecycleSource })
-    : await stub.stopSession(sessionId);
+  let stopped: boolean;
+  try {
+    stopped =
+      options?.lifecycleSource || options?.guard
+        ? await stub.stopSession(sessionId, {
+            source: options.lifecycleSource,
+            guard: options.guard,
+          })
+        : await stub.stopSession(sessionId);
+  } catch (error) {
+    if (
+      options?.guard &&
+      error instanceof Error &&
+      (error.message.startsWith(`Session ${sessionId} cannot stopped: expected `) ||
+        error.message === `Session ${sessionId} not found`)
+    ) {
+      log.info('project_data.stop_session_identity_guard_denied', {
+        projectId,
+        sessionId,
+        taskId: options.guard.taskId ?? null,
+      });
+      return false;
+    }
+    throw error;
+  }
   if (stopped) {
     await recordSessionLifecycleEventBestEffort(env, {
       projectId,
@@ -680,10 +722,7 @@ export async function sleepSession(
   env: Env,
   projectId: string,
   sessionId: string,
-  options?: Omit<
-    import('../do/sessions').SleepSessionOptions,
-    'stoppedOnly'
-  > & {
+  options?: Omit<import('../do/sessions').SleepSessionOptions, 'stoppedOnly'> & {
     runtimeGuard?: import('../do/session-sleep-runtime-guard').SessionSleepRuntimeGuard;
   }
 ): Promise<boolean> {
@@ -763,7 +802,8 @@ export async function wakeSessionForSnapshotRecovery(
   projectId: string,
   sessionId: string,
   workspaceId: string,
-  taskId: string
+  taskId: string,
+  options: { deferActivation?: boolean; recoveryAttemptId?: string | null } = {}
 ): Promise<boolean> {
   await assertExactWriteAllowedIfArchiveEnabled(
     env,
@@ -771,17 +811,25 @@ export async function wakeSessionForSnapshotRecovery(
     sessionId,
     'wakeSessionForSnapshotRecovery'
   );
-  const allowStopped = await projectDataPorts().sessions.hasAuthorizedRestorableSnapshotWakeClaim(env, {
-    projectId,
-    chatSessionId: sessionId,
-    workspaceId,
-    taskId,
-  });
+  const allowStopped = await projectDataPorts().sessions.hasAuthorizedRestorableSnapshotWakeClaim(
+    env,
+    {
+      projectId,
+      chatSessionId: sessionId,
+      workspaceId,
+      taskId,
+      recoveryAttemptId: options.recoveryAttemptId,
+      allowRestored: options.deferActivation === true,
+    }
+  );
   if (!allowStopped) return false;
   const stub = await getStub(env, projectId);
   const previousStatus = sessionStatus(await stub.getSession(sessionId));
-  const woke = await stub.wakeSession(sessionId, workspaceId, taskId, { allowStopped });
-  if (woke && previousStatus !== 'active') {
+  const woke = await stub.wakeSession(sessionId, workspaceId, taskId, {
+    allowStopped,
+    deferActivation: options.deferActivation,
+  });
+  if (woke && previousStatus !== 'active' && !options.deferActivation) {
     await recordSessionLifecycleEventBestEffort(env, {
       projectId,
       sessionId,
@@ -896,7 +944,8 @@ export async function persistMessageBatch(
     timestamp: string;
     sequence?: number;
     origin?: string | null;
-  }>
+  }>,
+  source?: import('../do/message-stream-ingest').MessageIngestSource
 ): Promise<{
   persisted: number;
   duplicates: number;
@@ -919,7 +968,8 @@ export async function persistMessageBatch(
         // so the persisted message can be collapsed in the UI and excluded from
         // dedup/search/topic/attention. Dropping it here silently loses the tag.
         origin: m.origin ?? null,
-      }))
+      })),
+      source
     )
   );
 }
@@ -1022,6 +1072,36 @@ export async function listActiveAttentionMarkers(
   );
 }
 
+/** One chat's run-receipt facts for a time window (`do/run-receipt-facts.ts`, Insights slice R). */
+export async function getRunReceiptFacts(
+  env: Env,
+  projectId: string,
+  input: Parameters<ProjectData['getRunReceiptFacts']>[0]
+): Promise<ReturnType<ProjectData['getRunReceiptFacts']>> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'getRunReceiptFacts',
+    (stub) => stub.getRunReceiptFacts(input),
+    'idempotent_read'
+  );
+}
+
+export async function countRunNudges(
+  env: Env,
+  projectId: string,
+  windows: Parameters<ProjectData['countRunNudges']>[0],
+  maxWindows: number
+): Promise<ReturnType<ProjectData['countRunNudges']>> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'countRunNudges',
+    (stub) => stub.countRunNudges(windows, maxWindows),
+    'idempotent_read'
+  );
+}
+
 export async function getMessages(
   env: Env,
   projectId: string,
@@ -1032,7 +1112,7 @@ export async function getMessages(
   roles?: string[],
   compact: boolean = false,
   order: 'asc' | 'desc' = 'desc'
-): Promise<{ messages: Record<string, unknown>[]; hasMore: boolean }> {
+): Promise<Awaited<ReturnType<ProjectData['getMessages']>>> {
   const owner = await resolveExactReadOwnerIfArchiveEnabled(env, projectId, sessionId);
   return callProjectDataOwnerWithRetry(
     env,
@@ -2281,6 +2361,59 @@ export async function runProjectEventRetention(
   return callProjectDataEvent(env, projectId, 'runProjectEventRetention', input);
 }
 
+// --- Inbox item comments (inbox slice H1) ------------------------------------
+// Scoped to the asks id. Callers must have already proven the item belongs to `projectId` and
+// that the actor may read it (packages/operations/src/inbox-task-core.ts) — the DO has no D1.
+
+export async function listInboxItemCommentThreads(
+  env: Env,
+  projectId: string,
+  input: ListInboxItemCommentThreadsInput
+): Promise<{ threads: InboxItemCommentThread[]; hasMore: boolean; scanCursor: number | null }> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'listInboxItemCommentThreads',
+    (stub) => stub.listInboxItemCommentThreads(input),
+    'idempotent_read'
+  );
+}
+
+export async function countInboxItemWatchers(
+  env: Env,
+  projectId: string,
+  itemId: string
+): Promise<number> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'countInboxItemWatchers',
+    (stub) => stub.countInboxItemWatchers(projectId, itemId),
+    'idempotent_read'
+  );
+}
+
+/** Renew an item's watches before admitting a change (`renewInboxItemWatches`). */
+export async function renewInboxItemWatches(
+  env: Env,
+  projectId: string,
+  input: { itemId: string; open: boolean; closedGraceMs: number }
+): Promise<number> {
+  return callProjectDataNoRetry(env, projectId, 'renewInboxItemWatches', (stub) =>
+    stub.renewInboxItemWatches({ projectId, ...input })
+  );
+}
+
+export async function createInboxItemComment(
+  env: Env,
+  projectId: string,
+  input: CreateInboxItemCommentInput
+): Promise<InboxItemCommentMutationResult> {
+  return callProjectDataNoRetry(env, projectId, 'createInboxItemComment', (stub) =>
+    stub.createInboxItemComment(input)
+  );
+}
+
 // --- Library file comments ---------------------------------------------------
 // Every entry point is `fileId`-scoped. Callers must have already proven the file
 // belongs to `projectId` (see assertLibraryFileInProject) — the DO has no D1.
@@ -2732,6 +2865,17 @@ export async function getSessionState(env: Env, projectId: string, sessionId: st
     projectId,
     'getSessionState',
     (stub) => stub.getSessionState(sessionId),
+    'idempotent_read'
+  );
+}
+
+/** Awake chats whose agent is mid-turn (`do/session-state-read.ts`). */
+export async function listWorkingChatSessionIds(env: Env, projectId: string): Promise<string[]> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'listWorkingChatSessionIds',
+    (stub) => stub.listWorkingChatSessionIds(),
     'idempotent_read'
   );
 }
@@ -3342,7 +3486,9 @@ export async function getHandoffPacketsForTask(env: Env, projectId: string, task
 export async function forwardWebSocket(
   env: Env,
   projectId: string,
-  request: Request
+  request: Request,
+  /** The user the route authenticated. Set on the forwarded request, replacing any browser value. */
+  actorId: string
 ): Promise<Response> {
   // A WebSocket upgrade creates no state a repeat could duplicate; a retried attempt simply
   // accepts a fresh socket if the first one never reached the object.
@@ -3353,8 +3499,28 @@ export async function forwardWebSocket(
     (stub) => {
       const url = new URL(request.url);
       url.pathname = '/ws';
-      return stub.fetch(new Request(url.toString(), request));
+      const forwarded = new Request(url.toString(), request);
+      forwarded.headers.set(BROWSER_SOCKET_ACTOR_HEADER, actorId);
+      return stub.fetch(forwarded);
     },
+    'idempotent_read'
+  );
+}
+
+/**
+ * Close every browser socket a user holds on a project after their access to it was revoked.
+ * Closing is idempotent, so a retried call that already closed them closes nothing more.
+ */
+export async function closeBrowserSocketsForActor(
+  env: Env,
+  projectId: string,
+  actorId: string
+): Promise<number> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'closeBrowserSocketsForActor',
+    (stub) => stub.closeBrowserSocketsForActor(actorId),
     'idempotent_read'
   );
 }
@@ -3390,37 +3556,79 @@ export async function syncProviderLimitAttention(
   );
 }
 
-export async function createAttentionMarker(
+/** A question filed as a D1 `asks` row: answers SAM's check-in, shows live (inbox slice G). */
+export async function recordQuestionAsked(
   env: Env,
   projectId: string,
-  opts: {
-    sessionId: string;
-    taskId: string | null;
-    workspaceId: string | null;
-    kind: string;
-    source: string;
-    sourceNotificationId?: string | null;
-    notificationUserId?: string | null;
-    reason?: string | null;
-    metadata?: string | null;
-    expiresAt?: number | null;
-    nextEscalationAt?: number | null;
-    maxExpiresAt?: number | null;
-  }
-): Promise<{ id: string; createdAt: number; expiresAt: number | null }> {
-  const stub = await getStub(env, projectId);
-  return stub.createAttentionMarker(opts);
+  input: Parameters<ProjectData['recordQuestionAsked']>[0]
+): Promise<void> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'recordQuestionAsked',
+    (stub) => stub.recordQuestionAsked(input),
+    'mutation'
+  );
 }
 
-export async function linkAttentionNotification(
+/**
+ * The person archived a pending ACP interaction (a permission, form or link request) from their
+ * inbox: it leaves the inbox, its marker stays unresolved, and the interaction stays pending and
+ * answerable in the chat. Returns rows changed (0 when already archived or resolved).
+ */
+export async function archiveInteractionMarker(
   env: Env,
   projectId: string,
-  markerId: string,
-  notificationUserId: string,
-  notificationId: string
-): Promise<boolean> {
+  sessionId: string,
+  markerId: string
+): Promise<number> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'archiveInteractionMarkerFromInbox',
+    (stub) => stub.archiveInteractionMarkerFromInbox(sessionId, markerId),
+    'mutation'
+  );
+}
+
+/** The person archived a question held in D1 `asks`: a live update only, nothing reaches the agent. */
+export async function recordQuestionArchived(
+  env: Env,
+  projectId: string,
+  input: Parameters<ProjectData['recordQuestionArchived']>[0]
+): Promise<void> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'recordQuestionArchived',
+    (stub) => stub.recordQuestionArchived(input),
+    'mutation'
+  );
+}
+
+/** The agent cancelled its blocking question in D1 `asks` (inbox slice D). */
+export async function recordQuestionWithdrawn(
+  env: Env,
+  projectId: string,
+  input: Parameters<ProjectData['recordQuestionWithdrawn']>[0]
+): Promise<void> {
+  return callProjectDataWithRetry(
+    env,
+    projectId,
+    'recordQuestionWithdrawn',
+    (stub) => stub.recordQuestionWithdrawn(input),
+    'mutation'
+  );
+}
+
+/** The task outcome of an expired question held in D1 `asks` (inbox slice G). */
+export async function expireQuestionAsk(
+  env: Env,
+  projectId: string,
+  input: Parameters<ProjectData['expireQuestionAsk']>[0]
+): Promise<{ outcome: 'expired' | 'answered_in_chat' }> {
   const stub = await getStub(env, projectId);
-  return stub.linkAttentionNotification(markerId, notificationUserId, notificationId);
+  return stub.expireQuestionAsk(input);
 }
 
 export async function prepareAttentionAnswer(
@@ -3454,6 +3662,37 @@ export async function releaseAttentionAnswer(
 ): Promise<number> {
   const stub = await getStub(env, projectId);
   return stub.releaseAttentionAnswer(sessionId, markerId, answer);
+}
+
+/** Inbox archive claim for a question; see `ProjectData.prepareAttentionArchive`. */
+export async function prepareAttentionArchive(
+  env: Env,
+  projectId: string,
+  sessionId: string,
+  markerId: string
+) {
+  const stub = await getStub(env, projectId);
+  return stub.prepareAttentionArchive(sessionId, markerId);
+}
+
+export async function completeAttentionArchive(
+  env: Env,
+  projectId: string,
+  sessionId: string,
+  markerId: string
+): Promise<number> {
+  const stub = await getStub(env, projectId);
+  return stub.completeAttentionArchive(sessionId, markerId);
+}
+
+export async function releaseAttentionArchive(
+  env: Env,
+  projectId: string,
+  sessionId: string,
+  markerId: string
+): Promise<number> {
+  const stub = await getStub(env, projectId);
+  return stub.releaseAttentionArchive(sessionId, markerId);
 }
 
 export async function resolveSessionAttentionMarkers(
