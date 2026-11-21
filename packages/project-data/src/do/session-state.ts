@@ -71,7 +71,8 @@ function normalizeActivityObservedAt(value: number | null | undefined, fallback:
 }
 
 /**
- * When a `prompting` report's own turn start replaces the stored `prompt_started_at`.
+ * When a `prompting` report's own turn start replaces the stored `prompt_started_at`
+ * (also inlined in the upsert's prompt_started_at CASE).
  *
  * `prompt_started_at` is the token guarded interrupts send back to the VM, which
  * compares it with the running attempt's exact start (`CancelPromptGuarded`).
@@ -82,15 +83,9 @@ function normalizeActivityObservedAt(value: number | null | undefined, fallback:
  * wins unless it is older than a turn this row already knows: below the newest
  * start the VM reported, or below the control plane's accepted epoch (a delayed
  * report from the previous turn). VM epochs only increase (`beginPrompt`).
+ * This function applies the rule to a `prompting` report the upsert dropped as
+ * stale-ordered.
  */
-const ADOPT_REPORTED_TURN_START_SQL = `excluded.activity = 'prompting'
-           AND excluded.reported_prompt_started_at IS NOT NULL
-           AND excluded.reported_prompt_started_at >= MAX(
-             COALESCE(session_state.reported_prompt_started_at, 0),
-             COALESCE(session_state.prompt_epoch, 0)
-           )`;
-
-/** The stale-ordered twin of `ADOPT_REPORTED_TURN_START_SQL` for a report the upsert dropped. */
 function adoptStaleReportedTurnStart(
   sql: SqlStorage,
   sessionId: string,
@@ -167,7 +162,14 @@ export function upsertActivityState(
        activity_at = excluded.activity_at,
        prompt_started_at = CASE
          WHEN excluded.activity NOT IN ('prompting', 'recovering', 'error') THEN NULL
-         WHEN ${ADOPT_REPORTED_TURN_START_SQL} THEN excluded.reported_prompt_started_at
+         -- A prompting report's own start wins unless it predates a known turn (see below).
+         WHEN excluded.activity = 'prompting'
+           AND excluded.reported_prompt_started_at IS NOT NULL
+           AND excluded.reported_prompt_started_at >= MAX(
+             COALESCE(session_state.reported_prompt_started_at, 0),
+             COALESCE(session_state.prompt_epoch, 0)
+           )
+           THEN excluded.reported_prompt_started_at
          WHEN session_state.activity IN ('prompting', 'recovering', 'error')
            AND session_state.prompt_started_at IS NOT NULL
            THEN session_state.prompt_started_at
