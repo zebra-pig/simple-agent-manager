@@ -271,6 +271,14 @@
       "reviewedAt": "2026-11-21T19:00:00.000Z",
       "expiresAt": "2026-12-21T19:00:00.000Z",
       "digests": ["27749e8dfc238183299e7648078716f94d4dbe207814fd945229dbfe5c8eb528"]
+    },
+    {
+      "classification": "synthetic-test-fixture",
+      "reason": "Upstream sync range (5cef2fa into the fork): upstream commit 917077fef (#2906) has scripts/selfhost/deploy-harness.ts line 26 set AWS_SECRET_ACCESS_KEY to the fixed fleet-secret-0123456789abcdef deploy-harness fixture already reviewed upstream for its own PR range. Never a real credential. Exact rule/path/line/bytes only.",
+      "owner": "security",
+      "reviewedAt": "2026-11-21T19:00:00.000Z",
+      "expiresAt": "2026-12-21T19:00:00.000Z",
+      "digests": ["47532b752c21745f780b725e48ad30bac30eaa443b0cd13a388ab5b577356eb4"]
     }
   ]
 }
