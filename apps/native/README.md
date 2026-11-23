@@ -21,13 +21,18 @@ The shells stay thin. Each screen owns a Rust view model: the shell reads the fi
 through an observer callback. Logic and HTTP live in the core, so both platforms behave the same.
 
 New-chat submission stays locked in the shared core from intent admission through
-request completion, session refresh, and the UI handoff. After `submit_task`
-returns a session, each shell clears its draft and opens that session before
-calling `finish_submission(session_id)`. Only the matching accepted session can
-release the lock; failed requests unlock for retry. Apple also sets a local busy
+request completion and the UI handoff. `ProjectViewModel::submit_task` returns the
+accepted session without waiting for session/profile reads. Each shell clears its
+draft, opens that session and calls `finish_submission(session_id)`, then refreshes
+the project list independently. Only the matching accepted session can release the
+lock; failed requests unlock for retry. Apple also sets a local busy
 flag synchronously on tap, before observer delivery. The project composer dismisses
 keyboard focus when submitting and prevents editing during the handoff, so returning
 from the new agent leaves the keyboard closed. Chat reply composers keep their focus.
+On Apple platforms, `ProjectView` uses `ChatDraft` to save new-task text on each edit,
+scoped by server, account and project separately from conversation drafts. Unsent
+text survives switching projects and relaunching; an accepted send clears only the
+submitted text, preserving a newer draft edited in another window.
 
 ```mermaid
 flowchart LR

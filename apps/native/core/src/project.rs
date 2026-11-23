@@ -164,7 +164,8 @@ impl ProjectViewModel {
     /// Intent: hand `message` and the attached files to an agent as a new
     /// task, with the selected profile. Returns the new session to open, or
     /// `None` (the reason is in `state.error`). On success, the shell must clear
-    /// its draft, open the session, then call `finish_submission`.
+    /// its draft, open the session, then call `finish_submission`. Refresh the
+    /// list separately after that handoff; reads must not delay an accepted task.
     pub async fn submit_task(&self, message: String) -> Option<SubmittedTask> {
         // Validate, snapshot and claim together: no stale draft/attachments can
         // slip between a state read and acquiring the submission lock.
@@ -223,11 +224,6 @@ impl ProjectViewModel {
         });
         let submitted = result.ok()?;
         if !current {
-            return None;
-        }
-        self.load(project_id.clone()).await;
-        let state = self.state();
-        if state.project_id != project_id || state.submitted_session_id.as_deref() != Some(&submitted.session_id) {
             return None;
         }
         // Returning to the shell is not the end of submission: the draft is still

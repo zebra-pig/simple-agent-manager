@@ -11,7 +11,7 @@ struct ProjectView: View {
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
     @State private var search = ""
-    @State private var draft = ""
+    @ChatDraft private var draft: String
     @State private var commands: CommandsModel
     @State private var submitting = false
     @State private var settings = false
@@ -24,6 +24,8 @@ struct ProjectView: View {
         self.project = project
         self.selectedSessionId = selectedSessionId
         self.open = open
+        let account = app.state()
+        _draft = ChatDraft(server: account.serverUrl, user: account.viewer?.id ?? "", project: project.id)
         _model = State(initialValue: ProjectModel(app: app))
         _commands = State(initialValue: CommandsModel(app: app))
     }
@@ -68,9 +70,11 @@ struct ProjectView: View {
                 Task {
                     defer { submitting = false }
                     if let task = await model.core.submitTask(message: message) {
-                        draft = ""
+                        // Another window may have edited this project's draft.
+                        _draft.clear(ifEqual: message)
                         open(SessionRef(projectId: project.id, sessionId: task.sessionId))
                         model.core.finishSubmission(sessionId: task.sessionId)
+                        Task { await model.core.load(projectId: project.id) }
                     }
                 }
             } accessory: {
@@ -145,6 +149,7 @@ struct Composer<Accessory: View>: View {
     @State private var selectedCommand: String?
     #if os(iOS)
     @State private var focused = false
+    @State private var inputFocus = ComposerTextInput.FocusControl()
     #else
     @FocusState private var focused: Bool
     #endif
@@ -283,7 +288,12 @@ struct Composer<Accessory: View>: View {
             ProgressView().frame(width: 36, height: 36)
         } else {
             Button {
-                if dismissFocusOnSend { focused = false }
+                if dismissFocusOnSend {
+                    #if os(iOS)
+                    inputFocus.dismiss()
+                    #endif
+                    focused = false
+                }
                 send()
             } label: {
                 Image(systemName: sendIcon).font(.body.weight(.semibold)).frame(width: 22, height: 22)
@@ -310,7 +320,7 @@ struct Composer<Accessory: View>: View {
     private var composerInput: some View {
         #if os(iOS)
         ComposerTextInput(text: $text, focused: Binding(get: { focused }, set: { focused = $0 }),
-                          files: files, commandKey: showsCommands ? commandKey : nil)
+                          files: files, focusControl: inputFocus, commandKey: showsCommands ? commandKey : nil)
             .disabled(!inputEnabled || (dismissFocusOnSend && busy))
             .accessibilityLabel(Text(placeholder))
             .overlay(alignment: .topLeading) {

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Unsent text belongs to a conversation, rather than the lifetime of its view.
+/// Unsent text belongs to a project composer or conversation, rather than its view.
 /// AppStorage writes on each edit and notifies other windows of the same draft.
 @propertyWrapper
 struct ChatDraft: DynamicProperty {
@@ -8,9 +8,11 @@ struct ChatDraft: DynamicProperty {
     private let store: UserDefaults
     private let key: String
 
-    init(server: String, user: String, project: String, session: String, store: UserDefaults = .standard) {
+    init(server: String, user: String, project: String, session: String? = nil, store: UserDefaults = .standard) {
         // Encode components together so separators in IDs/URLs cannot collide.
-        let scope = [server, user, project, session]
+        // Three components identify a new-task draft; four identify a chat.
+        // Even an empty session ID cannot collide with the project composer.
+        let scope = [server, user, project] + (session.map { [$0] } ?? [])
         let key = "chat-draft.v1." + scope.map { Data($0.utf8).base64EncodedString() }.joined(separator: ".")
         self.store = store
         self.key = key
@@ -22,6 +24,12 @@ struct ChatDraft: DynamicProperty {
         nonmutating set { saved = newValue }
     }
     var projectedValue: Binding<String> { $saved }
+
+    /// Acceptance clears only the exact text sent, even before another window's
+    /// AppStorage notification reaches this mounted composer.
+    func clear(ifEqual content: String) {
+        if store.string(forKey: key) == content { store.set("", forKey: key) }
+    }
 
     /// Read durable storage directly: another window may have edited the draft
     /// before this property wrapper receives its AppStorage notification.
