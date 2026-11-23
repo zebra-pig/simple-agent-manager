@@ -15,6 +15,15 @@ final class ChatDraftTests: XCTestCase {
                    project: String = "project", session: String = "chat") -> ChatDraft {
             ChatDraft(server: server, user: user, project: project, session: session, store: store)
         }
+        let projectDraft = ChatDraft(server: "https://sam.example", user: "alice", project: "project", store: store)
+        projectDraft.wrappedValue = "First task draft 日本語 👋"
+        XCTAssertEqual(ChatDraft(server: "https://sam.example", user: "alice", project: "project", store: UserDefaults(suiteName: suite)!).wrappedValue,
+                       projectDraft.wrappedValue, "Project drafts survive store recreation")
+        XCTAssertTrue(draft(session: "").wrappedValue.isEmpty, "Project and conversation scopes must not collide")
+        XCTAssertTrue(ChatDraft(server: "https://sam.example", user: "bob", project: "project", store: store).wrappedValue.isEmpty)
+        XCTAssertTrue(ChatDraft(server: "https://other.example", user: "alice", project: "project", store: store).wrappedValue.isEmpty)
+        XCTAssertTrue(ChatDraft(server: "https://sam.example", user: "alice", project: "other", store: store).wrappedValue.isEmpty)
+        projectDraft.wrappedValue = ""
         let original = draft()
         let text = "Unsent **text**\n日本語 👋\n  keep whitespace  "
         original.wrappedValue = text

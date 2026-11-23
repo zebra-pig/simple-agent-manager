@@ -134,10 +134,12 @@ class ProjectModel(application: Application) : AndroidViewModel(application) {
 
     /** Submits, then hands the new session to [open]. */
     fun submit(message: String, open: (sessionId: String) -> Unit, sent: () -> Unit) = viewModelScope.launch {
+        val projectId = vm.state().projectId
         vm.submitTask(message)?.let {
             sent()
             open(it.sessionId)
             vm.finishSubmission(it.sessionId)
+            vm.load(projectId)
         }
     }
 

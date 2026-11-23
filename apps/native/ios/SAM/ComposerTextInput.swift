@@ -36,8 +36,7 @@ struct ComposerTextInput: UIViewRepresentable {
         // transition is a dismissal intent; an unchanged false must allow taps.
         let dismiss = context.coordinator.lastFocused && !focused
         context.coordinator.lastFocused = focused
-        if dismiss, view.isFirstResponder { view.resignFirstResponder() }
-        view.isEditable = context.environment.isEnabled
+        context.coordinator.updateInteraction(view, enabled: context.environment.isEnabled, dismiss: dismiss)
         view.commandKey = commandKey
         view.attach = files.map { files in { AttachmentIntake.add(providers: $0, to: files) } }
         // Do not reset the selection or an in-progress IME composition.
@@ -56,9 +55,30 @@ struct ComposerTextInput: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextInput
         var lastFocused: Bool
+        private var editable = true
+        private var dismissalRequested = false
+        private var interactionScheduled = false
         init(_ parent: ComposerTextInput) {
             self.parent = parent
             lastFocused = parent.focused
+        }
+
+        /// Resigning inside updateUIView re-enters SwiftUI's responder graph on
+        /// iPad and can spin forever. Apply UIKit interaction changes after the
+        /// current graph update, using the latest enabled/focus state.
+        func updateInteraction(_ view: UITextView, enabled: Bool, dismiss: Bool) {
+            editable = enabled
+            dismissalRequested = dismissalRequested || dismiss
+            guard !interactionScheduled, dismissalRequested || view.isEditable != enabled else { return }
+            interactionScheduled = true
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let view else { return }
+                self.interactionScheduled = false
+                let dismiss = self.dismissalRequested && !self.parent.focused
+                self.dismissalRequested = false
+                if dismiss, view.isFirstResponder { view.resignFirstResponder() }
+                if view.isEditable != self.editable { view.isEditable = self.editable }
+            }
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {

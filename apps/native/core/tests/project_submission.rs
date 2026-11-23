@@ -1,4 +1,4 @@
-//! Submission stays locked through the API request and post-submit refresh.
+//! Submission locks through the shell handoff; list refresh cannot delay acceptance.
 mod common;
 
 use common::{serve, MemoryStore, Request};
@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn submission_blocks_duplicates_until_the_session_refresh_finishes() {
+async fn accepted_submission_returns_before_refresh_and_blocks_duplicates_until_handoff() {
     let submissions = Arc::new(AtomicUsize::new(0));
     let posted = Arc::new(Notify::new());
     let refreshing = Arc::new(Notify::new());
@@ -55,12 +55,17 @@ async fn submission_blocks_duplicates_until_the_session_refresh_finishes() {
     assert!(vm.state().submitting);
     assert!(vm.submit_task("Duplicate tap".into()).await.is_none());
     finish_post.send(()).unwrap();
+    let accepted = tokio::time::timeout(Duration::from_secs(2), request)
+        .await.expect("An accepted task must not wait for session/profile reads").unwrap().unwrap();
+    assert_eq!(accepted.session_id, "s1");
+    let refresh = tokio::spawn({
+        let vm = vm.clone();
+        async move { vm.load("p1".into()).await }
+    });
     tokio::time::timeout(Duration::from_secs(5), refreshing.notified()).await.unwrap();
     assert!(vm.state().loading);
     assert!(vm.state().submitting, "Send must stay disabled during the refresh");
     assert!(vm.submit_task("Tap during refresh".into()).await.is_none());
-    finish_refresh.send(()).unwrap();
-    assert_eq!(request.await.unwrap().unwrap().session_id, "s1");
     // The FFI result can arrive before the UI continuation runs. Neither a tap
     // nor an unrelated handoff may unlock the still-visible original draft.
     assert!(vm.state().submitting);
@@ -71,6 +76,9 @@ async fn submission_blocks_duplicates_until_the_session_refresh_finishes() {
     vm.finish_submission("s1".into());
     assert!(!vm.state().submitting);
     assert!(vm.state().submitted_session_id.is_none());
+    finish_refresh.send(()).unwrap();
+    refresh.await.unwrap();
+    assert!(!vm.state().submitting, "A late refresh cannot re-lock the composer");
 }
 
 #[tokio::test]

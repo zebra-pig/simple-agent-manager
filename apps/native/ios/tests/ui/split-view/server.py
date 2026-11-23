@@ -23,10 +23,42 @@ def session(project):
 
 def make_server(port=0):
     reads = []
+    submitted = {}
+    options = {}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
+
+        def do_POST(self):
+            path = urlsplit(self.path).path
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            if path == "/fixture/reset":
+                submitted.clear()
+                TOPICS.pop("research", None)
+                REPLIES.pop("research", None)
+                options.clear()
+                options.update(body)
+                self.respond(200, {})
+                return
+            assert self.headers.get("Cookie") == "fixture=split-view"
+            assert path == "/api/projects/research/tasks/submit", path
+            assert body["message"].strip(), body
+            if options.pop("rejectNext", False):
+                self.respond(503, {"error": "UNAVAILABLE", "message": "Please retry the task."})
+                return
+            submitted["research"] = body["message"]
+            TOPICS["research"] = "First research task"
+            REPLIES["research"] = "The first task was received."
+            self.respond(202, {"taskId": "research-task", "sessionId": "research-session"})
+
+        def respond(self, status, body):
+            data = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
 
         def do_GET(self):
             path = urlsplit(self.path).path
@@ -55,12 +87,14 @@ def make_server(port=0):
                 elif path.endswith("/agent-profiles/picker"):
                     body = {"recentIds": [], "hiddenIds": []}
                 elif path.endswith("/sessions"):
+                    if project in submitted and options.get("slowRefresh"):
+                        time.sleep(10)
                     body = {"sessions": [session(project)] if project in TOPICS else []}
                 elif len(parts) == 6 and parts[4] == "sessions" and project in TOPICS:
                     # Reject a stale conversation paired with a newly selected project.
                     assert parts[5] == project + "-session", self.path
                     body = {"session": session(project), "hasMore": False, "messages": [
-                        {"id": project + "-user", "role": "user", "content": "Please prepare the next iteration.",
+                        {"id": project + "-user", "role": "user", "content": submitted.get(project, "Please prepare the next iteration."),
                          "createdAt": 1794819600000, "sequence": 1},
                         {"id": project + "-agent", "role": "assistant", "content": REPLIES[project],
                          "createdAt": 1794819601000, "sequence": 2},

@@ -11,7 +11,7 @@ struct ProjectView: View {
     let open: (SessionRef) -> Void
     @State private var model: ProjectModel
     @State private var search = ""
-    @State private var draft = ""
+    @ChatDraft private var draft: String
     @State private var commands: CommandsModel
     @State private var submitting = false
     @State private var settings = false
@@ -24,6 +24,8 @@ struct ProjectView: View {
         self.project = project
         self.selectedSessionId = selectedSessionId
         self.open = open
+        let account = app.state()
+        _draft = ChatDraft(server: account.serverUrl, user: account.viewer?.id ?? "", project: project.id)
         _model = State(initialValue: ProjectModel(app: app))
         _commands = State(initialValue: CommandsModel(app: app))
     }
@@ -68,9 +70,11 @@ struct ProjectView: View {
                 Task {
                     defer { submitting = false }
                     if let task = await model.core.submitTask(message: message) {
-                        draft = ""
+                        // Another window may have edited this project's draft.
+                        if draft == message { draft = "" }
                         open(SessionRef(projectId: project.id, sessionId: task.sessionId))
                         model.core.finishSubmission(sessionId: task.sessionId)
+                        Task { await model.core.load(projectId: project.id) }
                     }
                 }
             } accessory: {
