@@ -46,8 +46,16 @@ final class FirstTaskUITests: XCTestCase {
         openProject(app)
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
         XCTAssertEqual(editor.value as? String, prompt)
+        capture(app, name: "ipad-restored-project-draft")
         editor.tap()
         editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: prompt.count))
+    }
+
+    private func capture(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func replaceText(_ editor: XCUIElement, with text: String) {
@@ -83,6 +91,7 @@ final class FirstTaskUITests: XCTestCase {
         openProject(app)
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
         XCTAssertEqual(editor.value as? String, "")
+        capture(app, name: "ipad-first-task-retry-clears-draft")
     }
 
     func testSendFirstTaskFromEmptyProject() throws {
@@ -107,5 +116,6 @@ final class FirstTaskUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts[prompt].exists)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "session-research-session").firstMatch.waitForExistence(timeout: 15))
+        capture(app, name: "ipad-first-task-sent")
     }
 }
