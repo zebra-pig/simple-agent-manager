@@ -10,6 +10,7 @@ struct ComposerTextInput: UIViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
     let files: ComposerFiles?
+    var focusControl: FocusControl? = nil
     var commandKey: ((String) -> Bool)?
 
     func makeUIView(context: Context) -> AttachmentTextView {
@@ -24,19 +25,14 @@ struct ComposerTextInput: UIViewRepresentable {
         view.isEditable = true
         view.isSelectable = true
         view.allowsEditingTextAttributes = false
+        focusControl?.view = view
         return view
     }
 
     func updateUIView(_ view: AttachmentTextView, context: Context) {
         context.coordinator.parent = self
-        // Clear the UIKit responder as well as SwiftUI focus before navigation.
-        // Otherwise the retained project editor can restore its keyboard on return.
-        // UIKit can request an update while becoming first responder, before
-        // textViewDidBeginEditing publishes focus. Only a true -> false binding
-        // transition is a dismissal intent; an unchanged false must allow taps.
-        let dismiss = context.coordinator.lastFocused && !focused
-        context.coordinator.lastFocused = focused
-        context.coordinator.updateInteraction(view, enabled: context.environment.isEnabled, dismiss: dismiss)
+        focusControl?.view = view
+        context.coordinator.updateInteraction(view, enabled: context.environment.isEnabled)
         view.commandKey = commandKey
         view.attach = files.map { files in { AttachmentIntake.add(providers: $0, to: files) } }
         // Do not reset the selection or an in-progress IME composition.
@@ -52,31 +48,30 @@ struct ComposerTextInput: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    /// The send action dismisses its own editor before navigation. UIKit must
+    /// not query SwiftUI's responder graph from inside updateUIView (iPad hang).
+    @MainActor final class FocusControl {
+        fileprivate weak var view: UITextView?
+        func dismiss() { view?.resignFirstResponder() }
+    }
+
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextInput
-        var lastFocused: Bool
         private var editable = true
-        private var dismissalRequested = false
         private var interactionScheduled = false
         init(_ parent: ComposerTextInput) {
             self.parent = parent
-            lastFocused = parent.focused
         }
 
-        /// Resigning inside updateUIView re-enters SwiftUI's responder graph on
-        /// iPad and can spin forever. Apply UIKit interaction changes after the
-        /// current graph update, using the latest enabled/focus state.
-        func updateInteraction(_ view: UITextView, enabled: Bool, dismiss: Bool) {
+        /// Changing editability can resign the responder too, so do it after
+        /// SwiftUI's graph update rather than re-entering that graph from UIKit.
+        func updateInteraction(_ view: UITextView, enabled: Bool) {
             editable = enabled
-            dismissalRequested = dismissalRequested || dismiss
-            guard !interactionScheduled, dismissalRequested || view.isEditable != enabled else { return }
+            guard !interactionScheduled, view.isEditable != enabled else { return }
             interactionScheduled = true
             DispatchQueue.main.async { [weak self, weak view] in
                 guard let self, let view else { return }
                 self.interactionScheduled = false
-                let dismiss = self.dismissalRequested && !self.parent.focused
-                self.dismissalRequested = false
-                if dismiss, view.isFirstResponder { view.resignFirstResponder() }
                 if view.isEditable != self.editable { view.isEditable = self.editable }
             }
         }
