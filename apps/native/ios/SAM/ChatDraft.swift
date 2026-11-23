@@ -25,6 +25,12 @@ struct ChatDraft: DynamicProperty {
     }
     var projectedValue: Binding<String> { $saved }
 
+    /// Acceptance clears only the exact text sent, even before another window's
+    /// AppStorage notification reaches this mounted composer.
+    func clear(ifEqual content: String) {
+        if store.string(forKey: key) == content { store.set("", forKey: key) }
+    }
+
     /// Read durable storage directly: another window may have edited the draft
     /// before this property wrapper receives its AppStorage notification.
     func restore(ifEmpty content: String) {

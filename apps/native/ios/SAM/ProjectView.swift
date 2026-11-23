@@ -71,7 +71,7 @@ struct ProjectView: View {
                     defer { submitting = false }
                     if let task = await model.core.submitTask(message: message) {
                         // Another window may have edited this project's draft.
-                        if draft == message { draft = "" }
+                        _draft.clear(ifEqual: message)
                         open(SessionRef(projectId: project.id, sessionId: task.sessionId))
                         model.core.finishSubmission(sessionId: task.sessionId)
                         Task { await model.core.load(projectId: project.id) }
