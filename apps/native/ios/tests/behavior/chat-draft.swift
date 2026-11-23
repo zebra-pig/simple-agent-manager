@@ -24,12 +24,15 @@ final class ChatDraftTests: XCTestCase {
         XCTAssertTrue(ChatDraft(server: "https://other.example", user: "alice", project: "project", store: store).wrappedValue.isEmpty)
         XCTAssertTrue(ChatDraft(server: "https://sam.example", user: "alice", project: "other", store: store).wrappedValue.isEmpty)
         let secondWindow = ChatDraft(server: "https://sam.example", user: "alice", project: "project", store: UserDefaults(suiteName: suite)!)
+        func savedProjectDraft() -> String {
+            ChatDraft(server: "https://sam.example", user: "alice", project: "project", store: UserDefaults(suiteName: suite)!).wrappedValue
+        }
         let submittedText = projectDraft.wrappedValue
         secondWindow.wrappedValue = "Newer text in another window"
         projectDraft.clear(ifEqual: submittedText)
-        XCTAssertEqual(secondWindow.wrappedValue, "Newer text in another window", "Acceptance must preserve newer edits")
+        XCTAssertEqual(savedProjectDraft(), "Newer text in another window", "Acceptance must preserve newer edits")
         projectDraft.clear(ifEqual: "Newer text in another window")
-        XCTAssertTrue(secondWindow.wrappedValue.isEmpty, "Acceptance clears unchanged submitted text")
+        XCTAssertTrue(savedProjectDraft().isEmpty, "Acceptance clears unchanged submitted text")
         let original = draft()
         let text = "Unsent **text**\n日本語 👋\n  keep whitespace  "
         original.wrappedValue = text
