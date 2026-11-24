@@ -225,6 +225,8 @@ function extractOptionalWorkerEnvVars(): string[] {
   expect(vars).toContain('CF_CONTAINER_ENABLED');
   expect(vars).toContain('SANDBOX_ENABLED');
   expect(vars).toContain('MAX_CONCURRENT_SETUP_SESSIONS');
+  // Infomaniak private-network installs (VMs without their own IPv4) set this in the Environment.
+  expect(vars).toContain('INFOMANIAK_NETWORK_NAME');
 
   return vars;
 }
