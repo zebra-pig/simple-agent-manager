@@ -16,6 +16,7 @@ One Linux VM runs the whole control plane with Docker Compose (`docker-compose.y
 | `objectstore`    | Bundled MinIO for trials (profile `local-store`)                                   |
 | `mail-collector` | Catches sign-in email for test installs (profile `mail-collector`)                 |
 | `sam-mx`         | Inbound agent email on port 25 (profile `mail-in`)                                 |
+| `sam-dns`        | Answers DNS for `SAM_DOMAIN` on port 53 (profile `dns`)                            |
 
 Workspace nodes are cloud VMs that dial back to `wss://api.SAM_DOMAIN/~!frp`; they need no public
 DNS of their own. The fleet bucket (`CELLD_BUCKET`) is the durable copy of everything celld stores.
@@ -27,12 +28,20 @@ DNS of their own. The fleet bucket (`CELLD_BUCKET`) is the durable copy of every
   `apt-get install build-essential`: `pnpm install` compiles `better-sqlite3`), and a checkout of
   this repository.
 - A domain with a wildcard record `*.SAM_DOMAIN` pointing at the VM. SAM serves `api.`, `app.`,
-  `ws-<id>.` and `ws-<id>--<port>.` under it; the apex is unused.
+  `ws-<id>.` and `ws-<id>--<port>.` under it; the apex is unused. For app deployments, add
+  `*.apps.SAM_DOMAIN` pointing at the VM as well (see step 1 of
+  [App deployments on a box](#app-deployments-on-a-box)). Or delegate `SAM_DOMAIN` to the
+  box once and let it answer for itself ([DNS on the box](#dns-on-the-box)): then no wildcard
+  record, no Cloud DNS and no DNS API token are needed for the box, its certificate or its records.
+  App deployments run on the box too ([App deployments on a box](#app-deployments-on-a-box)):
+  their app hostnames (`*.apps.SAM_DOMAIN`) also resolve to the box, which needs its own wildcard
+  certificate for them, so use a `dns-*` TLS mode.
 - Inbound TCP 80 and 443 to the VM (and 25 for inbound agent email).
 - A fleet bucket: `gs://` (the VM's service account needs `roles/storage.objectAdmin` on it),
   any `s3://` store, or the bundled store for a trial (`local-store` profile).
-- TLS: `SAM_TLS_MODE=dns-googleclouddns` gets a Let's Encrypt wildcard through Cloud DNS (the VM's
-  service account needs `roles/dns.admin` on the zone's project, `GCP_PROJECT` names it).
+- TLS: `SAM_TLS_MODE=dns-rfc2136` gets a Let's Encrypt wildcard from the box's own DNS server
+  ([DNS on the box](#dns-on-the-box)). `dns-googleclouddns` gets it through Cloud DNS instead (the
+  VM's service account needs `roles/dns.admin` on the zone's project, `GCP_PROJECT` names it).
   `internal` uses Caddy's own CA, for local proofs only.
 - A way to send sign-in codes: an SMTP relay (`SMTP_*`), or the mail collector on a test box.
 - For GCP workspace nodes: `gcloud`, authenticated as an owner of the nodes' project.
@@ -280,6 +289,7 @@ again.
 | `deploy-signing-keys`                                                                               | new pair, deploy                                                                                                                                                                                                                                                                                                                                                                                                                 | deployment nodes take the new public key on their next heartbeat; a release fetched just before the switch can be refused once                                                                                                                                                                                                                                                                                                                                                                        | none                                        |
 | `vapid-keys`                                                                                        | new pair, deploy                                                                                                                                                                                                                                                                                                                                                                                                                 | push notifications stop on every browser subscribed before, until the user turns notifications off and on in Settings                                                                                                                                                                                                                                                                                                                                                                                 | none                                        |
 | `gateway-secret`                                                                                    | Worker accepts old and new; `gateway.env` gets the new value and Caddy, frps and sam-mx are recreated; Worker accepts only the new one                                                                                                                                                                                                                                                                                           | node tunnels reconnect (frpc retries by itself); open terminals and agent WebSockets reconnect                                                                                                                                                                                                                                                                                                                                                                                                        | a few seconds of HTTPS while Caddy restarts |
+| `dns-update-key` (boxes whose bundle has the TSIG key; `--init` adds it) | new TSIG key. With the `dns` profile on: `dns.env` rewritten, Caddy and sam-dns recreated, and a signed probe proves the new key accepted and the old one refused. With it off: the key is only stored, since nothing reads it | a certificate renewal running at that moment is retried by Caddy | a few seconds of HTTPS while Caddy restarts; DNS answers pause while sam-dns starts |
 | `encryption-key` (and `credential-encryption-key`, `library-encryption-key` if the bundle has them) | new key current, old key a read fallback; every stored value re-encrypted online in bounded pages through a loopback-only control endpoint; verified; then `rotate --resume` after the values it cannot reach have expired (at least 5 h 16 min: interaction details, bootstrap tokens); verified again; old key retired; chains `better-auth-secret` when `BETTER_AUTH_SECRET` was unset                                        | none while it runs, except a sign-out of everyone when it chains `better-auth-secret`. A git command started before the switch may need repeating; an exhaustive project-archive search continued across the switch starts over (its continuation cursor is signed with `ENCRYPTION_KEY`); a node being provisioned at that moment fails and is retried; a webhook delivery retried across the switch with the same `Idempotency-Key` is not recognised as a duplicate and can start a second task (its fingerprints stay on `ENCRYPTION_KEY` on purpose: they hash IP addresses and request bodies, which the old key could confirm offline) | none                                        |
 | `better-auth-secret`                                                                                | BetterAuth versioned secret; stored GitHub sign-in tokens re-encrypted; old secret retired                                                                                                                                                                                                                                                                                                                                       | every user is signed out once and signs in again                                                                                                                                                                                                                                                                                                                                                                                                                                                      | none                                        |
 | `jwt-keys`                                                                                          | new pair with its own `kid`, published alone in both JWKS documents; the Worker still accepts _callback_ tokens signed with the old key until `JWT_PUBLIC_KEY_PREVIOUS_UNTIL` (90% of the deployed `CALLBACK_TOKEN_EXPIRY_MS` plus 1 h, the latest point a VM agent renews: 23 h by default; `--jwt-overlap-hours` overrides it, `0` is a hard cut). Nodes get a new-key callback token on their next heartbeat; workspace tokens move when the VM agent renews them (by default at half their life). `rotate --resume` after the overlap removes the old key | nothing, if finished after the overlap. Terminal, preview and local-forward tokens are re-minted with the new key by the app. During the overlap whoever holds the old key can still forge a callback token; a hard cut (`0`) removes that and cuts every running node off (replace them)                                                                                                                                                                                                             | none                                        |
@@ -411,18 +421,183 @@ cannot go back to plaintext deploy vars once `platform-keys.json` is gone
 hold a key provider's credential; workspace nodes get neither, and the Worker never sees one
 (`scripts/selfhost/agent-vm-credentials.test.ts`).
 
-**Troubleshooting: sign-in or rate-limited routes return 500 after an upgrade.** If `/health`
-answers 200 but email sign-in (and other routes that read KV) answer `500 INTERNAL_ERROR`, look in
-the admin error list (Admin → Errors; celld's own log redacts the message) for `the isolate is over its V8 heap limit, so it stopped materializing a
-result set`. This was seen once on the test box, for about 10 minutes after a stack restart; the
-failing read was in celld's KV store, not in the Worker or the key agent. Restart celld to clear it:
+**Troubleshooting: KV reads and scheduled sweeps fail with "over its V8 heap limit".** One celld
+cell isolate holds SAM's cron, the KV namespace, both D1 databases and the Durable Objects, and
+celld never retires it while it holds a cell. If its heap passes `CELLD_V8_HEAP_LIMIT_MB`, celld
+refuses to materialise SQL result sets in it until used heap falls under 75% of the limit. Every
+KV read then fails (`500` on email sign-in, `cron.sweep_failed` for `deployment_release_retention`
+and `gcp_price_table` every five minutes), and failed-sweep notifications fail too, because they
+read KV. SAM's unminified bundle is stored two-byte in that heap and keeps it near 100 MB at idle,
+so at celld's default of 128 MB one spike stuck it for 33 hours on the test box.
 
-```bash
-docker compose restart celld
+- `docker-compose.yml` therefore sets `CELLD_V8_HEAP_LIMIT_MB` to 384 by default (a ceiling, not
+  a reservation). Override it in `.env` if a box needs more.
+- The cron records each affected tick without KV: a `cron.isolate_heap_limit` log line with
+  `consecutiveTicks`, and an Admin → Errors row (`scheduled/isolate-heap-limit.ts`).
+- `celld/start.sh` restarts celld gracefully once `consecutiveTicks` reaches
+  `SAM_CELLD_HEAP_RESTART_TICKS` (default 2, so about ten minutes; `0` disables). The container log
+  shows `celld.heap_limit_restart` and Docker brings celld back.
+
+The upgrade's own health check reads `/health`, which does not use KV, so it does not catch this.
+A manual `docker compose restart celld` also clears it. Tracked in idea
+`01M7W6ZTZETXE75N8NRKR3R0CF`.
+
+## App deployments on a box
+
+Deployment nodes use the same reverse tunnel as workspace nodes: their agent, release fetches and
+route callbacks reach the box through frp, so they need no Cloudflare Origin CA certificate and no
+public agent port. Their app traffic goes through the box as well:
+
+1. An app hostname (`r<n>-<service>-<port>-<env>.apps.SAM_DOMAIN`) resolves to the box: by the
+   record the Worker writes per route with [DNS on the box](#dns-on-the-box), or, without it, by a
+   second wildcard record `*.apps.SAM_DOMAIN` pointing at the box. `*.SAM_DOMAIN` alone is not
+   enough: while Caddy's DNS-01 challenge for the `*.apps` certificate has
+   `_acme-challenge.apps.SAM_DOMAIN` in the zone, `apps.SAM_DOMAIN` exists, so `*.SAM_DOMAIN` no
+   longer answers for names under it (RFC 4592) and every app returns NXDOMAIN until the challenge
+   record is removed and negative caches expire.
+2. The box's Caddy terminates TLS with a `*.apps.SAM_DOMAIN` wildcard certificate, obtained the
+   same way as the `*.SAM_DOMAIN` one (`SAM_TLS_MODE=dns-rfc2136` or `dns-googleclouddns`). On a
+   fresh install with DNS on the box it arrives a few minutes after the first `pnpm selfhost:deploy`:
+   sam-dns answers SERVFAIL under `apps.` until its first sync from the Worker, so Caddy's first
+   order fails and its retry (`docker compose logs caddy`, about 5 minutes later) succeeds.
+3. For every request, HTTP or WebSocket, Caddy asks the Worker which node may answer
+   (`apps/api/src/selfhost/reverse-tunnel/app-route.ts`). The hostname must be a route of its
+   environment's latest release. The environment's node must be a live reverse-tunnel deployment
+   node with an active lease and the same owner. Anything else gets 404 (503 while the node's
+   tunnel is down).
+4. Caddy proxies through frp to the node's agent, which checks the credential and the route against
+   the release it applied, and hands the request to the node's own Caddy. That Caddy listens on loopback only
+   (`DEPLOY_APP_INGRESS_PORT`, default 8446) and does no ACME.
+
+The node opens no public port: its firewall drops the agent port, 22, 80 and 443, and on GCE it
+gets no `sam-deployment-app-routes` tag. SAM binds every routed service to loopback (compose
+`ports:` are rewritten); a service using host networking could still listen on another port, which
+your cloud firewall decides. The credential the box sends to the node is good only for that node's
+app hostname, for a few minutes (`SELF_HOST_APP_INGRESS_TOKEN_TTL_SECONDS`, 300 by default). Nothing to configure beyond the TLS mode above. The app's
+own `Authorization` and `Cookie` headers reach it unchanged.
+
+Not served on a box yet: custom domains on app deployments (the box has no certificate for them).
+Request paths with dot segments, backslashes, control characters or invalid percent-encoding get
+404 before they reach the app.
+
+Verify after a release reaches `applied` (the app URL is on the environment's page):
+
+```sh
+dig +short r1-web-80-<env>.apps.sam.example.com     # the box address
+curl -sS https://r1-web-80-<env>.apps.sam.example.com/   # served by the app
+curl -sS -o /dev/null -w '%{http_code}\n' https://r1-nope-1-<env>.apps.sam.example.com/   # 404
+nc -vz -w 5 <node IP> 443                           # times out: no public ingress on the node
 ```
 
-Tracked in idea `01M7W6ZTZETXE75N8NRKR3R0CF`. Note that the upgrade's own health check reads
-`/health`, which does not use KV, so it does not catch this.
+## DNS on the box
+
+With the `dns` profile the box answers DNS for `SAM_DOMAIN` itself (`sam-dns`, `./sam-dns`). The
+operator delegates the name once; after that SAM needs no DNS account anywhere:
+
+- `api.`, `app.`, `ws-*` and every other name resolve to the box (`*.SAM_DOMAIN`);
+- app deployment routes (`r<n>-<service>-<port>-<env>.apps.SAM_DOMAIN`) resolve to the box, whose
+  Caddy carries their traffic to the node ([App deployments on a box](#app-deployments-on-a-box)).
+  The Worker writes one record per route, pointing at `SAM_DNS_PUBLIC_IPV4`, and keeps them in D1 (`apps/api/src/selfhost/dns/`, active with
+  `SAM_DNS_PROVIDER=box`, which the deploy sets for this profile) and sam-dns syncs them over
+  loopback; it never asks the Worker per query;
+- Caddy gets the wildcard certificate by DNS-01 against sam-dns over RFC 2136
+  (`SAM_TLS_MODE=dns-rfc2136`), so `roles/dns.admin` and Cloud DNS are not needed.
+
+Answers carry a one-hour TTL (`SAM_DNS_TTL`): while the box is down, resolvers keep the answers
+they have, but names nobody looked up recently stop resolving. A second name server is planned.
+
+### Set it up
+
+1. In `.env`: add `dns` to `COMPOSE_PROFILES`, set `SAM_DNS_PUBLIC_IPV4` to the box's public
+   IPv4 address, `SAM_TLS_MODE=dns-rfc2136` and
+   `CADDY_DNS_MODULE=github.com/caddy-dns/rfc2136@v1.0.0`.
+2. `pnpm selfhost:deploy --init` (adds the TSIG key on a box created before this existed and
+   writes `.state/dns.env`), `(cd deploy/selfhost && docker compose build caddy sam-dns)`, then
+   `docker compose up -d` and `pnpm selfhost:deploy`.
+3. Open inbound **UDP 53 and TCP 53** to the box (GCE:
+   `gcloud compute firewall-rules create sam-dns --allow udp:53,tcp:53 --target-tags <box tag>`).
+   Nothing else: the update listener is on `127.0.0.1` only.
+4. Check the box answers before delegating:
+   `dig @<box IP> api.SAM_DOMAIN A +norecurse` returns the box IP with the `aa` flag.
+5. Delegate `SAM_DOMAIN` in its parent zone. For `SAM_DOMAIN=sam.example.com`, box
+   `203.0.113.5`, in the `example.com` zone:
+
+   ```
+   sam.example.com.      3600  IN  NS  ns1.sam.example.com.
+   ns1.sam.example.com.  3600  IN  A   203.0.113.5
+   ```
+
+   The second record is the glue. If your DNS host will not create a record below a name it
+   delegates, use a name outside `SAM_DOMAIN` instead: set
+   `SAM_DNS_NAMESERVER=sam-ns.example.com` in `.env` (redeploy), and create
+   `sam.example.com. NS sam-ns.example.com.` plus `sam-ns.example.com. A 203.0.113.5`. Remove
+   any old `*.sam.example.com` record: below a delegation it is never answered.
+
+6. Restart Caddy (`docker compose up -d caddy`) so it requests the certificate through sam-dns.
+   `docker compose logs caddy` shows `certificate obtained successfully` for `*.SAM_DOMAIN`.
+
+### Verify
+
+```sh
+dig +short NS sam.example.com                 # the delegation, from any resolver
+dig +short api.sam.example.com                # the box address
+dig @203.0.113.5 example.org A                # status: REFUSED (no recursion)
+dig @203.0.113.5 sam.example.com AXFR         # Transfer failed / REFUSED (no zone transfer)
+dig @203.0.113.5 sam.example.com ANY          # one HINFO "RFC8482" answer
+```
+
+Records the Worker writes resolve the same way. An app route
+(`r1-<service>-<port>-<env>.apps.sam.example.com`) returns the box's address once its release has
+been fetched. A route name that is not in the zone is NXDOMAIN, never the box's address.
+
+### What it accepts, and from whom
+
+- Port 53 on the box's addresses answers queries for `SAM_DOMAIN` only: everything else is
+  REFUSED, there is no recursion and no cache, zone transfers (AXFR/IXFR), NOTIFY and UPDATE are
+  refused, ANY gets the minimal RFC 8482 answer, UDP answers are capped at 1232 bytes (larger ones
+  set TC), and each client prefix (/24, /56) is rate limited (`SAM_DNS_RATE_LIMIT`, 20/s) with
+  every second excess answer sent truncated. TCP connections are capped in total and per address.
+- Record changes come from two places only. The Worker's D1 records reach sam-dns through the
+  loopback gateway route (`GET /api/self-host/gateway/dns-records`, gateway secret, hidden from the
+  internet by Caddy). Caddy's ACME challenges arrive on `127.0.0.1:SAM_DNS_UPDATE_PORT` (8053) as
+  RFC 2136 updates signed with TSIG (HMAC-SHA256); only TXT records under `_acme-challenge.` are
+  accepted, kept in memory, bounded, and expire after an hour.
+- The TSIG key is a platform key: generated by `--init`, sealed with the others, rendered to
+  `.state/dns.env` (mode 0600) for Caddy and sam-dns only, and rotated by
+  `pnpm selfhost:secrets rotate dns-update-key` (Caddy and sam-dns restart once).
+- The egress fence never opens port 8053 to celld, and `verify-fence` probes it. Workspace nodes
+  reach the box only through frps (one TCP proxy on their own lease port) and HTTPS.
+
+### Switching an existing box from Cloud DNS
+
+The `dns` profile is off by default; a box that does not set it deploys exactly as before
+(`dns-googleclouddns`, the operator's wildcard record). To switch: follow the steps above, and
+delegate last, so the old records keep working until the box answers. Records the box created in
+Cloudflare before the switch (none on a reverse-tunnel box) stay there; delete them by hand. To
+switch back, undo the delegation first, because the parent zone sends every lookup for
+`SAM_DOMAIN` to the box for as long as it delegates:
+
+1. In the parent zone, add the wildcard record (`*.SAM_DOMAIN` A, pointing at the box) and delete
+   the `SAM_DOMAIN` NS record and the `ns1.SAM_DOMAIN` glue.
+2. Wait for the old NS TTL (the parent's, often 1 to 2 days at the registrar), then check
+   `dig +short NS SAM_DOMAIN` from outside no longer names the box. Until then, keep sam-dns
+   running: resolvers that still hold the delegation need it to answer.
+3. Set `SAM_TLS_MODE=dns-googleclouddns`, set `CADDY_DNS_MODULE=github.com/caddy-dns/googleclouddns@v1.1.0`
+   (or remove the line: that is the default), run `docker compose build caddy`, remove `dns`
+   from `COMPOSE_PROFILES` and redeploy. The deploy refuses a TLS mode whose Caddy module is
+   missing. The
+   deploy stops writing `SAM_DNS_PROVIDER=box`, so the Worker writes records to the cloud provider
+   again, and it removes `.state/dns.env`.
+4. Stop and remove the service the profile no longer starts (`docker compose up -d` leaves it
+   running): `docker compose rm --stop --force sam-dns`, then `docker compose up -d` to recreate
+   Caddy without the TSIG key.
+5. Close UDP and TCP 53 in the VM's firewall.
+
+Records the box zone held (app routes, node records) are not copied to the cloud provider, and the
+Worker does not recreate them by itself: a node keeps the record id it was given
+(`reconcileHeartbeatDns` in `apps/api/src/routes/node-heartbeat-ip.ts` only backfills a node that
+has none). Before switching back, delete the nodes and deployment environments created while the box
+served DNS, and create them again afterwards.
 
 ## Backup and restore
 
@@ -948,7 +1123,10 @@ No guided-login or untrusted app containers run on this box in this slice.
 
 `fence.sh` observes kernel change events as well as exact rule fingerprints. Rule changes, flushes,
 or observer failure latch a structured `egress_fence.lost` error in container logs and
-`egress-fence-attestation/events.jsonl`. `docker compose ps` reports the fence unhealthy and celld
+`egress-fence-attestation/events.jsonl`. The latch and `ok` publication share a lock on the
+fence's private tmpfs, so once `lost` exists no `ok` is written; `celld/start.sh` and
+`verify-fence` read the attestation first and then check the latch, so an `ok` read just before a
+loss is refused. This assumes one fence instance: never `docker compose run` a second one. `docker compose ps` reports the fence unhealthy and celld
 stays stopped/restarting; the front door cannot serve the API. There is no automatic rule repair.
 Recover as the installation operator: regenerate with `pnpm selfhost:deploy --init` (which also
 restores the rules file's 0644 mode when its content is unchanged), then

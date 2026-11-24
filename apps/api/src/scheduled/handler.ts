@@ -15,24 +15,23 @@ import { runInboxAutomationErrorSweep } from '../services/inbox/automation-error
 import { runInboxAskSweep } from '../services/inbox/sweep';
 import { runInboxSystemErrorSweep } from '../services/inbox/system-errors';
 import { runLifecycleLatencyWatchdog } from '../services/lifecycle-latency';
-import { runNodeTunnelCleanupSweep } from '../services/node-tunnel-cleanup';
 import { isOperationalLoopEnabled } from '../services/operational-kill-switch';
 import { runRuntimeSecretRequestSweep } from '../services/runtime-secret-request-maintenance';
 import { checkProvisioningTimeouts } from '../services/timeout';
 import { migrateOrphanedWorkspaces } from '../services/workspace-migration';
 import { runWorkspaceResourceHistoryCleanup } from '../services/workspace-resource-history';
-import { runScheduledCapacityPoolContinuations } from './capacity-pool-continuation';
+import { runCapacityPoolContinuationCron } from './capacity-pool-continuation-cron';
 import { runScheduledCapacityPoolReconciliation } from './capacity-pool-reconciliation';
 import { runScheduledComposeImageArtifactCleanup } from './compose-image-artifact-cleanup';
 import { runComputeUsageCleanup } from './compute-usage-cleanup';
 import { runCronTriggerSweep } from './cron-triggers';
 import { runScheduledDeploymentReleaseRetention } from './d1-retention';
 import { DAILY_CRON, scheduleDailyJobs } from './daily-jobs';
-import { runDeploymentNodeCleanup } from './deployment-node-cleanup';
 import { runDeploymentPublishJobSweep } from './deployment-publish-jobs';
 import { notifyFailedSweeps } from './failed-sweep-notifications';
 import { runIncidentTriggerSweep } from './incident-triggers';
-import { runNodeCleanupSweep } from './node-cleanup';
+import { reportIsolateHeapLimitFailures } from './isolate-heap-limit';
+import { runNodeTeardownSweeps } from './node-teardown-sweeps';
 import { runObservabilityPurge } from './observability-purge';
 import {
   isHourlyPlatformMaintenanceCron,
@@ -49,7 +48,6 @@ import { runDeadWakeClaimReconciliation } from './session-wake-claim-reconciliat
 import { runSetupSessionSweep } from './setup-session-sweep';
 import { recoverStuckTasks } from './stuck-tasks';
 import { createSweepIsolator } from './sweep-isolation';
-import { runTerminalNodeLifecycleRepair } from './terminal-node-lifecycle-repair';
 import { runTerminalSessionLedgerReconciliation } from './terminal-session-ledger-reconciliation';
 import { runTriggerExecutionCleanup } from './trigger-execution-cleanup';
 import { runWorkspaceEvictionRecovery } from './workspace-eviction-recovery';
@@ -61,30 +59,7 @@ export async function scheduled(
   ctx: ExecutionContext
 ): Promise<void> {
   if (controller.cron === CAPACITY_POOL_CONTINUATION_CRON) {
-    const type = 'capacity-pool-continuation';
-    log.info('cron.started', { cron: controller.cron, type });
-    const continuationSweeps = createSweepIsolator(env);
-    const result = await continuationSweeps.isolate('capacity_pool_continuation', async () => {
-      if (!(await isOperationalLoopEnabled(env, 'cron'))) {
-        log.info('cron.skipped_disabled', { cron: controller.cron, type, switch: 'cron' });
-        return { resumed: 0, failed: 0, skipped: true };
-      }
-      return { ...(await runScheduledCapacityPoolContinuations(env)), skipped: false };
-    });
-    const failedSweeps = continuationSweeps.failedSweeps();
-    log.info('cron.completed', {
-      cron: controller.cron,
-      type,
-      resumed: result?.resumed ?? null,
-      failed: result?.failed ?? 1,
-      skipped: result?.skipped ?? false,
-      failedSweeps,
-    });
-    if (failedSweeps.length > 0) {
-      await notifyFailedSweeps(env, failedSweeps).catch(() => {
-        log.error('cron.failed_sweep_notification_failed', { type });
-      });
-    }
+    await runCapacityPoolContinuationCron(controller, env);
     return;
   }
   const isDailyForward = controller.cron === DAILY_CRON;
@@ -146,18 +121,8 @@ export async function scheduled(
   const deadWakeClaims = await sweeps.isolate('dead_wake_claim_reconciliation', () =>
     runDeadWakeClaimReconciliation(env, ctx.waitUntil.bind(ctx))
   );
-  const nodeCleanup = await sweeps.isolate('node_cleanup', () => runNodeCleanupSweep(env));
-  await sweeps.isolate('deployment_node_cleanup', () =>
-    runDeploymentNodeCleanup(env, ctx.waitUntil.bind(ctx))
-  );
-  const terminalNodeLifecycleRepair = await sweeps.isolate('terminal_node_lifecycle_repair', () =>
-    runTerminalNodeLifecycleRepair(env)
-  );
-  // After node teardown: releases tunnels of incarnations torn down this tick and retries
-  // any pending Cloudflare tunnel/DNS deletion (services/node-tunnel-cleanup.ts).
-  const nodeTunnelCleanup = await sweeps.isolate('node_tunnel_cleanup', () =>
-    runNodeTunnelCleanupSweep(env)
-  );
+  const { nodeCleanup, terminalNodeLifecycleRepair, nodeTunnelCleanup } =
+    await runNodeTeardownSweeps(sweeps, env, ctx.waitUntil.bind(ctx));
   let providerOrphans: Awaited<ReturnType<typeof runProviderOrphanReconciliation>> | undefined;
   await sweeps.isolate('provider_orphan_reconciliation', async () => {
     const result = await runProviderOrphanReconciliation(env);
@@ -274,6 +239,8 @@ export async function scheduled(
   );
 
   const failedSweeps = sweeps.failedSweeps();
+  // Uses no KV: a stuck isolate's KV reads fail too (scheduled/isolate-heap-limit.ts).
+  const heapLimit = await reportIsolateHeapLimitFailures(env, sweeps.failures());
   const failureNotifications = await notifyFailedSweeps(env, failedSweeps).catch((err) => {
     log.error('cron.failed_sweep_notifications_failed', {
       error: err instanceof Error ? err.message : String(err),
@@ -285,6 +252,7 @@ export async function scheduled(
     type: 'sweep',
     failedSweeps,
     failedSweepCount: failedSweeps.length,
+    isolateHeapLimitTicks: heapLimit.consecutiveTicks,
     failedSweepNotifications: failureNotifications.notificationsSent,
     failedSweepNamesNotified: failureNotifications.notifiedSweeps,
     diagnosisRunsRestarted: diagnosisRecovery?.restarted,

@@ -9,6 +9,8 @@ import type {
 } from '@simple-agent-manager/operations';
 
 import type { Env } from '../env';
+import type { AppRouteDnsSettingName } from './admin-settings-app-route-dns-definitions';
+import type { DeploymentNodeExistenceSettingName } from './admin-settings-deployment-node-existence-definitions';
 import { type GcpCatalogSettingName } from './admin-settings-gcp-catalog-definitions';
 import { type InfomaniakSettingName } from './admin-settings-infomaniak-definitions';
 import { type InstructionBudgetSettingName } from './admin-settings-instructions-definitions';
@@ -70,6 +72,8 @@ export type AdminSettingName =
   | AgentEmailSettingName
   | FleetOpsSettingName
   | NodeTunnelSettingName
+  | AppRouteDnsSettingName
+  | DeploymentNodeExistenceSettingName
   | OrchestratorSettingName
   | GcpCatalogSettingName
   | InfomaniakSettingName

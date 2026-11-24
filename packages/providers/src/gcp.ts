@@ -20,6 +20,7 @@ import {
 import { ensureGcpFirewallRules } from './gcp-firewall';
 import {
   findGcpInstanceByIdOrName,
+  findGcpInstanceInZoneByIdOrName,
   getGcpInstanceInZone,
   listGcpInstances,
 } from './gcp-instance-lookup';
@@ -33,6 +34,8 @@ import {
   GCP_VOLUME_CAPABILITIES,
   type GcpTokenProvider,
   LOCATION_METADATA,
+  SAM_APP_INGRESS_LABEL_KEY,
+  SAM_APP_INGRESS_TUNNEL,
   SAM_DEPLOYMENT_APP_ROUTE_NETWORK_TAG,
   SAM_NETWORK_TAG,
   SIZE_MAP,
@@ -223,7 +226,10 @@ export class GcpProvider implements Provider {
     throwIfProviderRequestAborted(context);
 
     const networkTags = [SAM_NETWORK_TAG];
-    if (nativeConfig.labels.role === 'deployment') {
+    if (
+      nativeConfig.labels.role === 'deployment' &&
+      nativeConfig.labels[SAM_APP_INGRESS_LABEL_KEY] !== SAM_APP_INGRESS_TUNNEL
+    ) {
       networkTags.push(SAM_DEPLOYMENT_APP_ROUTE_NETWORK_TAG);
     }
 
@@ -330,6 +336,20 @@ export class GcpProvider implements Provider {
     // No machine type lookup: getVM callers check existence and ownership (deletion, orphan
     // reconciliation), never observed hardware. Allocation recovery uses getObservedVM.
     return gcpInstanceToVM(instance);
+  }
+
+  async getVMInLocation(
+    id: string,
+    location: string,
+    context?: ProviderRequestContext
+  ): Promise<VMInstance | null> {
+    throwIfProviderRequestAborted(context);
+    // Two reads of exactly this zone, neither label-filtered: the instance GET (the API accepts a
+    // name or numeric ID) and the instance list filtered on that ID or name. "Not found" needs both.
+    const got = await getGcpInstanceInZone(this.api, location, id, context);
+    if (got) return gcpInstanceToVM(got);
+    const listed = await findGcpInstanceInZoneByIdOrName(this.api, location, id, context);
+    return listed ? gcpInstanceToVM(listed) : null;
   }
 
   async getObservedVM(id: string, context?: ProviderRequestContext): Promise<VMInstance | null> {
