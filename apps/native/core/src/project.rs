@@ -61,7 +61,8 @@ pub struct DerivedTask {
     pub prompt_error: Option<UserError>,
 }
 
-observable!(ProjectViewModel, ProjectState, ProjectObserver);
+// Session reads share a generation so older responses cannot replace newer data.
+observable!(ProjectViewModel, ProjectState, ProjectObserver, u64);
 observable_attachments!(ProjectViewModel);
 
 const SESSION_PAGE_SIZE: usize = 50;
@@ -70,16 +71,19 @@ const SESSION_PAGE_SIZE: usize = 50;
 impl ProjectViewModel {
     /// Intent: show `project_id` and (re)load its sessions and profiles.
     pub async fn load(&self, project_id: String) {
-        self.update(|s| {
+        let mut request_generation = 0;
+        self.update_data(|s, generation| {
+            *generation += 1;
+            request_generation = *generation;
             if s.project_id != project_id {
                 *s = ProjectState { project_id: project_id.clone(), ..Default::default() };
             }
             s.loading = true;
         });
         let (sessions, profiles) = tokio::join!(self.fetch_sessions(&project_id), self.fetch_profiles(&project_id));
-        self.update(|s| {
-            if s.project_id != project_id {
-                return; // another project was opened meanwhile
+        self.update_data(|s, generation| {
+            if *generation != request_generation || s.project_id != project_id {
+                return; // a newer read or another project superseded this request
             }
             s.loading = false;
             s.error = None;
@@ -93,6 +97,42 @@ impl ProjectViewModel {
             match profiles {
                 Ok(profiles) => s.set_profiles(profiles),
                 Err(e) => s.error = s.error.take().or(Some(UserError::from(&e))),
+            }
+        });
+    }
+
+    /// Refresh visible sessions without reloading profiles or showing the initial
+    /// loading overlay. Shells call this while the project's list is on screen.
+    pub async fn refresh(&self) {
+        let mut request = None;
+        self.update_data(|s, generation| {
+            if !s.project_id.is_empty() && !s.loading {
+                *generation += 1;
+                request = Some((s.project_id.clone(), *generation));
+            }
+        });
+        let Some((project_id, request_generation)) = request else { return };
+        // Poll only the recent window: one bounded request regardless of history
+        // size. Explicit loads still enumerate all pages for complete search.
+        let page: Result<SessionPage> =
+            self.app.get(&format!("/api/projects/{}/sessions?limit={SESSION_PAGE_SIZE}", seg(&project_id))).await;
+        self.update_data(|s, generation| {
+            if *generation != request_generation || s.project_id != project_id {
+                return;
+            }
+            match page {
+                Ok(page) => {
+                    let mut sessions = page.sessions;
+                    if page.has_more {
+                        let recent: std::collections::HashSet<_> = sessions.iter().map(|s| s.id.clone()).collect();
+                        sessions.extend(s.sessions.iter().filter(|s| !recent.contains(&s.id)).cloned());
+                    }
+                    sessions.sort_by(|a, b| b.last_activity().cmp(&a.last_activity()).then_with(|| a.id.cmp(&b.id)));
+                    s.sessions = sessions;
+                    s.filter_sessions();
+                    s.error = None;
+                }
+                Err(e) => s.error = Some(UserError::from(&e)),
             }
         });
     }
@@ -423,7 +463,11 @@ fn strip_markdown(text: &str) -> String {
         .map(|line| {
             let hashes = line.chars().take_while(|c| *c == '#').count();
             let rest = &line[hashes..];
-            if (1..=6).contains(&hashes) && rest.starts_with(char::is_whitespace) { rest.trim_start() } else { line }
+            if (1..=6).contains(&hashes) && rest.starts_with(char::is_whitespace) {
+                rest.trim_start()
+            } else {
+                line
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -491,7 +535,9 @@ mod derived_tests {
 
     #[test]
     fn label_strips_markdown_or_falls_back_to_the_id() {
-        let mut session: ChatSession = serde_json::from_value(serde_json::json!({"id": "1234567890", "topic": "## **Fix** `user_profile` [docs](https://x)"})).unwrap();
+        let mut session: ChatSession =
+            serde_json::from_value(serde_json::json!({"id": "1234567890", "topic": "## **Fix** `user_profile` [docs](https://x)"}))
+                .unwrap();
         assert_eq!(session_label(&session), "Fix user_profile docs");
         session.topic = None;
         assert_eq!(session_label(&session), "Chat 12345678");

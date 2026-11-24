@@ -16,6 +16,7 @@ struct ProjectView: View {
     @State private var submitting = false
     @State private var settings = false
     @State private var editing: ProfileEditing?
+    @Environment(\.scenePhase) private var scenePhase
 
     init(app: App, project: Project, selectedSessionId: String? = nil,
          changed: @escaping (Project?) -> Void, open: @escaping (SessionRef) -> Void) {
@@ -60,7 +61,17 @@ struct ProjectView: View {
         .hidesTabBarWhenPushed()
         .refreshable { await model.core.load(projectId: project.id) }
         .interactiveKeyboardDismiss()
-        .task { await model.core.load(projectId: project.id) }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await model.core.load(projectId: project.id)
+            // A split-view list stays mounted beside the conversation, including
+            // when that agent spawns another task. Native has no push channel yet.
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(5)) }
+                catch { return }
+                await model.core.refresh()
+            }
+        }
         .task { await commands.core.load(projectId: project.id) }
         .safeAreaInset(edge: .bottom) {
             Composer(placeholder: "Describe a task…", text: $draft, busy: submitting || model.state.submitting, files: model.files, commands: commands.state.commands, dismissFocusOnSend: true) {

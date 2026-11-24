@@ -75,6 +75,10 @@ SAM_TEST_ONLY=NativeUITests/ChatScrollUITests/testActualJumpAfterMultiplePagesSt
 `apple-ui` without a suite runs composer, errors, chat-scroll, gallery, session-tools,
 app-lock, split-view and ports. split-view runs twice: on an iPhone for compact navigation
 and on an iPad for the three-column (Projects, Agents, Conversation), rotation and notification-route cases.
+The split-view suite also changes the server's session list after opening a
+conversation and asserts the new agent appears beside it without navigation or
+manual refresh. The iOS agent list refreshes every five seconds while visible in
+an active scene; background refresh retains search, selection and composer state.
 `apple-all` also runs host, integration, project-loading and slash-commands.
 Attachment-picker tests require a seeded photo library and Files content; follow
 [ios/tests/ui/attachment-picker/README.md](ios/tests/ui/attachment-picker/README.md).
