@@ -41,6 +41,18 @@ def make_server(port=0):
                 options.update(body)
                 self.respond(200, {})
                 return
+            if path == "/fixture/spawn":
+                options["spawned"] = True
+                self.respond(202, {})
+                return
+            if path == "/fixture/freeze":
+                options["frozenReads"] = sum(r["path"] == "/api/projects/atlas/sessions" for r in reads)
+                self.respond(200, {})
+                return
+            if path == "/fixture/assert-frozen":
+                count = sum(r["path"] == "/api/projects/atlas/sessions" for r in reads)
+                self.respond(200 if count == options["frozenReads"] else 409, {"reads": count})
+                return
             assert self.headers.get("Cookie") == "fixture=split-view"
             assert path == "/api/projects/research/tasks/submit", path
             assert body["message"].strip(), body
@@ -90,6 +102,11 @@ def make_server(port=0):
                     if project in submitted and options.get("slowRefresh"):
                         time.sleep(10)
                     body = {"sessions": [session(project)] if project in TOPICS else []}
+                    if project == "atlas" and options.get("spawned"):
+                        body["sessions"].insert(0, {
+                            "id": "atlas-child", "topic": "New delegated agent", "status": "active",
+                            "isMine": True, "startedAt": 1794819700000, "messageCount": 0,
+                        })
                 elif len(parts) == 6 and parts[4] == "sessions" and project in TOPICS:
                     # Reject a stale conversation paired with a newly selected project.
                     assert parts[5] == project + "-session", self.path
