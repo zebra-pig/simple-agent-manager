@@ -20,7 +20,7 @@ async fn session_tools_follow_the_web_contract() {
             "/api/workspaces/w" => json!({"id":"w","name":"Workspace","nodeId":"n","status":"running","branch":"feature/test","vmLocation":"fsn1"}),
             "/api/nodes/n" => json!({"id":"n","name":"VM","status":"running","healthStatus":"healthy","providerInstanceVcpuCount":4,"providerInstanceMemoryMb":8192}),
             "/api/projects/p/credential-limits?agentSessionId=a" => json!({"credentials":[{"windows":[{"provider":"openai","windowType":"codex.primary","status":"allowed","utilizationPercent":25.0,"remainingAmount":75.0,"limitAmount":100.0,"resetsAt":999999,"observedAt":5000}]}]}),
-            "/api/projects/p/tasks/t/status" => { assert_eq!(r.method,"POST"); assert_eq!(serde_json::from_slice::<serde_json::Value>(&r.body).unwrap()["status"],"completed"); json!({"id":"t"}) },
+            "/api/projects/p/tasks/t/status" => { assert_eq!(r.method,"POST"); assert_eq!(serde_json::from_slice::<serde_json::Value>(&r.body).unwrap()["toStatus"],"completed"); json!({"id":"t"}) },
             _ => return (404, "{}".into()),
         };
         (200, body.to_string())
@@ -133,4 +133,38 @@ async fn file_refresh_preserves_text_but_new_navigation_clears_it() {
     tools.open_file("missing.rs".into(), false, false).await;
     assert!(tools.state().error.is_some());
     assert!(snapshots.lock().unwrap().iter().all(|s| s.lines.is_empty()));
+}
+
+#[tokio::test]
+async fn queued_task_can_be_cancelled_before_a_workspace_exists() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let cancellations = Arc::new(AtomicUsize::new(0));
+    let observed = cancellations.clone();
+    let server = serve(Arc::new(move |r| {
+        assert_eq!(r.header("cookie").as_deref(), Some("session=abc"));
+        match r.path.as_str() {
+            "/api/projects/p/sessions/s" => (200, json!({
+                "session": {"id":"s", "viewerAccess":"owner", "status":"active",
+                    "task":{"id":"t", "status":"queued"}}, "messages":[]
+            }).to_string()),
+            "/api/projects/p/tasks/t/status" => {
+                assert_eq!(r.method, "POST");
+                let payload: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
+                if payload != json!({"toStatus":"cancelled"}) {
+                    return (400, json!({"error":"Invalid toStatus value"}).to_string());
+                }
+                observed.fetch_add(1, Ordering::SeqCst);
+                (200, json!({"id":"t", "status":"cancelled"}).to_string())
+            }
+            _ => (404, "{}".into()),
+        }
+    })).await;
+    let store = MemoryStore::default();
+    store.0.lock().unwrap().replace(Credentials { server_url: server, session_cookie: "session=abc".into() });
+    let chat = ChatViewModel::new(App::new(Box::new(store), None));
+    chat.load("p".into(), "s".into()).await;
+    assert!(chat.state().session.unwrap().workspace_id.is_none());
+    chat.end_task().await;
+    assert!(chat.state().error.is_none(), "cancellation failed: {:?}", chat.state().error);
+    assert_eq!(cancellations.load(Ordering::SeqCst), 1);
 }

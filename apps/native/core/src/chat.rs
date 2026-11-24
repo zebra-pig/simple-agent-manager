@@ -574,7 +574,7 @@ impl ChatViewModel {
             .app
             .post(
                 &format!("/api/projects/{}/tasks/{}/status", seg(&state.project_id), seg(&task.id)),
-                &serde_json::json!({"status": status}),
+                &serde_json::json!({"toStatus": status}),
             )
             .await;
         if let Err(e) = result {
