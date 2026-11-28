@@ -19,6 +19,7 @@ private final class ScrollFixtureCredentials: CredentialStore, @unchecked Sendab
                 ChatView(app: app, ref: SessionRef(projectId: "fixture", sessionId: "fixture"))
                     .background(ScrollSamples().allowsHitTesting(false))
             }
+            .preferredColorScheme(ProcessInfo.processInfo.arguments.contains("--dark-appearance") ? .dark : nil)
         }
     }
 }
@@ -63,8 +64,9 @@ private struct ScrollSamples: UIViewRepresentable {
         }
 
         private func findScroll(in view: UIView) -> ChatTranscriptView? {
-            if let scroll = view as? ChatTranscriptView,
-               scroll.bounds.height > 300, scroll.contentSize.height > scroll.bounds.height {
+            // Keyboard/layout tests also need samples when the conversation
+            // fits a tablet viewport; its type already identifies the transcript.
+            if let scroll = view as? ChatTranscriptView, scroll.bounds.height > 300 {
                 return scroll
             }
             for child in view.subviews {

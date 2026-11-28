@@ -200,7 +200,7 @@ final class ChatScrollUITests: XCTestCase {
     }
 
     func testOpeningKeyboardWithLargeTextInDarkAppearance() throws {
-        app.launchArguments += ["-AppleInterfaceStyle", "Dark",
+        app.launchArguments += ["--dark-appearance",
                                 "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
         try assertKeyboardMovesLatestOnlyWithComposer()
     }

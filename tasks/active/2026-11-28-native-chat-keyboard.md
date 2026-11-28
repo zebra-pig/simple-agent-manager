@@ -23,8 +23,8 @@ composer, without pushing it beyond the top screen edge.
 - [x] Add behavior test using a real keyboard tap and message/composer geometry.
 - [x] Reproduce failure on unchanged production code.
 - [x] Apply smallest layout correction.
-- [ ] Run keyboard and existing scroll regressions on phone and tablet.
-- [ ] Review screenshot evidence and run specialist/completion review.
+- [x] Run keyboard and existing scroll regressions on phone and tablet.
+- [x] Review screenshot evidence and run specialist/completion review.
 - [ ] Open PR, address review and checks, and merge.
 
 ## Reproduction and correction
@@ -39,6 +39,20 @@ The viewport stays 874 pt high, and the bottom inset remains 442 pt. The outer
 GeometryReader still observes the bars/keyboard; the composer still avoids it.
 The baseline screenshot shows the same blank chat area as the user attachment.
 
-Native correctness/task-completion review found no implementation issues. Full
-phone scroll regressions (including dark/large text) and focused iPad keyboard
-coverage are running. Evidence stays in Mac scratch space and the project library.
+Native correctness/task-completion review found no implementation issues.
+Full iPhone 18 Pro suite: 21 passed, no failures/skips. A focused rerun explicitly
+selects dark appearance with XXXL text (1 passed), visually confirmed after the
+original appearance launch argument proved ineffective. The iPad Pro 13-inch
+(M5) focused keyboard check passed: message and composer both rise 383 pt and
+retain their 52 pt gap. All runs use iOS 27.0 and Xcode 27.0.
+
+The tablet run first exposed an instrumentation problem: the read-only probe
+only discovered transcripts with content taller than their full viewport. It now
+identifies the production transcript by type, including fitting content; the
+rerun delivered geometry samples and passed. No production change was needed.
+
+Before/after phone, true dark/XXXL and iPad screenshots reviewed. Evidence stays
+in Mac scratch space and the project library under `/native/keyboard-x46pvx`.
+The full suite ran source ac2aa9688; subsequent changes affect only fixture
+appearance/probe selection and are covered by the focused runs. Production code
+is identical across all passing runs. Physical devices/older iOS not exercised.
