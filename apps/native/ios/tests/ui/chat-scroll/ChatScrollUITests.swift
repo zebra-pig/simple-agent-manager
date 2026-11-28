@@ -195,6 +195,40 @@ final class ChatScrollUITests: XCTestCase {
                                                   placeholders, placeholders)).firstMatch
     }
 
+    func testOpeningKeyboardMovesLatestOnlyWithComposer() throws {
+        try assertKeyboardMovesLatestOnlyWithComposer()
+    }
+
+    func testOpeningKeyboardWithLargeTextInDarkAppearance() throws {
+        app.launchArguments += ["--dark-appearance",
+                                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
+        try assertKeyboardMovesLatestOnlyWithComposer()
+    }
+
+    private func assertKeyboardMovesLatestOnlyWithComposer() throws {
+        launch()
+        let beforeLatest = latest.frame
+        let beforeComposer = composer.frame
+        let gap = beforeComposer.minY - beforeLatest.maxY
+        capture("keyboard-closed")
+        composer.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        composer.typeText("A draft")
+        Thread.sleep(forTimeInterval: 1)
+        let afterLatest = latest.frame
+        let afterComposer = composer.frame
+        let start = Date().timeIntervalSince1970
+        let sample = try XCTUnwrap(try renderedSamples(after: start).last)
+        print("KEYBOARD_GEOMETRY beforeLatest=\(beforeLatest) beforeComposer=\(beforeComposer) afterLatest=\(afterLatest) afterComposer=\(afterComposer) viewport=\(sample["height"]!) bottomInset=\(sample["insetBottom"]!)")
+        capture("keyboard-open")
+        XCTAssertLessThan(afterComposer.minY, beforeComposer.minY, "The real keyboard must lift the composer")
+        XCTAssertTrue(latest.isHittable, "Opening the keyboard pushed the latest message off screen")
+        XCTAssertEqual(afterComposer.minY - afterLatest.maxY, gap, accuracy: 4,
+                       "The transcript must move by the same distance as the composer")
+        XCTAssertGreaterThanOrEqual(afterLatest.minY, app.navigationBars.firstMatch.frame.maxY)
+        XCTAssertLessThanOrEqual(afterComposer.maxY, app.keyboards.firstMatch.frame.minY)
+    }
+
     func testConversationDrawsBehindNavigationBarAndComposer() throws {
         launch()
         let start = Date().timeIntervalSince1970

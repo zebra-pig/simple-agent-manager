@@ -198,7 +198,10 @@ struct ChatView: View {
                            }) { row in
                 ChatRowHost { rowView(row) }
             }
-            .ignoresSafeArea(.container)
+            // Insets above already include the keyboard. Keep the transcript
+            // full height so SwiftUI does not also subtract the keyboard from
+            // its viewport, lifting the messages a second time.
+            .ignoresSafeArea(.all)
         }
     }
 

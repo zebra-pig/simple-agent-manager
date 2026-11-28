@@ -20,7 +20,8 @@ The runner creates and deletes a dedicated iPhone simulator. Results include
 `results.xcresult`, `xcodebuild.log`, `server.log` and screenshot attachments.
 XCTest screenshots remain available on failure;
 verbose simulator sysdiagnoses are disabled to bound collection time and disk use.
-The Xcode Cloud post-clone hook runs this suite and exports its PNG attachments.
+Run this suite ad hoc with the shared runner; Xcode Cloud only builds the core
+and bindings and does not run tests. See `../../TESTING.md`.
 
 ## Real UI tests
 
@@ -48,6 +49,8 @@ The Xcode Cloud post-clone hook runs this suite and exports its PNG attachments.
   pending request card, over four launches, polling, scrolling and a sideways
   drag. With content padding this offset the column 16 points sideways on
   roughly half of launches.
+- Opening the real system keyboard: the latest message remains visible and its
+  distance to the composer stays constant as the composer rises.
 - Full-bleed layout: the conversation draws behind the navigation bar and the
   composer, while the resting latest row stays clear of both.
 - Pressing message text selects a word in place, not the whole message. Its edit
@@ -104,7 +107,11 @@ Measurements are keyed by row identity, so they follow a row when a page is
 inserted before it.
 
 The transcript draws behind the navigation bar, under the system scroll edge
-effect, and behind the composer. Its insets come from the SwiftUI safe area. The
+effect, and behind the composer. Its insets come from the SwiftUI safe area.
+`ChatView.conversation` measures those insets outside the transcript's
+`ignoresSafeArea(.all)`, including the keyboard and composer. The transcript keeps
+its full-height viewport: shrinking it for the keyboard as well would count the
+keyboard twice and push the latest message above the visible chat area. The
 scroll view adds the vertical safe area to its content insets itself
 (`contentInsetAdjustmentBehavior = .scrollableAxes`), which leaves its rows with
 no vertical safe area. With one, a hosted row under a bar was laid out and
