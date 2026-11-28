@@ -478,6 +478,20 @@ binding = "AI"
 [triggers]
 crons = ["* * * * *", "*/5 * * * *", "30 * * * *", "0 3 * * *"]
 
+# Installation keys: created once per installation, straight into this Worker, by the installer or
+# `scripts/deploy/installation-keys.ts create` on a machine the operator owns. Deploys never read,
+# generate or write them; configure-secrets.sh only checks their names are present.
+# - JWT_PRIVATE_KEY
+# - JWT_PUBLIC_KEY
+# - ENCRYPTION_KEY
+# - BETTER_AUTH_SECRET (optional, never created: set on the Worker directly — overrides ENCRYPTION_KEY for BetterAuth sessions)
+# - CREDENTIAL_ENCRYPTION_KEY (optional, never created: set on the Worker directly — overrides ENCRYPTION_KEY for AES-GCM credential encryption)
+# - DEPLOY_SIGNING_PRIVATE_KEY (Ed25519 signing key for deployment apply payloads)
+# - DEPLOY_SIGNING_PUBLIC_KEY (Ed25519 verification key for deployment apply payloads)
+# - PREVIEW_SIGNING_KEY (HMAC signing key for interactive preview URLs)
+# - VAPID_PRIVATE_KEY (raw base64url P-256 scalar for VAPID signing)
+# - VAPID_PUBLIC_KEY (raw base64url uncompressed P-256 public key)
+
 # Secrets (set via wrangler secret bulk):
 # - BOOTSTRAP_OWNER_EMAIL (optional — immutable verified first-owner identity for installer deployments)
 # - GITHUB_CLIENT_ID
@@ -488,17 +502,7 @@ crons = ["* * * * *", "*/5 * * * *", "30 * * * *", "0 3 * * *"]
 # - CF_API_TOKEN
 # - CF_ZONE_ID
 # - CF_ACCOUNT_ID (required for admin observability log viewer)
-# - JWT_PRIVATE_KEY
-# - JWT_PUBLIC_KEY
-# - ENCRYPTION_KEY
-# - BETTER_AUTH_SECRET (optional — overrides ENCRYPTION_KEY for BetterAuth sessions)
-# - CREDENTIAL_ENCRYPTION_KEY (optional — overrides ENCRYPTION_KEY for AES-GCM credential encryption)
 # - GITHUB_WEBHOOK_SECRET (optional — overrides ENCRYPTION_KEY for GitHub webhook HMAC)
-# - DEPLOY_SIGNING_PRIVATE_KEY (Ed25519 signing key for deployment apply payloads)
-# - DEPLOY_SIGNING_PUBLIC_KEY (Ed25519 verification key for deployment apply payloads)
-# - PREVIEW_SIGNING_KEY (HMAC signing key for interactive preview URLs)
-# - VAPID_PRIVATE_KEY (raw base64url P-256 scalar for VAPID signing)
-# - VAPID_PUBLIC_KEY (raw base64url uncompressed P-256 public key)
 # - VAPID_SUBJECT (RFC 8292 mailto or HTTPS contact URI)
 # - APNS_KEY_ID (optional, APNs auth key id for native app push)
 # - APNS_TEAM_ID (optional, Apple Developer team id of that key)

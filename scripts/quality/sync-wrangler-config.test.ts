@@ -1356,6 +1356,8 @@ describe('Worker vars omitted because they equal the code default', () => {
       AI_PROXY_DEFAULT_MODEL: '@cf/google/gemma-4-26b-a4b-it',
       PROJECT_DATA_ARCHIVE_DAILY_WRITE_BUDGET: '6000000',
       PROJECT_DATA_ARCHIVE_GLOBAL_SWEEP_INTERVAL_MS: '540000',
+      // Fork installation (zebra-pig, PRs #106/#107): 24 nodes stays under the Infomaniak quota.
+      MAX_NODES_PER_USER: '24',
     };
     // Vars whose only consumer was deleted later (the anonymous-trial product, the busy-build
     // wait; both 2026-11-08) are dead too: nothing reads them, so they are neither retained nor

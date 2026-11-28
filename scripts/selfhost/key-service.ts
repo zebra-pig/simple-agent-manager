@@ -21,8 +21,16 @@ import {
   openBundleStore,
 } from '../../deploy/selfhost/key-agent/bundle-store.ts';
 import { pingKeyAgent } from '../../deploy/selfhost/key-agent/healthcheck.ts';
+import type { KeyProvider } from '../../deploy/selfhost/key-agent/provider.ts';
 import { generateFileKek } from '../../deploy/selfhost/key-agent/provider-file.ts';
 import { KEY_PROVIDERS, LEGACY_KEY_PROVIDER } from '../../deploy/selfhost/key-agent/providers.ts';
+import { byCreatedAt, type CurrentBundle, headHint, selectCurrentBundle } from './bundle-head.js';
+import {
+  assertReplaceableSetup,
+  fleetBucket,
+  mirroredBundleStore,
+  replaceableBox,
+} from './replaceable-box.js';
 import { ensurePrivateDir, writePrivateFile } from './secret-files.js';
 
 export { LEGACY_KEY_PROVIDER };
@@ -71,7 +79,16 @@ const AGENT_SETTINGS = [
   'SAM_KEY_AGENT_MAX_CONNECTIONS',
 ] as const;
 /** Box files that can unlock the bundle; backups leave them out (backup-lib.ts). */
-export const KEY_SERVICE_BACKUP_EXCLUDES = [`${KEY_AGENT_DIR}/kek`, `${KEY_AGENT_DIR}/credentials`];
+export const KEY_SERVICE_BACKUP_EXCLUDES = [
+  `${KEY_AGENT_DIR}/kek`,
+  `${KEY_AGENT_DIR}/credentials`,
+  // The head lock (bundle-store.ts withLockFile) names a pid of this box, meaningless anywhere else.
+  `${KEY_AGENT_DIR}/head.json.lock`,
+  `${KEY_AGENT_DIR}/head.json.lock.break`,
+  // The sealing-operation lock (sealing-lock.ts), the same kind of per-box pid file.
+  `${KEY_AGENT_DIR}/sealing.lock`,
+  `${KEY_AGENT_DIR}/sealing.lock.break`,
+];
 
 type Box = Readonly<Record<string, string | undefined>>;
 
@@ -114,6 +131,9 @@ export function keyServiceSettings(box: Box, stateDir: string): KeyServiceSettin
         Object.keys(KEY_PROVIDERS).join(', ')
     );
   }
+  // A replaceable box (replaceable-box.ts) seals only with a key held off it, and copies every
+  // bundle it writes or prunes to the fleet bucket.
+  assertReplaceableSetup(box, provider);
   const dir = join(stateDir, KEY_AGENT_DIR);
   const hostEnv: Record<string, string> = { SAM_KEY_PROVIDER: provider };
   const containerEnv: Record<string, string> = { SAM_KEY_PROVIDER: provider };
@@ -145,7 +165,9 @@ export function keyServiceSettings(box: Box, stateDir: string): KeyServiceSettin
     provider,
     port: keyAgentPort(box),
     dir,
-    bundles: bundleStoreFor(stateDir),
+    bundles: replaceableBox(box)
+      ? mirroredBundleStore(bundleStoreFor(stateDir), fleetBucket(box), stateDir)
+      : bundleStoreFor(stateDir),
     hostEnv,
     containerEnv,
     agentEnv,
@@ -275,7 +297,10 @@ export async function ensureKeyServiceFiles(
   return written;
 }
 
-/** Bundles in the store, newest first; unreadable ones are reported and skipped. */
+/**
+ * Bundles in the store, newest `createdAt` first; unreadable ones are reported and skipped. The
+ * order is NOT which bundle is current: that is currentBundle (bundle-head.ts).
+ */
 export async function listBundles(
   store: BundleStore,
   warn: (message: string) => void = console.warn
@@ -294,22 +319,47 @@ export async function listBundles(
       );
     }
   }
-  return bundles.sort((a, b) =>
-    a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0
-  );
+  return byCreatedAt(bundles);
 }
 
+/**
+ * The store's current bundle (bundle-head.ts selectCurrentBundle, the one selector) and every
+ * readable bundle. `provider` opens the head; it is called only when there is one.
+ */
+export async function currentBundle(
+  store: BundleStore,
+  provider: KeyProvider | (() => KeyProvider),
+  warn: (message: string) => void = console.warn
+): Promise<CurrentBundle & { bundles: SealedBundle[] }> {
+  const bundles = await listBundles(store, warn);
+  const where = `the bundle head beside ${store.location}`;
+  return {
+    ...(await selectCurrentBundle(bundles, await store.readHead(), provider, where)),
+    bundles,
+  };
+}
+
+/**
+ * Removes every bundle not in `keepIds`. Never the one the head names, whatever the caller asked:
+ * a head naming a missing bundle stops every later deploy.
+ */
 export async function pruneBundles(
   store: BundleStore,
   keepIds: readonly string[]
 ): Promise<string[]> {
-  const removed: string[] = [];
-  for (const bundle of await listBundles(store)) {
-    if (keepIds.includes(bundle.bundleId)) continue;
-    await store.remove(bundle.bundleId);
-    removed.push(bundle.bundleId);
-  }
-  return removed;
+  // Under the head lock: a seal that commits its head between this read and the removals would
+  // otherwise have its newly current bundle removed. commitHead checks its bundle is still there
+  // under the same lock, so a seal racing this prune fails instead of naming a missing bundle.
+  return await store.withHeadLock(async () => {
+    const removed: string[] = [];
+    const named = headHint(await store.readHead())?.bundleId;
+    for (const bundle of await listBundles(store)) {
+      if (keepIds.includes(bundle.bundleId) || bundle.bundleId === named) continue;
+      await store.remove(bundle.bundleId);
+      removed.push(bundle.bundleId);
+    }
+    return removed;
+  });
 }
 
 /** A Worker without its key agent answers 503 to everything; say why before deploying. */

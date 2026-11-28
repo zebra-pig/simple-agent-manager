@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createKeyProvider } from '../../deploy/selfhost/key-agent/providers.ts';
+import { currentByHint, headHint } from './bundle-head';
 import {
   applyKeyChoice,
   type ChooseInput,
@@ -24,6 +25,7 @@ import {
   listBundles,
 } from './key-service.js';
 import { PLATFORM_KEYS_FILE } from './platform-keys.js';
+import { replaceableBox } from './replaceable-box.js';
 
 type Box = Readonly<Record<string, string>>;
 
@@ -97,10 +99,33 @@ export async function describeKeyStatus(box: Box, stateDir: string): Promise<str
       lines.push(`  key:        unavailable (${error instanceof Error ? error.message : error})`);
     }
   }
-  const bundles = await listBundles(bundleStoreFor(stateDir), () => undefined);
+  const store = bundleStoreFor(stateDir);
+  const bundles = await listBundles(store, () => undefined);
+  // Display only: status opens no key, so this is the head's unverified hint (bundle-head.ts);
+  // every deploy, rotation, switch and rebuild verifies the head before acting on it.
+  let current: (typeof bundles)[number] | undefined = bundles[0];
+  try {
+    const headText = await store.readHead();
+    current = currentByHint(bundles, headText);
+    // The write number a rebuild prints for the bucket's head: note it (README "Replace a dead box").
+    const head = headHint(headText);
+    if (head) lines.push(`bundle head: ${head.bundleId}, write ${head.seq} (not verified here)`);
+  } catch (error) {
+    lines.push(`bundle head: unreadable (${error instanceof Error ? error.message : error})`);
+  }
   lines.push(`bundles: ${bundles.length}`);
   for (const bundle of bundles) {
-    lines.push(`  ${bundle.bundleId}  ${bundle.createdAt}  ${bundle.provider} ${bundle.keyRef}`);
+    const mark = bundle === current ? '  (current)' : '';
+    lines.push(
+      `  ${bundle.bundleId}  ${bundle.createdAt}  ${bundle.provider} ${bundle.keyRef}${mark}`
+    );
+  }
+  // Public; `pnpm selfhost:rebuild --installation-id` takes it (README "Replace a dead box").
+  if (current) {
+    lines.push(
+      `installation: ${current.installationId}` +
+        (replaceableBox(box) ? ' (replaceable: copied to the fleet bucket)' : '')
+    );
   }
   const plaintext = PLAINTEXT_SECRET_FILES.filter((name) => existsSync(join(stateDir, name)));
   if (plaintext.length > 0 && provider !== LEGACY_KEY_PROVIDER) {
