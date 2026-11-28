@@ -74,14 +74,14 @@ These are hypotheses to verify against real rendered behavior.
 
 ## Completion validation
 
-| Check | Verdict | Evidence |
-| --- | --- | --- |
-| A: Findings → checklist | PASS | All five measured findings have code and regression coverage. |
-| B: Checklist → diff | PASS | Pager, layout, model snapshot and core grouping changes are substantive. |
-| C: Criteria → verification | PASS | Real iOS touch/frame checks, exact offsets and reviewed screenshots. |
-| D: UI → backend | PASS | Pager/retry/accessibility load action uses the existing core HTTP intent; reading state is deliberately local. |
-| E: Multiple resources | N/A | No provider/auth/resource selection change. |
-| F: Vertical slice | PASS | Actual SwiftUI → UniFFI → Rust → loopback HTTP → rendered frame outcomes. |
+| Check                      | Verdict | Evidence                                                                                                       |
+| -------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| A: Findings → checklist    | PASS    | All five measured findings have code and regression coverage.                                                  |
+| B: Checklist → diff        | PASS    | Pager, layout, model snapshot and core grouping changes are substantive.                                       |
+| C: Criteria → verification | PASS    | Real iOS touch/frame checks, exact offsets and reviewed screenshots.                                           |
+| D: UI → backend            | PASS    | Pager/retry/accessibility load action uses the existing core HTTP intent; reading state is deliberately local. |
+| E: Multiple resources      | N/A     | No provider/auth/resource selection change.                                                                    |
+| F: Vertical slice          | PASS    | Actual SwiftUI → UniFFI → Rust → loopback HTTP → rendered frame outcomes.                                      |
 
 No uncovered research findings, acceptance criteria or critical/high review
 findings remain. SwiftUI/API, state lifetime, accessibility order, shared grouping

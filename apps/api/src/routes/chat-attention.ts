@@ -388,23 +388,15 @@ async function answerAttentionThroughDurableDelivery(
   const { userId, projectId, sessionId, markerId, answer, authorized } = input;
   let effectStarted = false;
   try {
-    await sendChat(
-      env,
-      userId,
-      projectId,
-      sessionId,
-      { content: answer },
-      authorized,
-      {
-        assertEffectAllowed: async () => {
-          effectStarted = true;
-        },
-        delivery: {
-          deliveryId: attentionAnswerDeliveryId(sessionId, markerId),
-          metadata: { attentionMarkerId: markerId },
-        },
-      }
-    );
+    await sendChat(env, userId, projectId, sessionId, { content: answer }, authorized, {
+      assertEffectAllowed: async () => {
+        effectStarted = true;
+      },
+      delivery: {
+        deliveryId: attentionAnswerDeliveryId(sessionId, markerId),
+        metadata: { attentionMarkerId: markerId },
+      },
+    });
   } catch (cause) {
     if (effectStarted) throw cause;
     await projectDataService.releaseAttentionAnswer(env, projectId, sessionId, markerId, answer);

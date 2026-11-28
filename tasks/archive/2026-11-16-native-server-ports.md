@@ -25,7 +25,7 @@ Draft PR: https://github.com/zebra-pig/simple-agent-manager/pull/67
 - [x] iPhone UI interaction test and screenshots from the production screen (2 tests pass).
 - [x] Draft PR #67, pushed branch, and iPhone captures shared in the chat/library.
 - [x] iOS feedback applied (native switch). On 2026-11-17 the user asked to merge
-  finished native work; rebased onto main and merged.
+      finished native work; rebased onto main and merged.
 
 ## Acceptance and evidence
 

@@ -217,7 +217,12 @@ describe('GET task attachment previews', () => {
   it('reads only the authenticated user storage namespace and disables caching', async () => {
     const get = vi.fn().mockResolvedValue({ body: new Uint8Array([1, 2, 3]), size: 3 });
     const { app, env } = makeApp(makeEnv({ R2: { get } as any }));
-    const res = await app.fetch(new Request(`${BASE_URL}/projects/test-project-id/tasks/uploads/${upload}/photo.png?userId=someone-else`), env);
+    const res = await app.fetch(
+      new Request(
+        `${BASE_URL}/projects/test-project-id/tasks/uploads/${upload}/photo.png?userId=someone-else`
+      ),
+      env
+    );
     expect(res.status).toBe(200);
     expect(get).toHaveBeenCalledWith(`temp-uploads/test-user-id/${upload}/photo.png`);
     expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([1, 2, 3]);
@@ -228,23 +233,36 @@ describe('GET task attachment previews', () => {
   it('rejects invalid references before reading storage', async () => {
     const get = vi.fn();
     const { app, env } = makeApp(makeEnv({ R2: { get } as any }));
-    const res = await app.fetch(new Request(`${BASE_URL}/projects/test-project-id/tasks/uploads/bad/photo.png`), env);
+    const res = await app.fetch(
+      new Request(`${BASE_URL}/projects/test-project-id/tasks/uploads/bad/photo.png`),
+      env
+    );
     expect(res.status).toBe(400);
     expect(get).not.toHaveBeenCalled();
   });
   it('shows an unavailable response for an expired upload', async () => {
     const get = vi.fn().mockResolvedValue(null);
     const { app, env } = makeApp(makeEnv({ R2: { get } as any }));
-    const res = await app.fetch(new Request(`${BASE_URL}/projects/test-project-id/tasks/uploads/${upload}/photo.png`), env);
+    const res = await app.fetch(
+      new Request(`${BASE_URL}/projects/test-project-id/tasks/uploads/${upload}/photo.png`),
+      env
+    );
     expect(res.status).toBe(404);
   });
 });
 
 it('denies previews without project membership before touching storage', async () => {
-  vi.mocked(requireProjectAccess).mockRejectedValueOnce(errors.forbidden('Project access required'));
+  vi.mocked(requireProjectAccess).mockRejectedValueOnce(
+    errors.forbidden('Project access required')
+  );
   const get = vi.fn();
   const { app, env } = makeApp(makeEnv({ R2: { get } as any }));
-  const res = await app.fetch(new Request(`${BASE_URL}/projects/test-project-id/tasks/uploads/01M7FSHXZ07Z2V7660M26N06SY/photo.png`), env);
+  const res = await app.fetch(
+    new Request(
+      `${BASE_URL}/projects/test-project-id/tasks/uploads/01M7FSHXZ07Z2V7660M26N06SY/photo.png`
+    ),
+    env
+  );
   expect(res.status).toBe(403);
   expect(get).not.toHaveBeenCalled();
 });

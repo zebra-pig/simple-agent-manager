@@ -15,19 +15,19 @@ those settings and the existing iPhone configuration.
 - [x] Verify existing iPad orientations and retain the device configurations.
 - [x] Run production iOS/macOS builds and `ci_post_clone.sh`.
 - [x] Exercise selection, chat, project switching, rotation and compact back
-  navigation against the real Rust core through an offline HTTP fixture.
+      navigation against the real Rust core through an offline HTTP fixture.
 - [x] Capture and inspect iPad screenshots on the remote Mac.
 - [x] Live staging verification: not applicable (no backend change); the user asked
-  on 2026-11-17 to merge finished native work. Offline HTTP integration and
-  simulator verification passed; live staging is not claimed.
+      on 2026-11-17 to merge finished native work. Offline HTTP integration and
+      simulator verification passed; live staging is not claimed.
 - [x] SwiftUI specialist review completed; addressed full-row hit testing and keeping
-  the newest pending notification. Stable project root avoids chat state remounts.
+      the newest pending notification. Stable project root avoids chat state remounts.
 - [x] Task-completion validator passed A–F for implementation and acceptance
-  evidence; staging and CodeRabbit release gates remain explicitly pending.
+      evidence; staging and CodeRabbit release gates remain explicitly pending.
 - [x] Push and open draft PR #62 with validation and staging blocker.
 - [x] Rebased onto main (floating error badges, app lock, session tools), moved the
-  UI tests to the shared runner as `ios/tests/ui/split-view`, removed committed
-  screenshots, and merged.
+      UI tests to the shared runner as `ios/tests/ui/split-view`, removed committed
+      screenshots, and merged.
 
 Acceptance: sidebar and selected project/chat are visible together on iPad;
 project switching clears the previous conversation; phone back/reselect works;

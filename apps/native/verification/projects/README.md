@@ -3,10 +3,10 @@
 Captured with `xcrun simctl io booted screenshot` on the iPhone 18 Pro simulator
 (iOS 27.0), through SSH to an Apple silicon Mac running Xcode 27.0.
 
-| View | Capture |
-| --- | --- |
-| Home, dark | [home-dark.png](home-dark.png) |
-| Home, light | [home-light.png](home-light.png) |
+| View                             | Capture                            |
+| -------------------------------- | ---------------------------------- |
+| Home, dark                       | [home-dark.png](home-dark.png)     |
+| Home, light                      | [home-light.png](home-light.png)   |
 | Project agent/session list, dark | [agents-dark.png](agents-dark.png) |
 
 The fixture hosts the production `ProjectsView` and `ProjectView`, with the real

@@ -6,12 +6,12 @@ Android Compose host renders of the production `AssistantContent` and `MainTabs`
 using mock account-conversation state. These are layout evidence, not signed-in device captures.
 The preserved fixture is `AssistantPreviews.kt`; it stays outside application source sets.
 
-| Surface | Phone | Tablet |
-| --- | --- | --- |
-| Empty conversation and suggestions | [Phone](phone-welcome.png) | [Tablet](tablet-welcome.png) |
-| Destructive action confirmation | [Phone](phone-confirmation.png) | [Tablet](tablet-confirmation.png) |
-| Running turn and Stop | [Phone](phone-running.png) | — |
-| Uncertain message and Retry | [Phone](phone-retry.png) | — |
+| Surface                            | Phone                           | Tablet                            |
+| ---------------------------------- | ------------------------------- | --------------------------------- |
+| Empty conversation and suggestions | [Phone](phone-welcome.png)      | [Tablet](tablet-welcome.png)      |
+| Destructive action confirmation    | [Phone](phone-confirmation.png) | [Tablet](tablet-confirmation.png) |
+| Running turn and Stop              | [Phone](phone-running.png)      | —                                 |
+| Uncertain message and Retry        | [Phone](phone-retry.png)        | —                                 |
 
 Reviewed all six images for wrapping, clipping, contrast, composer visibility and the selected SAM
 tab. The confirmation shows the exact request, consequence and destructive styling. Retry keeps

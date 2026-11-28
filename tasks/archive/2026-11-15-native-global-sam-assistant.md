@@ -29,16 +29,16 @@ Show SAM in a new main mobile tab when the global assistant is enabled, with the
 
 ## Acceptance criteria and evidence
 
-| Criterion | Evidence |
-| --- | --- |
-| Tab exists only when enabled and available | `disabled_or_unavailable_never_loads_or_sends_conversation`; both root shell conditions |
-| Current/older history, live output and actions match web API | `conversation_retry_restart_history_approvals_stop_and_updates` |
-| Lost receipts do not duplicate work | Same test: recreates the view model, reuses held request and blocks another active send |
-| Confirm, decline, stop, reconcile and mark seen reach the API | Same test: asserts each authenticated endpoint and payload |
-| Account changes do not reuse private state | `signed_out_view_model_cannot_read_or_mutate_a_private_conversation`; scoped transport |
-| Voice entry fills the draft | `voice_upload_uses_authenticated_multipart_and_returns_a_draft`; bounded native recorders |
-| Native layouts remain usable on phone/tablet | Six renders in `apps/native/verification/assistant/` |
-| Builds pass | Rust: 38 tests, Clippy clean; Android assembleDebug passed; Xcode Cloud #33 succeeded on final code |
+| Criterion                                                     | Evidence                                                                                            |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Tab exists only when enabled and available                    | `disabled_or_unavailable_never_loads_or_sends_conversation`; both root shell conditions             |
+| Current/older history, live output and actions match web API  | `conversation_retry_restart_history_approvals_stop_and_updates`                                     |
+| Lost receipts do not duplicate work                           | Same test: recreates the view model, reuses held request and blocks another active send             |
+| Confirm, decline, stop, reconcile and mark seen reach the API | Same test: asserts each authenticated endpoint and payload                                          |
+| Account changes do not reuse private state                    | `signed_out_view_model_cannot_read_or_mutate_a_private_conversation`; scoped transport              |
+| Voice entry fills the draft                                   | `voice_upload_uses_authenticated_multipart_and_returns_a_draft`; bounded native recorders           |
+| Native layouts remain usable on phone/tablet                  | Six renders in `apps/native/verification/assistant/`                                                |
+| Builds pass                                                   | Rust: 38 tests, Clippy clean; Android assembleDebug passed; Xcode Cloud #33 succeeded on final code |
 
 ## Verification limits
 
