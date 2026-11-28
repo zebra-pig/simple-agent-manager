@@ -56,3 +56,16 @@ in Mac scratch space and the project library under `/native/keyboard-x46pvx`.
 The full suite ran source ac2aa9688; subsequent changes affect only fixture
 appearance/probe selection and are covered by the focused runs. Production code
 is identical across all passing runs. Physical devices/older iOS not exercised.
+
+## Merge gate maintenance
+
+CI's secret scan was blocked by an unrelated historical fixture exception that
+expired on November 27. Removed that obsolete exception rather than extending
+it. No new allowlist entries, scanner behavior, or workflows changed. Local
+checksum-verified Gitleaks 8.30.1 current-tree and PR-range checks pass with zero
+new findings; read-only review confirms only that single expired group changed.
+This is a blocking adjacent metadata cleanup; native source and validation stay
+unchanged.
+
+Existing secret-scan policy suite: 13 tests passed. Markdown/JSON formatting and
+`git diff --check` pass.
