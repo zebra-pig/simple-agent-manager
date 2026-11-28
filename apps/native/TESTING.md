@@ -84,6 +84,9 @@ Attachment-picker tests require a seeded photo library and Files content; follow
 [ios/tests/ui/attachment-picker/README.md](ios/tests/ui/attachment-picker/README.md).
 They are opt-in, not silently counted as CI coverage.
 
+The chat-scroll suite also opens the system keyboard through the production
+composer and compares message/composer frames to catch excess upward movement.
+
 The project-loading and slash-command suites are assertion-based app harnesses
 that report failures through process exit/result files. The new shared suites
 and host checks use XCTest and `.xcresult`. Do not add another receipt-based
