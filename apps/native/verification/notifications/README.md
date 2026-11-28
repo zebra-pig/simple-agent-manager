@@ -4,9 +4,9 @@ These are Android Compose host renders of the production `RequestContent` and `M
 composables with mock server state. They are layout evidence, not screenshots of a signed-in
 live device. Apple compilation is verified separately with Xcode Cloud.
 
-| Surface | Phone | Tablet |
-| --- | --- | --- |
-| Inbox, option and text answers, tab navigation | [Phone](phone-inbox.png) | [Tablet](tablet-inbox.png) |
+| Surface                                                         | Phone                       | Tablet                        |
+| --------------------------------------------------------------- | --------------------------- | ----------------------------- |
+| Inbox, option and text answers, tab navigation                  | [Phone](phone-inbox.png)    | [Tablet](tablet-inbox.png)    |
 | Secret replacement and Operations approvals (also used in chat) | [Phone](phone-requests.png) | [Tablet](tablet-requests.png) |
 
 Reviewed all four images for clipping, wrapping, contrast, readable controls and masked values.

@@ -11,13 +11,13 @@ sets the system search bar and invokes its public delegate/updater callbacks;
 this exercises the SwiftUI binding → Rust intent → observed filtered rows path.
 All five captures were visually inspected:
 
-| State | Evidence | Observed result |
-| --- | --- | --- |
-| Initial | [all.png](all.png) | All three chats, including the older page |
-| Title | [title.png](title.png) | `  CAFÉ  ` finds only `Café release — 日本語` |
-| Session ID | [id.png](id.png) | `old-session` finds the same older chat |
-| No match | [no-results.png](no-results.png) | System no-results view includes the query |
-| Cleared | [cleared.png](cleared.png) | All three rows return |
+| State      | Evidence                         | Observed result                               |
+| ---------- | -------------------------------- | --------------------------------------------- |
+| Initial    | [all.png](all.png)               | All three chats, including the older page     |
+| Title      | [title.png](title.png)           | `  CAFÉ  ` finds only `Café release — 日本語` |
+| Session ID | [id.png](id.png)                 | `old-session` finds the same older chat       |
+| No match   | [no-results.png](no-results.png) | System no-results view includes the query     |
+| Cleared    | [cleared.png](cleared.png)       | All three rows return                         |
 
 Reviewed search visibility, composer separation, row identity, Unicode, the
 untitled fallback and empty-state readability. No overlap or clipping was found.

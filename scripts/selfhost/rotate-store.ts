@@ -23,16 +23,24 @@ import {
 } from '../../deploy/selfhost/key-agent/bundle.ts';
 import type { KeyProvider } from '../../deploy/selfhost/key-agent/provider.ts';
 import { createKeyProvider } from '../../deploy/selfhost/key-agent/providers.ts';
-import { applyKeyChoice, readKeyChoice } from './key-choice';
+import { assertSecretsMatchHead, type BundleHead, commitHead, keptBundleIds } from './bundle-head';
 import {
+  applyKeyChoice,
+  explicitKeyProvider,
+  KEY_CHOICE_FORMAT,
+  type KeyChoice,
+  readKeyChoice,
+} from './key-choice';
+import {
+  currentBundle,
   DEFAULT_KEPT_BUNDLES,
   KEY_AGENT_DIR,
   type KeyServiceSettings,
   keyServiceSettings,
   LEGACY_KEY_PROVIDER,
-  listBundles,
   pruneBundles,
 } from './key-service';
+import { assertNotBehindBucket } from './replaceable-box';
 import { ensurePrivateDir, replacePrivateFile } from './secret-files';
 
 export const JOURNAL_FORMAT = 'sam-key-rotation/1';
@@ -98,6 +106,11 @@ export interface StepState {
   resumePhase?: Phase;
   /** The phase before the staged transition, for a resumed rollback. */
   stagedFrom?: Phase;
+  /**
+   * The bundle that was current when the staged one was sealed. A run stopped between writing
+   * the staged bundle and making it current resumes only while this one is still current.
+   */
+  stagedOver?: string;
   error?: string;
 }
 
@@ -173,14 +186,29 @@ export function archiveJournal(stateDir: string, journal: Journal): string {
 export interface RotationStore {
   provider: KeyProvider;
   settings: KeyServiceSettings;
-  /** The newest bundle and its contents: what the next deploy runs with. */
-  head(): Promise<{ bundle: SealedBundle; secrets: Secrets }>;
+  /**
+   * The current bundle (bundle-head.ts) and its contents: what the next deploy runs with.
+   * `basis` is the head that named it (null on a box without one): pass it to write().
+   */
+  head(): Promise<{ bundle: SealedBundle; secrets: Secrets; basis: BundleHead | null }>;
   hasBundle(bundleId: string): Promise<boolean>;
   /** Seals in memory and proves the result opens to the same secrets. Writes nothing. */
   seal(secrets: Secrets): Promise<SealedBundle>;
-  write(bundle: SealedBundle): Promise<void>;
-  remove(bundleId: string): Promise<void>;
-  prune(keepIds: readonly string[]): Promise<string[]>;
+  /**
+   * Writes a sealed bundle and makes it current, only if the head is still `basis` (the head its
+   * secrets were derived from): a deploy that moved the head meanwhile is never undone.
+   */
+  write(bundle: SealedBundle, basis: BundleHead | null): Promise<void>;
+  /**
+   * Makes a bundle already in the store current (a resumed write that stopped in between), only
+   * if the bundle `over` it was sealed over is still current.
+   */
+  makeCurrent(bundleId: string, over: string): Promise<void>;
+  /**
+   * Keeps DEFAULT_KEPT_BUNDLES bundles: the current one, `previous` (the one it replaced, which
+   * the previous Worker version may still ask for), then the newest others (keptBundleIds).
+   */
+  prune(previous: string | undefined): Promise<string[]>;
   writeSnapshot(rotationId: string, name: string, secrets: Secrets): Promise<void>;
   readSnapshot(rotationId: string, name: string): Promise<Secrets>;
 }
@@ -196,13 +224,26 @@ export function openRotationStore(
   stateDir: string,
   provider?: KeyProvider
 ): RotationStore {
-  const choice = readKeyChoice(stateDir);
+  // An explicit SAM_KEY_PROVIDER in .env is never recorded (key-choice.ts resolveKeyProviderBox:
+  // "the .env line is its own record"), so it decides here too, as it does for every deploy.
+  const explicit = explicitKeyProvider(box);
+  const choice: KeyChoice | null = explicit
+    ? {
+        format: KEY_CHOICE_FORMAT,
+        provider: explicit,
+        settings: {},
+        reason: `SAM_KEY_PROVIDER=${explicit} in .env`,
+        source: 'env',
+        chosenAt: new Date().toISOString(),
+      }
+    : readKeyChoice(stateDir);
   if (!choice || choice.provider === LEGACY_KEY_PROVIDER) {
     throw new Error(
       'this box keeps its secrets as plaintext deploy vars: seal them first (pnpm selfhost:secrets migrate); rotating into plaintext would expose the new keys the same way'
     );
   }
-  const settings = keyServiceSettings(applyKeyChoice(box, choice), stateDir);
+  const effectiveBox = applyKeyChoice(box, choice);
+  const settings = keyServiceSettings(effectiveBox, stateDir);
   if (!settings) throw new Error('this box does not seal its secrets');
   const keyProvider = provider ?? createKeyProvider(settings.hostEnv);
   const snapshotPath = (rotationId: string, name: string) =>
@@ -212,9 +253,11 @@ export function openRotationStore(
     provider: keyProvider,
     settings,
     async head() {
-      const bundle = (await listBundles(settings.bundles))[0];
+      const { bundle, head } = await currentBundle(settings.bundles, keyProvider);
       if (!bundle) throw new Error(`no sealed bundle in ${settings.bundles.location}`);
-      return { bundle, secrets: await openBundle(bundle, keyProvider) };
+      const secrets = await openBundle(bundle, keyProvider);
+      assertSecretsMatchHead(head, secrets);
+      return { bundle, secrets, basis: head };
     },
     hasBundle: async (bundleId) => (await settings.bundles.read(bundleId)) !== null,
     async seal(secrets) {
@@ -226,13 +269,37 @@ export function openRotationStore(
       }
       return bundle;
     },
-    write: (bundle) => settings.bundles.write(bundle),
-    remove: (bundleId) => settings.bundles.remove(bundleId),
-    async prune(keepIds) {
-      const newest = (await listBundles(settings.bundles))
-        .slice(0, DEFAULT_KEPT_BUNDLES)
-        .map((b) => b.bundleId);
-      return await pruneBundles(settings.bundles, [...new Set([...newest, ...keepIds])]);
+    async write(bundle, basis) {
+      // A replaceable box: never seal over a later seal the bucket records (verified heads).
+      await assertNotBehindBucket(effectiveBox, stateDir, keyProvider);
+      await settings.bundles.write(bundle);
+      // The head, not the bundle's date, makes it current (bundle-head.ts); commitHead refuses
+      // if the head moved away from `basis` since the secrets were read.
+      await commitHead(settings.bundles, bundle, keyProvider, basis);
+    },
+    async makeCurrent(bundleId, over) {
+      await assertNotBehindBucket(effectiveBox, stateDir, keyProvider);
+      const { bundle: current, head, bundles } = await currentBundle(settings.bundles, keyProvider);
+      // A box without a head yet selects by date (bundle-head.ts): that choice counts the same.
+      if ((head?.bundleId ?? current?.bundleId) !== over) {
+        throw new Error(
+          `bundle ${bundleId} was sealed over ${over}, which is no longer current; not making it current`
+        );
+      }
+      const bundle = bundles.find((b) => b.bundleId === bundleId);
+      if (!bundle) throw new Error(`no sealed bundle ${bundleId} in ${settings.bundles.location}`);
+      // Opens under this key and carries its own installation, as any bundle made current must.
+      if ((await openBundle(bundle, keyProvider)).SAM_INSTALLATION_ID !== bundle.installationId) {
+        throw new Error(`bundle ${bundleId} is not a sealed bundle of ${bundle.installationId}`);
+      }
+      await commitHead(settings.bundles, bundle, keyProvider, head);
+    },
+    async prune(previous) {
+      const { bundle, bundles } = await currentBundle(settings.bundles, keyProvider);
+      const kept = bundle
+        ? keptBundleIds(bundles, bundle.bundleId, previous, DEFAULT_KEPT_BUNDLES)
+        : [];
+      return await pruneBundles(settings.bundles, kept);
     },
     async writeSnapshot(rotationId, name, secrets) {
       const path = snapshotPath(rotationId, name);

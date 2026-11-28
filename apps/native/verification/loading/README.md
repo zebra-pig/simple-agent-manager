@@ -41,14 +41,14 @@ The branch's native artifact was verified against a delayed HTTP boundary rather
 than deploying unchanged server/web code. Mac desktop interaction and live
 account authentication were not exercised.
 
-| State | Capture |
-| --- | --- |
-| Initial resources request | [initial.png](initial.png) |
-| Loaded resources | [loaded.png](loaded.png) |
-| Refreshing resources | [refreshing.png](refreshing.png) |
-| Refreshed resources | [refreshed.png](refreshed.png) |
-| Initial project creation | [settings-initial.png](settings-initial.png) |
-| Loaded project creation | [settings-loaded.png](settings-loaded.png) |
+| State                     | Capture                                      |
+| ------------------------- | -------------------------------------------- |
+| Initial resources request | [initial.png](initial.png)                   |
+| Loaded resources          | [loaded.png](loaded.png)                     |
+| Refreshing resources      | [refreshing.png](refreshing.png)             |
+| Refreshed resources       | [refreshed.png](refreshed.png)               |
+| Initial project creation  | [settings-initial.png](settings-initial.png) |
+| Loaded project creation   | [settings-loaded.png](settings-loaded.png)   |
 
 ## Reproduction
 
@@ -71,11 +71,11 @@ native directory. Run the Android regression with `./gradlew :app:testDebugUnitT
 
 ## Completion validation
 
-| Check | Verdict | Evidence |
-| --- | --- | --- |
-| A: Findings covered | PASS | Screen loading rows and core data clearing both addressed |
-| B: Implementation coverage | PASS | Apple/Android surfaces plus shared-core changes in diff |
-| C: Acceptance verification | PASS | Native builds, rendered bounds test and simulator captures |
-| D: UI propagation | PASS | Existing load/save/browse intents preserved; no new API input |
-| E: Resource identity | PASS | File/diff and repository source keys; changed-source tests |
-| F: Vertical slice | PASS | Real production SwiftUI/core over delayed HTTP; core API/observer tests |
+| Check                      | Verdict | Evidence                                                                |
+| -------------------------- | ------- | ----------------------------------------------------------------------- |
+| A: Findings covered        | PASS    | Screen loading rows and core data clearing both addressed               |
+| B: Implementation coverage | PASS    | Apple/Android surfaces plus shared-core changes in diff                 |
+| C: Acceptance verification | PASS    | Native builds, rendered bounds test and simulator captures              |
+| D: UI propagation          | PASS    | Existing load/save/browse intents preserved; no new API input           |
+| E: Resource identity       | PASS    | File/diff and repository source keys; changed-source tests              |
+| F: Vertical slice          | PASS    | Real production SwiftUI/core over delayed HTTP; core API/observer tests |

@@ -137,9 +137,24 @@ copy passes `SAM_RUNTIME_SECRETS_MAX_STALE_MS`, reading a secret throws and the 
 fails (`apps/api/src/selfhost/runtime-secrets-durable-object.ts`). A clock that moves backwards
 counts a copy as expired, on both sides. The other limits are in `.env.example`.
 
-**A bundle that cannot be read stops the deploy.** It might be the newest, so deploying from the
-next readable one could bring back a changed or removed secret. Restore it from a backup, or
-remove it if you know it is not the newest.
+**Which bundle is current.** Every seal (deploy, rotation, `secrets switch`) records the bundle it
+makes current in `.state/key-agent/head.json`, sealed under the same key and with a write sequence
+that only grows (`scripts/selfhost/bundle-head.ts`). The deploy, rotation, switch and rebuild all
+run with the bundle the head names, never the newest by date, so a host clock that moved backwards
+cannot bring back an older bundle. A head that does not open under the box's key, was edited, belongs
+to another installation or names a missing bundle stops the deploy. A box from before the head
+deploys the newest bundle by date once (what it always did) and records the head then. One sealing
+operation runs at a time per box: a deploy, `secrets rotate`, `switch` or `migrate` holds
+`.state/key-agent/sealing.lock` until its Worker is published, and another waits up to 30 s, then
+stops naming the holder (if none is running, remove the file). Going back
+to an older SAM version by hand (not `pnpm selfhost:upgrade --rollback-from`, which restores the
+state snapshot with its head): older versions ignore the head, so delete `.state/key-agent/head.json`
+(and `sam-box/head.json` on a replaceable box) first; the next deploy of this version records it
+again.
+
+**A bundle that cannot be read stops the deploy.** It might be the current one, so deploying from
+another could bring back a changed or removed secret. Restore it from a backup, or remove it if you
+know it is not the current one (`pnpm selfhost:secrets status` marks the current one).
 
 **The agent runs as the owner of `.state`**, from the start: never root, no capabilities, a
 read-only root file system. Docker Compose takes the uid from `SAM_KEY_AGENT_UID` in `.env`;
@@ -174,14 +189,28 @@ that opens its bundles exists only on that box, and backups leave it out
 (`pnpm selfhost:secrets key-file` prints where it is and its fingerprint,
 `pnpm selfhost:secrets verify-key-copy <path>` checks a copy; neither prints the key): without it,
 losing the box loses every stored credential. To make a box replaceable, seal with a key held off
-it (a cloud key or Vault): `pnpm selfhost:secrets switch --to auto` after the one-time setup below.
+it (a cloud key or Vault): `pnpm selfhost:secrets switch --to auto` after the one-time setup below,
+then turn on [Replaceable box](#replaceable-box).
 `pnpm selfhost:secrets status` says the same on a file-key box.
 
-**Removing a sealed value.** Each deploy lays `secrets.env` over the newest bundle, so deleting a
+**Removing a sealed value.** Each deploy lays `secrets.env` over the current bundle, so deleting a
 line does not remove a value sealed before. Delete the line, then deploy once with
 `pnpm selfhost:deploy --unset NAME` (repeat `--unset` for more). It refuses a name still in
 `secrets.env` and SAM's own generated keys. The two older bundles kept for rollback, and any
 backup, still hold the value until later seals replace them.
+
+**Testing AI spending limits without an AI key** (test boxes only). `AI_TEST_UPSTREAM_ENABLED=true`
+in `secrets.env` plus the admin settings `aiProxy.testUpstreamUserIds` and
+`aiProxy.directUpstreamEnabled` make the listed users' SAM-managed model calls get a metered fake
+reply (configuration reference, "Test-only fake AI upstream"). Remove it with `--unset` as above.
+The operator commands (`selfhost:upgrade`, its rollback, `selfhost:deploy`, `selfhost:rebuild`,
+`selfhost:restore`) clear any umask bits stricter than `022` (so `umask 077` runs as `022`). After every checkout they make
+the tracked files readable by everyone again. A restrictive umask (for example `umask 077` while
+creating `secrets.env`) therefore cannot leave checked-out files unreadable to the key agent
+(`scripts/selfhost/operator-files.ts`). Private files (`.state/`, backups, keys) are written 0600
+in 0700 directories by their writers, not by the umask. An upgrade runs the upgrader already
+checked out, so the first upgrade *from* a version without this protection still needs a normal
+umask (`umask 022`).
 
 **Switching providers** is never a silent change at a deploy:
 
@@ -268,8 +297,9 @@ value. Before a key's first change its old values are sealed again to
 `.state/key-agent/rotation/<id>/<key>.before.json`: the rollback source, kept until you delete it.
 A dry run only reads: it creates no file or directory and takes no lock.
 
-Each step seals a new bundle, and every seal on the box keeps only the newest 3 bundles
-(`DEFAULT_KEPT_BUNDLES`, `scripts/selfhost/key-service.ts`), the same rule as every deploy. So a
+Each step seals a new bundle, and every seal on the box keeps only 3 bundles: the current one, the
+one it replaced, then the newest others (`DEFAULT_KEPT_BUNDLES`, `keptBundleIds` in
+`scripts/selfhost/bundle-head.ts`), the same rule as every deploy. So a
 rotation removes the bundles that existed before it, including one sealed by another key provider
 before a `switch`. That is intended: the old values stay in the `*.before.json` snapshots and in
 backups, not in bundles the key agent would still open. The plan lists the bundles that will go and
@@ -282,17 +312,17 @@ the window is rolled back as before. If a run stops anyway, `rotate --status` sh
 bundle it sealed, including the final reseal, and `rotate --resume` deploys that recorded bundle
 again.
 
-| Key                                                                                                 | How                                                                                                                                                                                                                                                                                                                                                                                                                              | Users notice                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Downtime                                    |
-| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `agent-signing-key`                                                                                 | new bundle, deploy                                                                                                                                                                                                                                                                                                                                                                                                               | nothing (each Worker version verifies the agent with its own bundle's key)                                                                                                                                                                                                                                                                                                                                                                                                                            | none                                        |
-| `preview-signing-key`                                                                               | new value, deploy                                                                                                                                                                                                                                                                                                                                                                                                                | a file preview opened in the last 5 min stops loading; reopen it                                                                                                                                                                                                                                                                                                                                                                                                                                      | none                                        |
-| `deploy-signing-keys`                                                                               | new pair, deploy                                                                                                                                                                                                                                                                                                                                                                                                                 | deployment nodes take the new public key on their next heartbeat; a release fetched just before the switch can be refused once                                                                                                                                                                                                                                                                                                                                                                        | none                                        |
-| `vapid-keys`                                                                                        | new pair, deploy                                                                                                                                                                                                                                                                                                                                                                                                                 | push notifications stop on every browser subscribed before, until the user turns notifications off and on in Settings                                                                                                                                                                                                                                                                                                                                                                                 | none                                        |
-| `gateway-secret`                                                                                    | Worker accepts old and new; `gateway.env` gets the new value and Caddy, frps and sam-mx are recreated; Worker accepts only the new one                                                                                                                                                                                                                                                                                           | node tunnels reconnect (frpc retries by itself); open terminals and agent WebSockets reconnect                                                                                                                                                                                                                                                                                                                                                                                                        | a few seconds of HTTPS while Caddy restarts |
-| `dns-update-key` (boxes whose bundle has the TSIG key; `--init` adds it) | new TSIG key. With the `dns` profile on: `dns.env` rewritten, Caddy and sam-dns recreated, and a signed probe proves the new key accepted and the old one refused. With it off: the key is only stored, since nothing reads it | a certificate renewal running at that moment is retried by Caddy | a few seconds of HTTPS while Caddy restarts; DNS answers pause while sam-dns starts |
-| `encryption-key` (and `credential-encryption-key`, `library-encryption-key` if the bundle has them) | new key current, old key a read fallback; every stored value re-encrypted online in bounded pages through a loopback-only control endpoint; verified; then `rotate --resume` after the values it cannot reach have expired (at least 5 h 16 min: interaction details, bootstrap tokens); verified again; old key retired; chains `better-auth-secret` when `BETTER_AUTH_SECRET` was unset                                        | none while it runs, except a sign-out of everyone when it chains `better-auth-secret`. A git command started before the switch may need repeating; an exhaustive project-archive search continued across the switch starts over (its continuation cursor is signed with `ENCRYPTION_KEY`); a node being provisioned at that moment fails and is retried; a webhook delivery retried across the switch with the same `Idempotency-Key` is not recognised as a duplicate and can start a second task (its fingerprints stay on `ENCRYPTION_KEY` on purpose: they hash IP addresses and request bodies, which the old key could confirm offline) | none                                        |
-| `better-auth-secret`                                                                                | BetterAuth versioned secret; stored GitHub sign-in tokens re-encrypted; old secret retired                                                                                                                                                                                                                                                                                                                                       | every user is signed out once and signs in again                                                                                                                                                                                                                                                                                                                                                                                                                                                      | none                                        |
-| `jwt-keys`                                                                                          | new pair with its own `kid`, published alone in both JWKS documents; the Worker still accepts _callback_ tokens signed with the old key until `JWT_PUBLIC_KEY_PREVIOUS_UNTIL` (90% of the deployed `CALLBACK_TOKEN_EXPIRY_MS` plus 1 h, the latest point a VM agent renews: 23 h by default; `--jwt-overlap-hours` overrides it, `0` is a hard cut). Nodes get a new-key callback token on their next heartbeat; workspace tokens move when the VM agent renews them (by default at half their life). `rotate --resume` after the overlap removes the old key | nothing, if finished after the overlap. Terminal, preview and local-forward tokens are re-minted with the new key by the app. During the overlap whoever holds the old key can still forge a callback token; a hard cut (`0`) removes that and cuts every running node off (replace them)                                                                                                                                                                                                             | none                                        |
+| Key                                                                                                 | How                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Users notice                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Downtime                                                                            |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `agent-signing-key`                                                                                 | new bundle, deploy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | nothing (each Worker version verifies the agent with its own bundle's key)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | none                                                                                |
+| `preview-signing-key`                                                                               | new value, deploy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | a file preview opened in the last 5 min stops loading; reopen it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | none                                                                                |
+| `deploy-signing-keys`                                                                               | new pair, deploy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | deployment nodes take the new public key on their next heartbeat; a release fetched just before the switch can be refused once                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | none                                                                                |
+| `vapid-keys`                                                                                        | new pair, deploy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | push notifications stop on every browser subscribed before, until the user turns notifications off and on in Settings                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | none                                                                                |
+| `gateway-secret`                                                                                    | Worker accepts old and new; `gateway.env` gets the new value and Caddy, frps and sam-mx are recreated; Worker accepts only the new one                                                                                                                                                                                                                                                                                                                                                                                                                        | node tunnels reconnect (frpc retries by itself); open terminals and agent WebSockets reconnect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | a few seconds of HTTPS while Caddy restarts                                         |
+| `dns-update-key` (boxes whose bundle has the TSIG key; `--init` adds it)                            | new TSIG key. With the `dns` profile on: `dns.env` rewritten, Caddy and sam-dns recreated, and a signed probe proves the new key accepted and the old one refused. With it off: the key is only stored, since nothing reads it                                                                                                                                                                                                                                                                                                                                | a certificate renewal running at that moment is retried by Caddy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | a few seconds of HTTPS while Caddy restarts; DNS answers pause while sam-dns starts |
+| `encryption-key` (and `credential-encryption-key`, `library-encryption-key` if the bundle has them) | new key current, old key a read fallback; every stored value re-encrypted online in bounded pages through a loopback-only control endpoint; verified; then `rotate --resume` after the values it cannot reach have expired (at least 5 h 16 min: interaction details, bootstrap tokens); verified again; old key retired; chains `better-auth-secret` when `BETTER_AUTH_SECRET` was unset                                                                                                                                                                     | none while it runs, except a sign-out of everyone when it chains `better-auth-secret`. A git command started before the switch may need repeating; an exhaustive project-archive search continued across the switch starts over (its continuation cursor is signed with `ENCRYPTION_KEY`); a node being provisioned at that moment fails and is retried; a webhook delivery retried across the switch with the same `Idempotency-Key` is not recognised as a duplicate and can start a second task (its fingerprints stay on `ENCRYPTION_KEY` on purpose: they hash IP addresses and request bodies, which the old key could confirm offline) | none                                                                                |
+| `better-auth-secret`                                                                                | BetterAuth versioned secret; stored GitHub sign-in tokens re-encrypted; old secret retired                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | every user is signed out once and signs in again                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | none                                                                                |
+| `jwt-keys`                                                                                          | new pair with its own `kid`, published alone in both JWKS documents; the Worker still accepts _callback_ tokens signed with the old key until `JWT_PUBLIC_KEY_PREVIOUS_UNTIL` (90% of the deployed `CALLBACK_TOKEN_EXPIRY_MS` plus 1 h, the latest point a VM agent renews: 23 h by default; `--jwt-overlap-hours` overrides it, `0` is a hard cut). Nodes get a new-key callback token on their next heartbeat; workspace tokens move when the VM agent renews them (by default at half their life). `rotate --resume` after the overlap removes the old key | nothing, if finished after the overlap. Terminal, preview and local-forward tokens are re-minted with the new key by the app. During the overlap whoever holds the old key can still forge a callback token; a hard cut (`0`) removes that and cuts every running node off (replace them)                                                                                                                                                                                                                                                                                                                                                     | none                                                                                |
 
 `encryption-key` details. Rows are re-encrypted with compare-and-set on the exact value read, so a
 value saved meanwhile is never overwritten. Copies of a credential in `cc_credentials` are rewritten
@@ -598,6 +628,109 @@ Worker does not recreate them by itself: a node keeps the record id it was given
 (`reconcileHeartbeatDns` in `apps/api/src/routes/node-heartbeat-ip.ts` only backfills a node that
 has none). Before switching back, delete the nodes and deployment environments created while the box
 served DNS, and create them again afterwards.
+
+## Replaceable box
+
+With `SAM_REPLACEABLE_BOX=true` in `.env`, a dead box can be rebuilt on a new VM from its fleet
+bucket and its cloud key alone, with its data, users, stored credentials and sealed secrets intact.
+celld already keeps its data (D1, Durable Objects, KV, R2, SAM-hosted repositories) in the bucket.
+What only the box's disk held is copied there too, as ciphertext sealed by the box's key
+(`scripts/selfhost/replaceable-box.ts`):
+
+| In the bucket, under `CELLD_BUCKET` | What                                                                                                                       |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `sam-box/bundles/<id>.json`         | every sealed bundle (platform keys, `secrets.env` values), written and pruned together with `.state/key-agent/bundles/`    |
+| `sam-box/head.json`                 | which bundle is current (the box's `.state/key-agent/head.json`), sealed, written with it                                  |
+| `sam-box/ledger.json`               | the install record's cloud entries (what `gcp-bootstrap` created, for teardown), sealed under the same key at every deploy |
+
+**It needs a key held off the box**: `gcp-kms`, `aws-kms`, `azure-kv` or `transit`
+([Cloud key, one-time setup](#cloud-key-one-time-setup)). The key file (`file`),
+`legacy-plaintext` and the bundled store (`local-store`) are refused, by `--init`, every deploy and
+`secrets switch`: the key file dies with the box, and copying it into the bucket would let the
+bucket alone open every secret. The key agent keeps reading its local copy, so it gets no bucket
+credential; agent VMs still get neither the bucket nor the key.
+
+To turn it on for a box already sealed with a cloud key: add `SAM_REPLACEABLE_BOX=true` to `.env`
+and run `pnpm selfhost:deploy` (it copies the existing bundles up). A box on the key file switches
+first (`pnpm selfhost:secrets switch --to auto`). Run `pnpm selfhost:deploy` once after
+`pnpm selfhost:gcp-bootstrap`, so the ledger holds what it created.
+
+Every deploy first compares the bucket copy with the box. A bundle the bucket has and the box does
+not stops the deploy on an empty box: this is a replacement that has not been rebuilt (an `--init`
+there would make new keys and leave every stored credential unreadable). A bucket head that records
+a later seal than the box's own head (by write sequence, not date) also stops it: another box or an
+older copy of this box's state sealed it. Buckets from before the head compare bundle dates once.
+
+**What a bucket holder can do.** The fleet credential already reads and writes celld's data
+directly; this adds only ciphertext. Without the key, the bundles and ledger cannot be opened, and
+a forged one is refused by rebuild (it must open under the key `.env` names). Rolling objects back
+to older genuine copies is possible, as it is for celld's data (see **Rollback** below).
+
+**What a rebuild loses** (everything else is derived again by `--init` and the deploy):
+
+- writes celld had not yet flushed to the bucket when the box died;
+- an interrupted rotation, upgrade, migration or adoption (journals under `.state/`); the newest
+  bundle keeps both old and new values of an interrupted rotation, so run it again;
+- the transit or AWS credential files (`.state/key-agent/credentials/`): restore them from your
+  own secure copy before rebuilding;
+- backups stored on the dead disk, and Caddy's certificates (it issues new ones; Let's Encrypt
+  allows 5 duplicate certificates a week);
+- local caches rebuilt on their own: celld's cell cache, sam-dns's zone cache (served again after
+  its first sync from the Worker), Caddy's config and the egress fence's attestation.
+
+A teardown leaves `sam-box/` in an operator bucket, like the rest of the bucket's objects; delete it
+with them. It stays openable for as long as the key is enabled.
+
+### Replace a dead box
+
+1. Create the new VM with **the same identity** that may use the key (on GCE, the same service
+   account and the `cloud-platform` scope), the same prerequisites, and ideally **the same static
+   IP address** (reserve it before you need it). With [DNS on the box](#dns-on-the-box) the
+   delegation's glue and the stored app route records point at that address.
+   If the address changes, do this **before step 4**:
+   - set `SAM_DNS_PUBLIC_IPV4` in `.env`;
+   - update the glue record (or the `SAM_DNS_NAMESERVER` name's A record) in the parent zone;
+   - wait until `dig +short NS SAM_DOMAIN` and the glue answer with the new address from outside.
+
+   Caddy lost its certificates with the old disk and issues them again by DNS-01 through the
+   delegation, so starting it before the glue moves only burns Let's Encrypt retries. App route
+   records still holding the old address are repointed by the app-route DNS sweep once the new
+   value is deployed (`apps/api/src/services/app-route-dns-cleanup.ts`); resolvers keep old answers
+   for up to `SAM_DNS_TTL` (1 h).
+
+2. Check out the same SAM ref, at the same path as before (the Compose project name includes the
+   state directory's path), and put the dead box's `.env` there (`chmod 600`). Update
+   `SAM_KEY_AGENT_UID` if the operator user's uid changed. With a transit or AWS key, restore its
+   credential file into `.state/key-agent/credentials/` from your own copy.
+3. `pnpm selfhost:rebuild --installation-id <id>`. It copies the current sealed bundle (the one
+   `sam-box/head.json` names, after verifying the head under the key), up to two older ones, the head
+   and the cloud record back into the empty `.state`, after checking that every bundle it restores opens under the
+   key `.env` resolves to and belongs to one installation. It never takes the key from the bucket.
+   The installation id is public: `pnpm selfhost:secrets status` prints it, and the bundle head's
+   write number (note both when you set the box up and after each rotation), and every node VM carries it as its `installation` label. Pass it so that a bucket holding
+   another installation's bundles is refused. Without it, rebuild uses the id the bundles carry.
+   A bucket with bundles but no `sam-box/head.json` is refused: every deploy with this SAM version
+   writes it, so a missing head was deleted, unless the dead box last deployed with an older version
+   (then pass `--allow-no-head`, and the newest bundle by date is restored). It prints the head's
+   write number and the current bundle's seal date: check that they match the dead box's last deploy or
+   rotation. A rebuild that stops part way can be run again.
+4. `pnpm selfhost:deploy --init` (keeps the installation and its keys), then
+   `(cd deploy/selfhost && docker compose build && docker compose up -d)` and `pnpm selfhost:deploy`.
+5. Make sure the old VM is really gone before step 4: two boxes on one bucket are not supported.
+   One bucket (or `CELLD_BUCKET` prefix) and one key belong to one installation; a deploy refuses a
+   bucket holding another installation's bundles.
+
+Workspace and deployment nodes reconnect through the tunnel by themselves (same gateway secret)
+once `api.SAM_DOMAIN` resolves to the box again. Sign-in, stored credentials and SAM-hosted
+repositories are as they were.
+
+**Rollback.** Whoever can write the bucket can delete the newest bundles and replace the head with
+an older genuine copy (a head cannot be forged, but an old one can be replayed; the same holds for
+whoever can write `.state`). A rebuild restores what that head names, so compare its write number
+with the one you noted, or pass it as `--expected-head-write <n>` so rebuild refuses an older one: an older head restores older keys, values rotated since come back, and data written
+under a newer `ENCRYPTION_KEY` cannot be read. The fleet credential can already roll celld's own
+data back the same way. Keep it to the box, and turn on object versioning or retention on the
+bucket if that matters to you.
 
 ## Backup and restore
 
@@ -1004,15 +1137,50 @@ repository, so it never notices an `.env` edit.
 port is what the deploy publishes and checks, and each one is logged by name. Shell variables no
 compose file uses are ignored. Set the box in `.env`, not the shell.
 
-**Object store and presigned uploads.** Uploads (attachments, snapshots) go from the browser
-straight to the fleet bucket when `R2_S3_ENDPOINT` is set and `.state/secrets.env` holds a
+**Object store and uploads through the box.** Task attachments, build contexts, app image
+artifacts and session snapshots are uploaded through the box by default: no store credential is
+needed. The Worker hands
+the uploader (browser or agent) a URL to `https://api.SAM_DOMAIN/api/box-objects?token=...`, signed
+by SAM itself with a key derived from `ENCRYPTION_KEY`. It rotates with `selfhost:secrets rotate`:
+while a rotation overlaps, URLs signed with the previous key stay valid (`ENCRYPTION_KEY_PREVIOUS`),
+and once that key is dropped an unused URL fails with 403 like an expired one; the client asks again.
+The token names one object, one operation, a size limit and an expiry of minutes; the box streams the
+body into the bucket through celld's R2 binding without holding it in memory, and the write is
+create-only. Downloads (image artifacts on deployment nodes, build contexts) work the same way.
+Session snapshot artifacts take this route too: their older Worker upload route needs a header
+that the box's Caddy strips from every client request (`X-SAM-*`), so it cannot work on a box.
+
+- **One request carries at most 1 GiB.** celld refuses a larger body (413) and cannot be configured
+  above it, so on a box without a store key an app's image artifact is limited to 1 GiB (the agent
+  is told the limit and stops before uploading). Parted uploads are tracked in idea
+  `01M83WWQTNTBD4SY1530G3XWH7`.
+- **Concurrent uploads are capped** (Admin settings `boxObjects.maxConcurrentUploads`, default 4,
+  of which one uploader may hold `boxObjects.maxUploadsPerUploader`, default 2). An upload that
+  receives no bytes for `boxObjects.uploadIdleSeconds` (default 60) is dropped with 408, and a slot
+  whose handler died frees within `boxObjects.uploadLeaseSeconds` (default 300; renewed while bytes
+  arrive, and never shorter than twice the idle limit). One object key is written by one upload at a
+  time: a second upload of the same key while the first runs gets 412. Each in-flight upload costs celld about 85 MB of
+  memory (measured on celld 0.6.3: peak RSS 220 MB for one 1 GB upload, 427 MB for four, 896 MB for
+  eight; throughput stops growing after two at about 180 MB/s). An upload over the cap waits up to
+  `boxObjects.uploadAdmissionWaitSeconds` (default 30) for a slot before it is sent; if none frees
+  in time it gets 503 with `Retry-After`.
+- Tokens travel in the query string. Caddy's log drops every query string
+  (`caddy/log-redaction.caddy`), SAM's request log records only the path, and celld does not log
+  request URLs at its default level.
+
+**Direct uploads with a static key (optional).** A box can still send uploads straight to the
+fleet bucket, bypassing the Worker, when `R2_S3_ENDPOINT` is set and `.state/secrets.env` holds a
 credential scoped to the R2 prefix (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`; never the fleet
-credential, which the deploy refuses). **For an `s3://` bucket `R2_S3_REGION` is required** (the
-store's SigV4 signing region, for MinIO usually `us-east-1`): the deploy refuses `R2_S3_ENDPOINT`
-without it. A `gs://` bucket defaults to `auto`. The bundled store is a community MinIO build that
-celld does not qualify for production. It refuses to start unless `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY` are set, are not `minioadmin`, and the secret has at least 24 characters
-(`openssl rand -hex 24`): that credential reads every Worker secret in the bucket.
+credential, which the deploy refuses). When that credential is configured it wins over uploads
+through the box. Google Cloud organisations that refuse HMAC keys cannot use this; they do not need
+to. **For an `s3://` bucket `R2_S3_REGION` is required** (the store's SigV4 signing region, for
+MinIO usually `us-east-1`): the deploy refuses `R2_S3_ENDPOINT` without it. A `gs://` bucket
+defaults to `auto`.
+
+**Bundled store.** The bundled store is a community MinIO build that celld does not qualify for
+production. It refuses to start unless `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set, are
+not `minioadmin`, and the secret has at least 24 characters (`openssl rand -hex 24`): that
+credential reads every Worker secret in the bucket.
 
 **Reverse-tunnel ports and the gateway secret.** frps binds one loopback port per node from
 `REVERSE_TUNNEL_PORT_RANGE_START`..`_END` (default 20000-29999). The deploy writes the resolved

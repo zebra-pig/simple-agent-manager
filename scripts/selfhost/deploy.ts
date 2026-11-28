@@ -106,11 +106,13 @@ import {
   smtpWorkerVars,
   writeMailCollectorFiles,
 } from './mail-settings.js';
+import { useOperatorUmask } from './operator-files.js';
 import {
   assertSecretsKeepPlatformKeys,
   type PlatformKeysMode,
   type PlatformKeysResult,
 } from './platform-keys.js';
+import { publishReplaceableLedger, reconcileReplaceableBox } from './replaceable-deploy.js';
 import { assertPrivateFile, ensurePrivateDir, readSecretsFile } from './secret-files.js';
 import {
   buildVmAgentBinaries,
@@ -123,10 +125,7 @@ const API_DIR = join(REPO_ROOT, 'apps/api');
 /** Upper bound on captured celld output (bundle reports are a few KiB). */
 const CHILD_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
 
-interface RunResult {
-  status: number;
-  output: string;
-}
+type RunResult = { status: number; output: string };
 
 /** Secret values scrubbed from any child output before it is printed. */
 let knownSecrets: string[] = [];
@@ -231,6 +230,8 @@ interface BoxState {
 /** Platform keys, then the files docker compose hands to frps, Caddy and the mail collector. */
 async function prepareBoxState(inputs: DeployInputs): Promise<BoxState> {
   const { box, stateDir, dryRun, init } = inputs;
+  // A replaceable box: its bucket copy matches the box before anything is sealed.
+  if (!dryRun) await reconcileReplaceableBox(box, stateDir, log);
   // Sealed secrets (key-service.ts): the platform keys and secrets.env go into a bundle only the
   // key agent can open, and no secret is passed to celld. legacy-plaintext: platform-keys.json.
   const deployKeys = await resolveBoxKeys({
@@ -262,6 +263,7 @@ async function prepareBoxState(inputs: DeployInputs): Promise<BoxState> {
     return { keys, deployKeys, tunnelSettings, collectorPasswordPath, collectorPassword: null };
   }
   recordInstall(stateDir, inputs.envFile, box, keys.SAM_INSTALLATION_ID);
+  await publishReplaceableLedger(box, stateDir, keys.SAM_INSTALLATION_ID, log);
   log(
     `Compose project: ${expectedComposeProjectFor(box, stateDir, keys.SAM_INSTALLATION_ID)} (set COMPOSE_PROJECT_NAME to this name before starting Docker Compose)`
   );
@@ -489,6 +491,7 @@ async function main(): Promise<void> {
 }
 
 try {
+  useOperatorUmask(); // operator-files.ts: children never inherit a restrictive umask
   await main();
 } catch (error: unknown) {
   console.error(`[selfhost] ${error instanceof Error ? error.message : String(error)}`);

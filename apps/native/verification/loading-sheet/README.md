@@ -4,12 +4,12 @@ The reported screenshot shows an inline Form row holding a spinner. Removing
 that row moves every section above it. The production view before PR #53
 (commit `94087a71f9ba95197cdcb76a1698aa5651ba4b54`) reproduces the symptom:
 
-| Phase | Project name field Y position (points) |
-| --- | ---: |
-| Initial load | 292.0 |
-| Loaded | 187.3333 |
-| Repository reload | 292.0 |
-| Reload complete | 187.3333 |
+| Phase             | Project name field Y position (points) |
+| ----------------- | -------------------------------------: |
+| Initial load      |                                  292.0 |
+| Loaded            |                               187.3333 |
+| Repository reload |                                  292.0 |
+| Reload complete   |                               187.3333 |
 
 The maximum movement is **104.6667 points**. The same production sheet on
 current main keeps that field at **187.3333 points in all four phases**.
